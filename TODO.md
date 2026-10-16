@@ -12,7 +12,7 @@
 - [x] Windows 端 DDC 读写（Dxva2，型号和序列号取自注册表 EDID）+ `wake_display`
 - [ ] 🔧 到 Windows 机器上跑 `deskbaton-cli displays / get-input / set-input` 验证
 - [ ] 🔧 实测免配件唤醒：显示器「USB Power(Sleep)」打开后 KVM 键盘能否唤醒合盖 Mac；蓝牙 HID 能否唤醒
-- [ ] 把 HP D27k 实测（HDMI 读回 `0x11`、m1ddc 读回 `0`、切走后能否自动切回）记录到 `docs/research/`
+- [x] 把 HP D27k 实测记录到 `docs/research/2026-10-16-hp-d27k-ddc-probe.md`（切走后是否自动切回待用户确认）
 
 ## P1 · M1 命令行交棒
 
