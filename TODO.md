@@ -8,6 +8,8 @@
 - [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档（[部分记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：USB-C 读到 `0x0F`，可能与 DP 撞码；DP 编码和 KVM 跟随未测）
 - [x] Mac DDC 请求连发两次：P275MV 只收到一次请求时回 Null Message
 - [ ] 🔧 用新 DDC 实现在 HP D27k 上复测 `get-input` / `set-input`
+- [ ] 合盖 Mac 切回时外接屏短暂消失触发合盖睡眠，IOKit `kPMSetClamshellSleepState` 会被 powerd 覆盖而失效（见 P275MV 调研）：改设计文档，把 `pmset -a disablesleep 1` 从第二期回退提前为 `stay_awake` 的主路径
+- [ ] 🔧 手动 `sudo pmset -a disablesleep 1` 后重复合盖切走再切回，确认 Mac 不睡、切回后画面恢复
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
