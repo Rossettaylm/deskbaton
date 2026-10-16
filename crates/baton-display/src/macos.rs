@@ -10,6 +10,8 @@ use crate::mccs;
 
 const ATTEMPTS: usize = 3;
 const RETRY_INTERVAL: Duration = Duration::from_millis(200);
+/// DDC/CI 要求主机发完请求后至少等 40 毫秒再读回包。
+const REPLY_DELAY: Duration = Duration::from_millis(50);
 
 /// Apple Silicon 上经 IOAVService 读写 DDC。`DisplayId` 为 EDID UUID，同一 UUID 的后续显示器追加 `#序号`。
 pub struct MacDdc;
@@ -24,7 +26,7 @@ impl DisplayControl for MacDdc {
         let request = mccs::get_vcp_request(mccs::VCP_INPUT_SOURCE);
         retry(|| {
             write(index, &request)?;
-            thread::sleep(mccs::REPLY_DELAY);
+            thread::sleep(REPLY_DELAY);
             let mut reply = [0u8; mccs::VCP_REPLY_LEN];
             read(index, &mut reply)?;
             let value = mccs::parse_vcp_reply(mccs::VCP_INPUT_SOURCE, &reply)?;

@@ -2,13 +2,9 @@
 //!
 //! 报文不含主机源地址 `0x51`：传输层把它作为 I2C 寄存器偏移单独发送，但它参与校验和。
 
-use std::time::Duration;
-
 use baton_core::{Error, Result};
 
 pub const VCP_INPUT_SOURCE: u8 = 0x60;
-/// DDC/CI 要求主机发完请求后至少等 40 毫秒再读回包。
-pub const REPLY_DELAY: Duration = Duration::from_millis(50);
 pub const VCP_REPLY_LEN: usize = 11;
 
 const DISPLAY_ADDRESS: u8 = 0x6E;
