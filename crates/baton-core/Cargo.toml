@@ -1,0 +1,17 @@
+[package]
+name = "baton-core"
+description = "DeskBaton 核心：领域类型、协议、配置、端口接口与交棒协调"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

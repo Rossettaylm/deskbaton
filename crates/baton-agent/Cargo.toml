@@ -1,0 +1,22 @@
+[package]
+name = "baton-agent"
+description = "DeskBaton 常驻程序：托盘、热键，组装各模块"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "deskbaton"
+path = "src/main.rs"
+
+[dependencies]
+baton-core.workspace = true
+baton-display.workspace = true
+baton-power.workspace = true
+baton-input.workspace = true
+baton-net.workspace = true
+
+[lints]
+workspace = true

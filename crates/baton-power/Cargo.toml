@@ -1,0 +1,17 @@
+[package]
+name = "baton-power"
+description = "DeskBaton 本机电源控制与唤醒对端（WoL、HID 配件、提示用户）"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+baton-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+baton-macos-sys.workspace = true
+
+[lints]
+workspace = true

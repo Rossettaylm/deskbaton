@@ -1,0 +1,14 @@
+[package]
+name = "baton-input"
+description = "DeskBaton 键鼠路由：显示器 KVM 模式与纯软件模式"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+baton-core.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,21 @@
+[package]
+name = "baton-cli"
+description = "DeskBaton 调试工具：直接调用各平台能力，用于原型验证与排障"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "deskbaton-cli"
+path = "src/main.rs"
+
+[dependencies]
+baton-core.workspace = true
+baton-display.workspace = true
+baton-power.workspace = true
+clap.workspace = true
+
+[lints]
+workspace = true

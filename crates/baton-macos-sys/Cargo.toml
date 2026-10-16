@@ -1,0 +1,14 @@
+[package]
+name = "baton-macos-sys"
+description = "DeskBaton 的 macOS 原生胶水（ObjC）：IOAVService DDC、睡眠控制、显示唤醒"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+
+[lints]
+workspace = true

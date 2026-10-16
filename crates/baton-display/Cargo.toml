@@ -1,0 +1,17 @@
+[package]
+name = "baton-display"
+description = "DeskBaton 显示器输入源控制（DDC/CI）的各平台实现"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+baton-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+baton-macos-sys.workspace = true
+
+[lints]
+workspace = true

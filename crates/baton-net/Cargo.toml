@@ -1,0 +1,16 @@
+[package]
+name = "baton-net"
+description = "DeskBaton 局域网互联：发现、配对、加密传输、消息分帧"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+baton-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
