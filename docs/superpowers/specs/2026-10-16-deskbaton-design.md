@@ -44,10 +44,10 @@
 | 显示器 | 泰坦军团 P275MV（Mini-LED，带 KVM，USB-C 65W PD） | 型号已确认 |
 | Windows 接法 | DP 视频 + USB-B 上行，有线网 | 已确认 |
 | Mac 接法 | 单根 USB-C（视频 + USB + 供电），Wi-Fi，合盖 | 已确认 |
-| KVM 跟随输入源（DP ↔ USB-B，USB-C ↔ USB-C） | 来自 MAX 版的社区实测 | **未验证** |
-| 输入源编码：DP = `0x0F`，USB-C = `0x1B` | 业界常见值 | **未验证**，做成配置项 |
-| 显示器只接受当前活跃输入口发来的 DDC 命令 | 按最坏情况设计 | 不需要验证 |
-| 合盖睡眠的 Mac 无法被 KVM 切过来的键盘唤醒 | 用户实际经历 + 推断（键盘在睡眠后才接入，未登记为唤醒源） | 现象已确认，原因未验证 |
+| KVM 跟随输入源（DP ↔ USB-B，USB-C ↔ USB-C） | 2026-10-16 在 P275MV 上实测：切到 DP 约 4 秒后键鼠离开 Mac 并能操作 Windows，切回后回到 Mac | 已验证 |
+| 输入源编码：DP = `0x0F`，USB-C = `0x1B` | 实测 USB-C 读到 `0x0F`；DP 口的值还没读到，两口可能撞码 | **未验证**，做成配置项 |
+| 显示器只接受当前活跃输入口发来的 DDC 命令 | 按最坏情况设计；实测画面在 DP 时 Mac 的读请求只收到 Null Message | 读取已证实，写入未测 |
+| 合盖 Mac 切回时睡着、KVM 键盘唤不醒 | 实测：切走时 Mac 仍有外接屏，不睡；**切回时 USB-C 重新协商，外接屏短暂消失，触发合盖睡眠**，键鼠在睡眠后才接入 | 已验证（`docs/research/2026-10-16-p275mv-ddc-probe.md`） |
 
 ## 4. 架构总览
 
@@ -151,10 +151,15 @@ pub trait Waker: Send + Sync {
 }
 ```
 
-**Mac 的 `stay_awake`**：经 `IOPMrootDomain` 的 `kPMSetClamshellSleepState` 关闭合盖睡眠，同时持有 `PreventUserIdleSystemSleep` 断言。普通用户调用该接口返回成功（已在 macOS 26 验证接口可调用；合盖效果待在 MacBook 上验收）。失败时回退为特权助手执行 `pmset -a disablesleep 1`（第二期，见 `TODO.md`）。
+**Mac 的 `stay_awake`**：执行 `pmset -a disablesleep 1`（置 `SleepDisabled`）关闭包括合盖睡眠在内的所有睡眠，同时持有 `PreventUserIdleSystemSleep` 断言；恢复时执行 `pmset -a disablesleep 0`。已在 MacBook Pro + P275MV 上验证可挡住切回时的合盖睡眠。
+
+- 不使用 `IOPMrootDomain` 的 `kPMSetClamshellSleepState`：它写的是 powerd 自己管理的位，外接屏消失时 powerd 会把它改写回 0，内核随即判定合盖睡眠。能被 powerd 计入的 `AppliesOnLidClose` 断言需要 Apple 私有 entitlement。
+- 特权来源（首版）：一次性写入 `/etc/sudoers.d/deskbaton`，只允许当前用户免密码执行 `/usr/bin/pmset -a disablesleep 1` 和 `/usr/bin/pmset -a disablesleep 0` 两条完整命令；agent 用 `sudo -n` 调用。由 `deskbaton-cli sleep-helper install / uninstall / status` 管理，写入前用 `visudo -cf` 校验。M2 有 `.app` 后改为 `SMAppService` 注册的 LaunchDaemon。
+- 规则未安装或 `sudo -n` 失败时，`stay_awake` 只持有断言并记录警告，不阻断交棒；托盘提示留到 M2。
+- `SleepDisabled` 重启后仍然保留，所以标记文件放在 `~/Library/Application Support/DeskBaton/`，不放临时目录；只有标记存在时 `restore_sleep` 才执行 `disablesleep 0`，不改动用户自己设置的值。
 
 - 多个 guard 可以重叠，按引用计数共用一个系统级开关，最后一个释放或到期时恢复；释放会等待正在进行的恢复完成，保证进程正常退出前已恢复。
-- 开启时在临时目录写标记文件，恢复后删除；agent 启动时发现标记就执行恢复（`restore_sleep`），处理崩溃或被强杀的情况。
+- 开启时写标记文件，恢复后删除；agent 启动时发现标记就执行恢复（`restore_sleep`），处理崩溃或被强杀的情况。
 - `wake_display` 用 `IOPMAssertionDeclareUserActivity` 声明本地用户活动。
 
 使用场景：
@@ -306,7 +311,7 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 | 场景 | 处理 |
 |---|---|
 | DDC 写失败 | 重试 2 次，间隔 200 毫秒；仍失败就中止并通知 |
-| `stay_awake` 两种机制都失败 | 记录警告，继续交棒（只影响"短时内切回"的体验）；托盘提示授权特权助手 |
+| `stay_awake` 拿不到 `SleepDisabled`（特权助手未授权或执行失败） | 记录警告，继续交棒（合盖的 Mac 切回时会睡着，只能开盖）；托盘提示授权特权助手 |
 | 唤醒链全部失败 | 通知用户手动唤醒对端 |
 | 收到 `taken` 前对端掉线 | 按超时处理，尝试切回 |
 | agent 崩溃或退出 | `AwakeGuard` drop 时恢复；下次启动时检查并清理残留的 `SleepDisabled` |
@@ -384,7 +389,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 |---|---|---|
 | 合盖睡眠的 Mac 找不到不需要配件的唤醒方式 | Mac 已经睡着时（Windows 刚开机等）只能开盖 | 默认策略让 Mac 在 Windows 在线期间不睡，覆盖日常使用；配件作为第二期可选项 |
 | 敏感剪贴板标记各平台不统一 | 可能误同步密码 | 首版只认最常见的约定类型；在设置里提供"只同步文本"或关闭同步的开关 |
-| 无需 root 的合盖控制在新版 macOS 上失效 | 需要特权助手，安装体验变差 | 两条路径都实现，运行时探测 |
-| P275MV 的 KVM 实际不跟随输入源 | KVM 模式不成立 | 切换到 `InputRouting::Software`，把软件键鼠模式提前 |
+| 合盖控制必须用 root（无需 root 的 IOKit 接口已证实无效） | 需要特权助手，安装体验变差；`SleepDisabled` 是持久的系统设置，残留会让 Mac 一直不睡 | 首次运行引导授权；guard 释放、agent 启动时都恢复（标记文件兜底） |
+| P275MV 的 USB-C 与 DP 输入源编码相同 | 持棒判定（`get_input()` 等于本机编码）无法区分两台机器 | 待在 Windows 上读 DP 口编码确认；撞码时需要另找判定依据 |
 | macOS 应用公证需要 Apple 开发者账号 | 未公证的应用首次打开会被拦 | 先在文档里写明处理方式，后续再申请账号 |
 | GPL 许可证 | 对外分发必须开源 | 已确定以 GPL 开源 |

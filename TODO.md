@@ -5,11 +5,13 @@
 ## P0 · M0 原型：验证设计前提
 
 - [x] Mac 端 DDC 读写
-- [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档（[部分记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：USB-C 读到 `0x0F`，可能与 DP 撞码；DP 编码和 KVM 跟随未测）
+- [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档（[记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：KVM 跟随已证实；USB-C 读到 `0x0F`，DP 口编码待在 Windows 上读，可能撞码）
 - [x] Mac DDC 请求连发两次：P275MV 只收到一次请求时回 Null Message
 - [ ] 🔧 用新 DDC 实现在 HP D27k 上复测 `get-input` / `set-input`
-- [ ] 合盖 Mac 切回时外接屏短暂消失触发合盖睡眠，IOKit `kPMSetClamshellSleepState` 会被 powerd 覆盖而失效（见 P275MV 调研）：改设计文档，把 `pmset -a disablesleep 1` 从第二期回退提前为 `stay_awake` 的主路径
-- [ ] 🔧 手动 `sudo pmset -a disablesleep 1` 后重复合盖切走再切回，确认 Mac 不睡、切回后画面恢复
+- [x] 合盖 Mac 切回时外接屏短暂消失触发合盖睡眠，IOKit `kPMSetClamshellSleepState` 会被 powerd 覆盖而失效：设计文档改为以 `pmset -a disablesleep 1` 为 `stay_awake` 主路径
+- [x] 🔧 手动 `sudo pmset -a disablesleep 1` 后合盖切走再切回，Mac 不睡、切回后不开盖画面恢复（2026-10-16 用户确认）
+- [ ] Mac `stay_awake` 主路径：经 sudoers 规则执行 `sudo -n pmset -a disablesleep 1/0`，去掉 IOKit 合盖控制；规则缺失时只记警告；标记文件挪到 `~/Library/Application Support/DeskBaton/`；`deskbaton-cli sleep-helper install / uninstall / status`
+- [ ] 🔧 装好 sudoers 规则后用 agent / `deskbaton-cli stay-awake` 复测合盖切走再切回
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
@@ -34,7 +36,6 @@
 - [ ] `baton-clipboard`：`ClipboardAccess`（arboard）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过
 - [ ] mDNS 发现、指纹配对界面，配对信息独立存储
 - [ ] 托盘、通知、开机自启
-- [ ] Mac `stay_awake` 回退路径：IOKit 合盖控制失败时由特权助手执行 `pmset -a disablesleep 1`，并在启动时清理残留的 `SleepDisabled`
 - [ ] 🔧 验收清单第 1、3、4、5 项
 
 ## 显示器面板（`docs/superpowers/specs/2026-10-16-display-panel-design.md`）
