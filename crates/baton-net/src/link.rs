@@ -351,10 +351,10 @@ async fn dial_loop(shared: Arc<Shared>, peer: PeerAddr) {
         tokio::time::sleep(REDIAL_INTERVAL / 2).await;
     }
     loop {
-        if !shared.is_connected(&peer.device_id) {
-            if let Err(e) = dial_once(&shared, &connector, &peer).await {
-                log::debug!("连接 {}（{}）失败：{e}", peer.device_id.0, peer.address);
-            }
+        if !shared.is_connected(&peer.device_id)
+            && let Err(e) = dial_once(&shared, &connector, &peer).await
+        {
+            log::debug!("连接 {}（{}）失败：{e}", peer.device_id.0, peer.address);
         }
         tokio::time::sleep(REDIAL_INTERVAL).await;
     }

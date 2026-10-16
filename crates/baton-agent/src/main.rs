@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
-use baton_core::config::Config;
+use baton_core::config::{Config, default_config_path};
 use baton_core::coordinator::{Coordinator, Ports};
 use baton_core::event::{Event, PeerInfo};
 use baton_core::ids::DeviceId;
@@ -145,22 +145,6 @@ fn load_config(path: &Path) -> Result<Config> {
         ))
     })?;
     Config::from_toml_str(&text)
-}
-
-fn default_config_path() -> Result<PathBuf> {
-    let env = |key: &str| {
-        std::env::var_os(key).map(PathBuf::from).ok_or_else(|| {
-            Error::Config(format!("环境变量 {key} 未设置，请用 --config 指定配置文件"))
-        })
-    };
-    #[cfg(target_os = "macos")]
-    return Ok(env("HOME")?.join("Library/Application Support/DeskBaton/config.toml"));
-    #[cfg(target_os = "windows")]
-    return Ok(env("APPDATA")?.join("DeskBaton").join("config.toml"));
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    return Ok(env("XDG_CONFIG_HOME")
-        .or_else(|_| env("HOME").map(|home| home.join(".config")))?
-        .join("deskbaton/config.toml"));
 }
 
 fn hostname() -> String {

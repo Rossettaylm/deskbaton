@@ -1,0 +1,26 @@
+[package]
+name = "baton-gui"
+description = "DeskBaton 显示器面板：查看显示器信息、切换输入源"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "deskbaton-gui"
+path = "src/main.rs"
+
+[dependencies]
+baton-core.workspace = true
+baton-display.workspace = true
+serde.workspace = true
+log.workspace = true
+env_logger.workspace = true
+tauri.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[lints]
+workspace = true

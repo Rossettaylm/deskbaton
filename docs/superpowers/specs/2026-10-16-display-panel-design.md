@@ -34,9 +34,10 @@
 ```text
 crates/
   baton-gui/                 Tauri 2 应用，可执行文件 deskbaton-gui
-    src/main.rs              Tauri 启动、托盘图标、窗口定位与失焦隐藏
-    src/commands.rs          Tauri 命令：list_displays / switch_input
+    src/main.rs              Tauri 启动、托盘图标、显示 / 隐藏面板
+    src/commands.rs          Tauri 命令：list_displays / switch_input / fit_panel / quit
     src/view.rs              显示器视图组装、输入源名称查找、副标题拼接（纯逻辑，可单测）
+    src/placement.rs         面板相对托盘图标的摆放计算（纯逻辑，可单测）
     tauri.conf.json
     ui/                      纯 HTML / CSS / JS（// @ts-check），不走 npm 打包
     ui/fonts/                Martian Mono Latin 子集 woff2 + OFL.txt
@@ -46,7 +47,8 @@ crates/
     native/screen.m          CoreGraphics 读取当前显示模式
 ```
 
-- Tauri 2 及插件均为 MIT / Apache-2.0，兼容 GPL-3.0。
+- Tauri 2 为 MIT / Apache-2.0，兼容 GPL-3.0；它要求 Rust 1.90，workspace 的 `rust-version` 随之提高。
+- Tauri 不跟踪 `ui/` 的改动，`build.rs` 自行声明 `rerun-if-changed=ui`。
 - `ScreenMode` 只供面板使用，作为 `baton-display` 的公开函数提供，不进入 `baton-core::ports`。
 
 ## 5. 后端
@@ -76,7 +78,7 @@ struct InputButton { label: String, code: u8, active: bool }
 
 enum SwitchOutcome {
     Confirmed(u8), // 切换后回读成功
-    LeftLocal,     // 写入成功但回读失败：本机已不再持有画面，不算失败
+    LeftLocal,     // 写入成功但回读失败或不是目标编码：本机已不再持有画面，不算失败
 }
 ```
 
@@ -147,7 +149,11 @@ code = 0x11
 - `current_input` 为 `None` 时，「当前画面」显示「其它输入（本机读不到）」。
 - 切换结果为 `LeftLocal` 时提示「已切到 XX，本机不再持有画面」。
 
-**窗口形态**：macOS 设为 Accessory（不在 Dock 显示）；点托盘图标在图标正下方显示无边框、置顶的面板（`tauri-plugin-positioner`），失焦即隐藏。
+**窗口形态**：macOS 设为 Accessory（不在 Dock 显示）；点托盘图标显示无边框、置顶、透明背景的面板，失焦即隐藏。
+
+- 摆放：以点击时托盘图标的矩形为准，水平居中并限制在图标所在屏幕内，与边缘留 6pt；图标下方放得下就放下方（macOS 菜单栏），否则放上方（Windows 底部任务栏）。不用 `tauri-plugin-positioner`：它在 macOS 上把面板顶边对齐图标顶边，会被菜单栏盖住，且不处理屏幕右缘。
+- 点托盘图标关闭面板时，面板先失焦隐藏、随后才收到点击；隐藏后 300ms 内的点击不再重新打开。
+- 高度随内容：前端渲染后调用 `fit_panel` 调整窗口高度并重新摆放。
 
 ### 7.1 视觉风格：信号台
 
@@ -207,6 +213,7 @@ code = 0x11
   - 输入源名称查找：命中配置、编码不在列表时追加 `0xNN`、`current_input` 为 `None`
   - 副标题拼接：有 / 无屏幕模式、HiDPI 判定
   - `display.inputs` 解析：缺省值、自定义列表、未知字段报错
+  - 面板摆放：菜单栏图标下方居中、屏幕右缘限制、底部任务栏图标上方、副屏坐标偏移
 - CI：Linux 不是目标平台且 Tauri 依赖 webkit2gtk，Linux 任务排除 `baton-gui`。
 - 硬件验收清单（手动）：
   1. 在接了两台 HP D27k 的 Mac mini 上，面板能列出两台并在「⋯」中切换；

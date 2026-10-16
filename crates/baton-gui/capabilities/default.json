@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "面板窗口只需要调用本应用的命令和监听事件",
+  "windows": ["panel"],
+  "permissions": ["core:default"]
+}

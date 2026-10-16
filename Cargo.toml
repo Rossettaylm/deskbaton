@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.90"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/Rossettaylm/deskbaton"
 
@@ -35,6 +35,8 @@ gethostname = "1"
 clap = { version = "4", features = ["derive"] }
 cc = "1"
 windows = "0.62"
+tauri = { version = "2.12", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-build = "2.7"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

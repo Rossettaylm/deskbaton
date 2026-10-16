@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{InputCode, MacAddr};
@@ -68,6 +70,23 @@ impl Config {
     pub fn from_toml_str(s: &str) -> Result<Self> {
         toml::from_str(s).map_err(|e| Error::Config(e.to_string()))
     }
+}
+
+/// agent 与显示器面板共用的配置文件路径。
+pub fn default_config_path() -> Result<PathBuf> {
+    let env = |key: &str| {
+        std::env::var_os(key).map(PathBuf::from).ok_or_else(|| {
+            Error::Config(format!("环境变量 {key} 未设置，请用 --config 指定配置文件"))
+        })
+    };
+    #[cfg(target_os = "macos")]
+    return Ok(env("HOME")?.join("Library/Application Support/DeskBaton/config.toml"));
+    #[cfg(target_os = "windows")]
+    return Ok(env("APPDATA")?.join("DeskBaton").join("config.toml"));
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    return Ok(env("XDG_CONFIG_HOME")
+        .or_else(|_| env("HOME").map(|home| home.join(".config")))?
+        .join("deskbaton/config.toml"));
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
