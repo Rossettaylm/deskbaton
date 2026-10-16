@@ -1,0 +1,25 @@
+# DeskBaton 配置示例（以合盖的 MacBook 为例）。
+# macOS：~/Library/Application Support/DeskBaton/config.toml
+# Windows：%APPDATA%\DeskBaton\config.toml
+
+# 本机名称，必须与对端配置里 [[peers]] 的 name 一致；不填时取主机名。
+name = "macbook"
+hotkey = "Ctrl+Alt+Space"
+
+[display]
+# 本机在显示器上对应的输入源编码，可用 `deskbaton-cli get-input` 在本机持棒时读取。
+input_code = 0x1B
+
+[network]
+port = 47800
+# 两端必须相同的随机字符串。
+token = "change-me"
+
+[power]
+# peer_offline：交出控制权后一直保持唤醒，直到对端离线；duration：保持 stay_awake_secs 秒。
+stay_awake_until = "peer_offline"
+
+[[peers]]
+name = "windows-desktop"
+address = "192.168.1.20:47800"
+wol_mac = "aa:bb:cc:dd:ee:ff"

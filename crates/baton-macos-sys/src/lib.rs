@@ -37,4 +37,6 @@ unsafe extern "C" {
     pub fn deskbaton_stay_awake_begin() -> i32;
     pub fn deskbaton_stay_awake_end() -> i32;
     pub fn deskbaton_wake_display() -> i32;
+
+    pub fn deskbaton_run_app_loop();
 }

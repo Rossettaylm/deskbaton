@@ -21,7 +21,7 @@
 - [x] `baton-net`：帧格式 v2、`mux` 控制帧优先的发送调度、transfer 分块与重组（sha256 校验）
 - [x] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
 - [x] `peer_offline` 保持唤醒策略：对端离线时释放 `AwakeGuard`
-- [ ] `baton-agent`：组装各平台实现、全局热键、写死对端地址
+- [x] `baton-agent`：组装各平台实现、全局热键、写死对端地址（`config.example.toml`）
 - [ ] 本机回环地址上两个 agent 跑通握手、心跳、交棒消息
 - [ ] 🔧 验收清单第 1、3、4 项
 

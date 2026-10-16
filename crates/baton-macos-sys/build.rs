@@ -4,11 +4,12 @@ fn main() {
         return;
     }
     cc::Build::new()
+        .file("native/app.m")
         .file("native/ddc.m")
         .file("native/power.m")
         .flag("-fobjc-arc")
         .compile("deskbaton_native");
-    for framework in ["IOKit", "CoreFoundation", "Foundation"] {
+    for framework in ["AppKit", "IOKit", "CoreFoundation", "Foundation"] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
 }

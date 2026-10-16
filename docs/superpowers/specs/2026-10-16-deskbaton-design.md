@@ -100,7 +100,9 @@ crates/
   baton-net/        discovery（mDNS 常量）、frame（带通道号的分帧）、mux（控制优先的发送调度）、pairing、TcpPeerLink
   baton-clipboard/  ClipboardAccess（基于 arboard）+ ClipboardSync 参与者
   baton-macos-sys/  ObjC 胶水（native/*.m）+ FFI 声明，只在 macOS 编译
-  baton-agent/      常驻程序 deskbaton
+  baton-agent/      常驻程序 deskbaton：读配置、启动链路，协调器跑在独立线程；主线程运行系统事件循环
+                    （macOS 为 native 中的 NSApplication，Windows 为消息循环），全局热键依赖它分发；
+                    `--stdin` 可用回车代替热键调试；Ctrl+C 经 Shutdown 事件退出，退出前释放保持唤醒
   baton-cli/        调试工具 deskbaton-cli：displays / get-input / set-input / wol / stay-awake
 ```
 

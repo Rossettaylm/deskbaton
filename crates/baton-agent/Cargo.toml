@@ -17,6 +17,20 @@ baton-display.workspace = true
 baton-power.workspace = true
 baton-input.workspace = true
 baton-net.workspace = true
+clap.workspace = true
+log.workspace = true
+env_logger.workspace = true
+ctrlc.workspace = true
+gethostname.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
+global-hotkey.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+baton-macos-sys.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_UI_WindowsAndMessaging"] }
 
 [lints]
 workspace = true

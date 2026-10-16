@@ -28,6 +28,10 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging"] }
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
+global-hotkey = "0.8"
+ctrlc = "3"
+env_logger = "0.11"
+gethostname = "1"
 clap = { version = "4", features = ["derive"] }
 cc = "1"
 windows = "0.62"
