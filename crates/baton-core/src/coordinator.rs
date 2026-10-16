@@ -119,12 +119,19 @@ mod tests {
     }
 
     impl PeerLink for Noop {
-        fn is_online(&self, _: &DeviceId) -> bool {
-            false
-        }
         fn send(&self, _: &DeviceId, _: &Message) -> Result<()> {
             Ok(())
         }
+        fn send_data(
+            &self,
+            _: &DeviceId,
+            _: crate::channel::ChannelId,
+            _: crate::ids::HandoffId,
+            _: crate::participant::Payload,
+        ) -> Result<()> {
+            Ok(())
+        }
+        fn set_local_state(&self, _: AgentState) {}
     }
 
     fn coordinator(display: FakeDisplay, input_code: Option<u16>) -> Coordinator {

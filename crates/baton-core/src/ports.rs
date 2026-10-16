@@ -2,9 +2,12 @@
 
 use std::time::Duration;
 
+use crate::channel::ChannelId;
 use crate::config::WakeMethod;
-use crate::ids::{DeviceId, DisplayId, InputCode, MacAddr};
+use crate::ids::{DeviceId, DisplayId, HandoffId, InputCode, MacAddr};
+use crate::participant::Payload;
 use crate::protocol::Message;
+use crate::state::AgentState;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,8 +111,23 @@ pub trait InputRouter: Send + Sync {
     fn release(&self, to: &DeviceId) -> Result<()>;
 }
 
-/// 与其他 agent 的通信链路。
+/// 与其他 agent 的通信链路。握手和心跳由链路自己维护，收到的内容以 [`crate::event::Event`] 交给协调器。
 pub trait PeerLink: Send + Sync {
-    fn is_online(&self, peer: &DeviceId) -> bool;
+    /// 经控制通道发送，优先于数据通道。
     fn send(&self, to: &DeviceId, msg: &Message) -> Result<()>;
+    /// 经数据通道发送：排队后立即返回，不等传输完成。
+    fn send_data(
+        &self,
+        to: &DeviceId,
+        channel: ChannelId,
+        handoff_id: HandoffId,
+        payload: Payload,
+    ) -> Result<()>;
+    /// 本机当前状态，随心跳发给对端。
+    fn set_local_state(&self, state: AgentState);
+}
+
+/// 面向用户的提示（首版输出到终端，后续接托盘通知）。
+pub trait Notifier: Send + Sync {
+    fn notify(&self, message: &str);
 }

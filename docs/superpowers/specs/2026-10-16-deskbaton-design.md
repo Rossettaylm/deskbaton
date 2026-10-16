@@ -245,6 +245,19 @@ pub trait ClipboardAccess: Send + Sync {
 }
 ```
 
+```rust
+pub trait PeerLink: Send + Sync {
+    fn send(&self, to: &DeviceId, msg: &Message) -> Result<()>;                // 控制通道，优先发送
+    fn send_data(&self, to: &DeviceId, channel: ChannelId,
+                 handoff_id: HandoffId, payload: Payload) -> Result<()>;      // 数据通道，排队后立即返回
+    fn set_local_state(&self, state: AgentState);                              // 随心跳发给对端
+}
+pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
+                 Message { from, message }, Data { from, channel, handoff_id, payload }, Shutdown }
+```
+
+握手和心跳由链路自己维护：协调器在交棒中会等待最长 `handoff_timeout_ms`，心跳不能依赖它。链路收到的一切以 `Event` 送入协调器的事件队列；热键也是一种 `Event`。面向用户的提示经 `Notifier` 端口输出。
+
 **协调器**在交棒第 5 步并行调用所有参与者的 `pack`，结果经各自的通道发送。参与者失败只记日志，**不影响交棒**。
 
 **ClipboardSync**（`baton-clipboard`，第一个参与者）：

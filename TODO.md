@@ -16,7 +16,7 @@
 
 ## P1 · M1 命令行交棒
 
-- [ ] `baton-core`：补 `channel.rs`（`ChannelId`）、`participant.rs`（`HandoffParticipant`）
+- [x] `baton-core`：补 `channel.rs`（`ChannelId`）、`participant.rs`（`HandoffParticipant`）、`event.rs`（`Event`），`PeerLink` 改为事件驱动
 - [ ] `Coordinator` 交棒流程（设计 6.2 第 1–10 步），用假实现单测正常交棒、各类超时、掉线、唤醒失败、并发热键
 - [ ] `baton-net`：`mux` 控制帧优先的发送调度，单测「大数据传输期间控制帧最多等一个块」
 - [ ] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
