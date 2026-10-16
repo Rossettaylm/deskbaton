@@ -95,7 +95,7 @@ fn run(args: Args) -> Result<()> {
     ctrlc::set_handler(move || {
         let _ = shutdown.send(Event::Shutdown);
     })
-    .map_err(|e| Error::Config(format!("无法注册 Ctrl+C 处理：{e}")))?;
+    .map_err(|e| Error::Config(format!("无法注册退出信号处理：{e}")))?;
     if args.stdin {
         spawn_stdin_trigger(events_tx.clone());
     }

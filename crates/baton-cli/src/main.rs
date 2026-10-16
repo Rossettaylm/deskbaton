@@ -1,10 +1,10 @@
 use std::process::ExitCode;
-use std::thread;
+use std::sync::mpsc;
 use std::time::Duration;
 
-use baton_core::Result;
 use baton_core::ids::{DisplayId, InputCode, MacAddr};
 use baton_core::ports::{DisplayControl, DisplayInfo};
+use baton_core::{Error, Result};
 use baton_power::sleep_helper;
 use clap::{Parser, Subcommand};
 
@@ -107,10 +107,18 @@ fn run(command: Command) -> Result<()> {
                     "警告：未安装 sleep-helper，只能阻止空闲睡眠，合盖的 Mac 切回时仍会睡眠。先运行 deskbaton-cli sleep-helper install"
                 );
             }
+            let (stop, stopped) = mpsc::channel();
+            ctrlc::set_handler(move || {
+                let _ = stop.send(());
+            })
+            .map_err(|e| Error::Config(format!("无法注册退出信号处理：{e}")))?;
             let duration = Duration::from_secs(secs);
-            let _guard = baton_power::platform_power().stay_awake(duration)?;
-            println!("保持唤醒 {secs} 秒，期间可合盖测试");
-            thread::sleep(duration);
+            let guard = baton_power::platform_power().stay_awake(duration)?;
+            println!("保持唤醒 {secs} 秒，期间可合盖测试；按 Ctrl+C 提前结束");
+            if stopped.recv_timeout(duration).is_ok() {
+                println!("收到退出信号，恢复睡眠设置");
+            }
+            drop(guard);
         }
         Command::RestoreSleep => {
             baton_power::platform_power().restore_sleep()?;

@@ -216,6 +216,7 @@ dependencies = [
  "baton-display",
  "baton-power",
  "clap",
+ "ctrlc",
 ]
 
 [[package]]
