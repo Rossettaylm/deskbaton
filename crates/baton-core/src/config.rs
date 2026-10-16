@@ -6,6 +6,9 @@ use crate::{Error, Result};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// 本机名称，即对端配置里 `[[peers]].name`；不填时取主机名。
+    #[serde(default)]
+    pub name: Option<String>,
     #[serde(default = "default_hotkey")]
     pub hotkey: String,
     #[serde(default)]
@@ -15,6 +18,8 @@ pub struct Config {
     #[serde(default)]
     pub power: PowerConfig,
     #[serde(default)]
+    pub network: NetworkConfig,
+    #[serde(default)]
     pub peers: Vec<PeerConfig>,
     #[serde(default = "default_handoff_timeout_ms")]
     pub handoff_timeout_ms: u64,
@@ -23,14 +28,40 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            name: None,
             hotkey: default_hotkey(),
             display: DisplayConfig::default(),
             input: InputRouting::default(),
             power: PowerConfig::default(),
+            network: NetworkConfig::default(),
             peers: Vec::new(),
             handoff_timeout_ms: default_handoff_timeout_ms(),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NetworkConfig {
+    /// 本机监听端口。
+    #[serde(default = "default_port")]
+    pub port: u16,
+    /// 预共享令牌，两端必须一致；配对功能完成前用它认证对端。
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            port: default_port(),
+            token: None,
+        }
+    }
+}
+
+fn default_port() -> u16 {
+    47800
 }
 
 impl Config {
@@ -179,7 +210,11 @@ mod tests {
     fn parses_monitor_kvm_setup() {
         let cfg = Config::from_toml_str(
             r#"
+            name = "macbook"
             hotkey = "Ctrl+Alt+B"
+
+            [network]
+            token = "s3cret"
 
             [display]
             input_code = 0x1B
@@ -197,6 +232,9 @@ mod tests {
         )
         .unwrap();
 
+        assert_eq!(cfg.name.as_deref(), Some("macbook"));
+        assert_eq!(cfg.network.port, 47800);
+        assert_eq!(cfg.network.token.as_deref(), Some("s3cret"));
         assert_eq!(cfg.display.mode, DisplayMode::Ddc);
         assert_eq!(cfg.display.input_code, Some(InputCode(0x1B)));
         assert_eq!(cfg.input, InputRouting::MonitorKvm);

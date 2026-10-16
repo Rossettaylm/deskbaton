@@ -19,7 +19,7 @@
 - [x] `baton-core`：补 `channel.rs`（`ChannelId`）、`participant.rs`（`HandoffParticipant`）、`event.rs`（`Event`），`PeerLink` 改为事件驱动
 - [x] `Coordinator` 交棒流程（设计 6.2 第 1–10 步），用假实现单测正常交棒、各类超时、掉线、唤醒失败、并发热键
 - [x] `baton-net`：帧格式 v2、`mux` 控制帧优先的发送调度、transfer 分块与重组（sha256 校验）
-- [ ] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
+- [x] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
 - [x] `peer_offline` 保持唤醒策略：对端离线时释放 `AwakeGuard`
 - [ ] `baton-agent`：组装各平台实现、全局热键、写死对端地址
 - [ ] 本机回环地址上两个 agent 跑通握手、心跳、交棒消息
@@ -28,7 +28,6 @@
 ## P2 · M2 可用版本
 
 - [ ] `baton-clipboard`：`ClipboardAccess`（arboard）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过
-- [ ] 剪贴板通道 transfer（Begin / Chunk / End / Cancel + sha256 校验）
 - [ ] mDNS 发现、指纹配对界面，配对信息独立存储
 - [ ] 托盘、通知、开机自启
 - [ ] Mac `stay_awake` 回退路径：IOKit 合盖控制失败时由特权助手执行 `pmset -a disablesleep 1`，并在启动时清理残留的 `SleepDisabled`

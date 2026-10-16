@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DeviceId(pub String);
 

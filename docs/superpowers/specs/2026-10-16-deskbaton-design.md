@@ -189,13 +189,15 @@ pub trait InputRouter: Send + Sync {
 - **发现**：mDNS 服务类型 `_deskbaton._tcp.local.`，默认端口 47800；配置里的 `peers[].address` 作为兜底。
 - **配对**：首次连接时双方显示同一个由证书指纹派生的 6 位数字，用户确认后固定对方指纹。
 - **传输**：TCP + TLS（rustls，自签证书 + 指纹固定），一对机器之间只有一条连接，上面跑多条逻辑通道，见 5.7。
-- **心跳**：每 2 秒一次，走控制通道，连续 3 次没收到就判定对端离线。
+- **心跳**：每 2 秒一次，走控制通道；连续 3 个周期收不到任何帧就判定对端离线。
+- **M1 认证（配对完成前）**：每次启动生成自签证书，双向 TLS 1.3，TLS 层只验证对端持有证书私钥（加密库用 ring，不用含 OpenSSL 许可证成分的 aws-lc）。`hello` 带 `auth`：用 `network.token` 对「角色、发送方名称、双方证书指纹」做 HMAC-SHA256。中间人终止 TLS 时两端看到的指纹不同，证明无法通过。
+- **拨号**：对配置了 `address` 的对端每 2 秒重试；拨出时要求对端声明的名称等于 `peers[].name`。双方同时互拨时，两端都保留由名称较小一方拨出的连接，被替换的连接静默关闭，不报离线。
 
 ### 5.6 协议消息
 
 | 消息 | 方向 | 含义 |
 |---|---|---|
-| `hello { device_id, protocol_version, input_code, wol_mac }` | 双向 | 交换身份、本机输入源编码、WoL MAC |
+| `hello { device_id, protocol_version, input_code, wol_mac, auth }` | 双向 | 交换身份、本机输入源编码、WoL MAC、认证证明 |
 | `heartbeat { state }` | 双向 | 状态同步 |
 | `prepare { handoff_id }` | 持棒方 → 接棒方 | 准备接棒 |
 | `ready { handoff_id }` | 接棒方 → 持棒方 | 已点亮显示输出 |
@@ -313,8 +315,13 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 路径：macOS 为 `~/Library/Application Support/DeskBaton/config.toml`，Windows 为 `%APPDATA%\DeskBaton\config.toml`。所有字段都有默认值。
 
 ```toml
+name = "macbook"        # 本机名称，即对端的 peers[].name；默认取主机名
 hotkey = "Ctrl+Alt+Space"
 handoff_timeout_ms = 8000
+
+[network]
+port = 47800
+token = "两端相同的随机字符串"   # M1 预共享令牌，配对完成后移除
 
 [display]
 mode = "ddc"            # ddc | none

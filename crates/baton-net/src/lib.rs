@@ -6,6 +6,7 @@ pub mod mux;
 pub mod pairing;
 pub mod transfer;
 
+mod auth;
 mod link;
 
-pub use link::TcpPeerLink;
+pub use link::{LinkConfig, PeerAddr, TcpPeerLink};

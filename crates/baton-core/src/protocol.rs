@@ -14,6 +14,8 @@ pub enum Message {
         protocol_version: u32,
         input_code: Option<InputCode>,
         wol_mac: Option<MacAddr>,
+        /// 预共享令牌对本次 TLS 会话双方证书指纹的 HMAC，十六进制。
+        auth: String,
     },
     Heartbeat {
         state: AgentState,
@@ -45,6 +47,7 @@ mod tests {
                 protocol_version: PROTOCOL_VERSION,
                 input_code: Some(InputCode(0x1B)),
                 wol_mac: None,
+                auth: "00ff".into(),
             },
             Message::Heartbeat {
                 state: AgentState::HandingOff(HandoffId(7)),
