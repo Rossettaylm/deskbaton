@@ -357,6 +357,8 @@ fn hands_off_both_ways() {
     assert_eq!(monitor.current(), MAC);
     assert_eq!(a.c.state(), AgentState::Holding);
     assert_eq!(b.c.state(), AgentState::Idle);
+    assert_eq!(a.probe.guards(), 0, "重新持棒后释放交棒后的 guard");
+    assert_eq!(b.probe.guards(), 1);
 }
 
 #[test]

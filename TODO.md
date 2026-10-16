@@ -22,7 +22,7 @@
 - [x] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
 - [x] `peer_offline` 保持唤醒策略：对端离线时释放 `AwakeGuard`
 - [x] `baton-agent`：组装各平台实现、全局热键、写死对端地址（`config.example.toml`）
-- [ ] 本机回环地址上两个 agent 跑通握手、心跳、交棒消息
+- [x] 本机回环地址上两个 agent 跑通握手、心跳、双向交棒与随身数据（`crates/baton-agent/tests/loopback.rs`）
 - [ ] 🔧 验收清单第 1、3、4 项
 
 ## P2 · M2 可用版本

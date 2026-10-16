@@ -295,7 +295,7 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
    同时并行调用各交棒参与者的 `pack`，经数据通道发给 B，不等待传输完成。
 6. A 调用 `set_input(B 的输入源编码)`；KVM 模式下，键鼠随之切给 B。
 7. B 每 300 毫秒轮询一次 `get_input`，读到自己的编码就调用 `input.acquire()`，回 `taken`，进入 `Holding`，并释放第 3 步拿到的 guard。最长等 8 秒。
-8. A 收到 `taken` 后进入 `Idle`。A 是 Mac 时，第 5 步的 guard 到期后，Mac 正常睡眠。
+8. A 收到 `taken` 后进入 `Idle`。A 是 Mac 时，第 5 步的 guard 到期（或 `peer_offline` 下 B 离线）后，Mac 正常睡眠；A 之后重新接棒成为持棒方时也释放该 guard。
 9. A 超时没收到 `taken`（或 B 在此之前掉线、回 `abort`）：尝试 `set_input(自己的编码)` 切回、收回键鼠，再按 `get_input` 重新判定状态，并通知报错。B 轮询超时则回 `abort` 并进入 `Idle`。
 10. B 收到完整的参与者数据后调用对应参与者的 `unpack`（可能早于或晚于 `taken`）。交棒被中止时，B 丢弃未交付的数据。
 

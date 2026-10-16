@@ -217,6 +217,7 @@ impl Coordinator {
                     }
                     self.send(&from, Message::Taken { handoff_id: id });
                     self.set_state(AgentState::Holding);
+                    self.awake_after_handoff = None;
                     log::info!("已从 {} 接棒", from.0);
                 } else if now >= deadline {
                     self.send(
