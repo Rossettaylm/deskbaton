@@ -29,10 +29,22 @@ impl RawDisplayInfo {
     };
 }
 
+/// 对应 `deskbaton_screen_mode_info`。
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct RawScreenMode {
+    pub width: u32,
+    pub height: u32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub refresh_hz: f64,
+}
+
 unsafe extern "C" {
     pub fn deskbaton_ddc_list(out: *mut RawDisplayInfo, capacity: u32) -> i32;
     pub fn deskbaton_ddc_write(display_index: u32, data: *const u8, len: u32) -> i32;
     pub fn deskbaton_ddc_read(display_index: u32, out: *mut u8, len: u32) -> i32;
+    pub fn deskbaton_screen_mode(display_index: u32, out: *mut RawScreenMode) -> i32;
 
     pub fn deskbaton_stay_awake_begin() -> i32;
     pub fn deskbaton_stay_awake_end() -> i32;

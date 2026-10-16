@@ -5,6 +5,7 @@ mod edid;
 #[cfg(any(target_os = "macos", test))]
 mod mccs;
 mod quirks;
+mod screen;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -12,6 +13,7 @@ mod macos;
 mod windows;
 
 pub use quirks::InputSwitchMethod;
+pub use screen::{ScreenMode, screen_mode};
 
 use baton_core::ports::DisplayControl;
 

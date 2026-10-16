@@ -39,6 +39,7 @@ crates/
     src/view.rs              显示器视图组装、输入源名称查找、副标题拼接（纯逻辑，可单测）
     tauri.conf.json
     ui/                      纯 HTML / CSS / JS（// @ts-check），不走 npm 打包
+    ui/fonts/                Martian Mono Latin 子集 woff2 + OFL.txt
   baton-display/
     src/screen.rs            ScreenMode + screen_mode(&DisplayId)，按平台分模块
   baton-macos-sys/

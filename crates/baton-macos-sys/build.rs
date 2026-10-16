@@ -7,9 +7,16 @@ fn main() {
         .file("native/app.m")
         .file("native/ddc.m")
         .file("native/power.m")
+        .file("native/screen.m")
         .flag("-fobjc-arc")
         .compile("deskbaton_native");
-    for framework in ["AppKit", "IOKit", "CoreFoundation", "Foundation"] {
+    for framework in [
+        "AppKit",
+        "IOKit",
+        "CoreFoundation",
+        "CoreGraphics",
+        "Foundation",
+    ] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
 }

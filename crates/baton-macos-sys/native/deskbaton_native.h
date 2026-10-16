@@ -23,6 +23,18 @@ int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity);
 int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len);
 int32_t deskbaton_ddc_read(uint32_t display_index, uint8_t *out, uint32_t len);
 
+/* 屏幕当前模式；width / height 为逻辑分辨率，pixel_* 为渲染分辨率，refresh_hz 为 0 表示未知。 */
+typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t pixel_width;
+    uint32_t pixel_height;
+    double refresh_hz;
+} deskbaton_screen_mode_info;
+
+/* display_index 同 deskbaton_ddc_list；显示器不在 CoreGraphics 的在线列表中时返回 NOT_FOUND。 */
+int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out);
+
 /* 电源：begin 阻止空闲睡眠和合盖睡眠，end 恢复；两者都可重复调用。 */
 int32_t deskbaton_stay_awake_begin(void);
 int32_t deskbaton_stay_awake_end(void);

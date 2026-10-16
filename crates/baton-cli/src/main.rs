@@ -46,8 +46,21 @@ fn run(command: Command) -> Result<()> {
     match command {
         Command::Displays => {
             for d in baton_display::platform_display().list()? {
+                let mode = match baton_display::screen_mode(&d.id) {
+                    Ok(m) => format!(
+                        "{}×{}（渲染 {}×{}）{}",
+                        m.width,
+                        m.height,
+                        m.pixel_width,
+                        m.pixel_height,
+                        m.refresh_hz
+                            .map(|hz| format!(" {hz:.0}Hz"))
+                            .unwrap_or_default()
+                    ),
+                    Err(e) => e.to_string(),
+                };
                 println!(
-                    "{}\t{} {}\t{}",
+                    "{}\t{} {}\t{}\t{mode}",
                     d.id.0,
                     d.vendor,
                     d.model,

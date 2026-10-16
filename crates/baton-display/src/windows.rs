@@ -10,14 +10,15 @@ use windows::Win32::Devices::Display::{
 };
 use windows::Win32::Foundation::{ERROR_SUCCESS, LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
-    DISPLAY_DEVICE_ACTIVE, DISPLAY_DEVICEW, EnumDisplayDevicesW, EnumDisplayMonitors,
-    GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
+    DEVMODEW, DISPLAY_DEVICE_ACTIVE, DISPLAY_DEVICEW, ENUM_CURRENT_SETTINGS, EnumDisplayDevicesW,
+    EnumDisplayMonitors, EnumDisplaySettingsW, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO,
+    MONITORINFOEXW,
 };
 use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RegGetValueW};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::core::{BOOL, HSTRING, w};
 
-use crate::edid;
-use crate::retry;
+use crate::{ScreenMode, edid, retry};
 
 const VCP_INPUT_SOURCE: u8 = 0x60;
 const EDD_GET_DEVICE_INTERFACE_NAME: u32 = 1;
@@ -72,6 +73,54 @@ impl DisplayControl for WinDdc {
             Ok(())
         })
     }
+}
+
+/// 渲染分辨率取当前显示设置；逻辑分辨率按显示器的有效 DPI 换算，进程未声明 DPI 感知时两者相同。
+pub(crate) fn screen_mode(display: &DisplayId) -> Result<ScreenMode> {
+    let device = display.0.split('#').next().unwrap_or_default();
+    let mut mode = DEVMODEW {
+        dmSize: size_of::<DEVMODEW>() as u16,
+        ..Default::default()
+    };
+    // SAFETY: `dmSize` 已设置为结构体大小，系统据此写入 `mode`。
+    let found =
+        unsafe { EnumDisplaySettingsW(&HSTRING::from(device), ENUM_CURRENT_SETTINGS, &mut mode) };
+    if !found.as_bool() {
+        return Err(Error::Ddc(format!("读取 {device} 的显示设置失败")));
+    }
+    let scale = monitor_dpi(device).map_or(1.0, |dpi| f64::from(dpi) / 96.0);
+    let logical = |pixels: u32| (f64::from(pixels) / scale).round() as u32;
+    // 0 和 1 表示使用硬件默认刷新率，具体值未知。
+    let refresh = mode.dmDisplayFrequency;
+    Ok(ScreenMode {
+        width: logical(mode.dmPelsWidth),
+        height: logical(mode.dmPelsHeight),
+        pixel_width: mode.dmPelsWidth,
+        pixel_height: mode.dmPelsHeight,
+        refresh_hz: (refresh > 1).then_some(f64::from(refresh)),
+    })
+}
+
+fn monitor_dpi(device: &str) -> Option<u32> {
+    let mut hmonitors: Vec<HMONITOR> = Vec::new();
+    // SAFETY: 回调只在 EnumDisplayMonitors 返回前被调用，期间 `hmonitors` 一直有效。
+    unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect_monitor),
+            LPARAM(&mut hmonitors as *mut Vec<HMONITOR> as isize),
+        )
+    }
+    .ok()
+    .ok()?;
+    let hmonitor = hmonitors
+        .into_iter()
+        .find(|&h| device_name(h).is_ok_and(|name| name == device))?;
+    let (mut x, mut y) = (0u32, 0u32);
+    // SAFETY: 两个输出指针指向本函数的局部变量。
+    unsafe { GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut x, &mut y) }.ok()?;
+    (x > 0).then_some(x)
 }
 
 /// 一次枚举得到的物理显示器；drop 时销毁句柄。

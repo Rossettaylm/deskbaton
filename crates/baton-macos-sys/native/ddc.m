@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "deskbaton_native.h"
+#include "external_display.h"
 
 typedef CFTypeRef IOAVServiceRef;
 extern IOAVServiceRef IOAVServiceCreateWithService(CFAllocatorRef allocator, io_service_t service);
@@ -13,9 +14,6 @@ extern IOReturn IOAVServiceWriteI2C(IOAVServiceRef service, uint32_t chip_addres
 
 static const uint32_t kDdcChipAddress = 0x37;
 static const uint32_t kDdcHostAddress = 0x51;
-
-typedef BOOL (^ExternalDisplayVisitor)(uint32_t index, io_service_t av_proxy, NSString *edid_uuid,
-                                       NSDictionary *product);
 
 static id copy_property(io_registry_entry_t entry, NSString *key, Class expected) {
     id value = CFBridgingRelease(
@@ -29,7 +27,7 @@ static BOOL is_framebuffer(const char *name) {
 
 /* 每台外接显示器在注册表遍历顺序中先出现 framebuffer（带 EDID UUID），
  * 后出现对应的 DCPAVServiceProxy；没有接显示器的 framebuffer 没有 EDID UUID。 */
-static int32_t enumerate_external(ExternalDisplayVisitor visit) {
+int32_t deskbaton_enumerate_external(ExternalDisplayVisitor visit) {
     io_iterator_t iter;
     if (IORegistryEntryCreateIterator(IORegistryGetRootEntry(kIOMainPortDefault), kIOServicePlane,
                                       kIORegistryIterateRecursively, &iter) != KERN_SUCCESS) {
@@ -75,7 +73,7 @@ static void copy_text(char *dst, size_t size, id value) {
 
 int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity) {
     @autoreleasepool {
-        return enumerate_external(^BOOL(uint32_t index, io_service_t av_proxy, NSString *edid_uuid,
+        return deskbaton_enumerate_external(^BOOL(uint32_t index, io_service_t av_proxy, NSString *edid_uuid,
                                         NSDictionary *product) {
             (void)av_proxy;
             if (index < capacity) {
@@ -94,7 +92,7 @@ int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity) {
 static int32_t with_av_service(uint32_t display_index, IOReturn (^op)(IOAVServiceRef service)) {
     @autoreleasepool {
         __block int32_t rc = DESKBATON_ERR_NOT_FOUND;
-        int32_t count = enumerate_external(^BOOL(uint32_t index, io_service_t av_proxy,
+        int32_t count = deskbaton_enumerate_external(^BOOL(uint32_t index, io_service_t av_proxy,
                                                  NSString *edid_uuid, NSDictionary *product) {
             (void)edid_uuid;
             (void)product;

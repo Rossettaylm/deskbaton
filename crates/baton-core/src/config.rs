@@ -80,6 +80,9 @@ pub struct DisplayConfig {
     pub matcher: String,
     /// 本机在显示器上对应的输入源编码。
     pub input_code: Option<InputCode>,
+    /// 显示器面板上的输入源按钮。编码因显示器而异，默认值只是 MCCS 常见值。
+    #[serde(default = "default_display_inputs")]
+    pub inputs: Vec<InputPreset>,
 }
 
 impl Default for DisplayConfig {
@@ -88,6 +91,23 @@ impl Default for DisplayConfig {
             mode: DisplayMode::default(),
             matcher: default_display_match(),
             input_code: None,
+            inputs: default_display_inputs(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputPreset {
+    pub label: String,
+    pub code: InputCode,
+}
+
+impl InputPreset {
+    pub fn new(label: &str, code: u16) -> Self {
+        Self {
+            label: label.to_owned(),
+            code: InputCode(code),
         }
     }
 }
@@ -185,6 +205,15 @@ fn default_display_match() -> String {
     "auto".to_owned()
 }
 
+fn default_display_inputs() -> Vec<InputPreset> {
+    vec![
+        InputPreset::new("DP", 0x0F),
+        InputPreset::new("HDMI1", 0x11),
+        InputPreset::new("HDMI2", 0x12),
+        InputPreset::new("USB-C", 0x1B),
+    ]
+}
+
 fn default_handoff_timeout_ms() -> u64 {
     8_000
 }
@@ -266,6 +295,46 @@ mod tests {
             InputRouting::Software {
                 backend: SoftwareBackend::Deskflow
             }
+        );
+    }
+
+    #[test]
+    fn display_inputs_default_to_common_mccs_codes() {
+        let cfg = Config::from_toml_str("[display]\ninput_code = 0x1B").unwrap();
+        let labels: Vec<&str> = cfg
+            .display
+            .inputs
+            .iter()
+            .map(|i| i.label.as_str())
+            .collect();
+        assert_eq!(labels, ["DP", "HDMI1", "HDMI2", "USB-C"]);
+        assert_eq!(cfg.display.inputs[3].code, InputCode(0x1B));
+    }
+
+    #[test]
+    fn display_inputs_can_be_customized() {
+        let cfg = Config::from_toml_str(
+            r#"
+            [[display.inputs]]
+            label = "Type-C"
+            code = 0x19
+
+            [[display.inputs]]
+            label = "DP"
+            code = 0x0F
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.display.inputs,
+            [
+                InputPreset::new("Type-C", 0x19),
+                InputPreset::new("DP", 0x0F)
+            ]
+        );
+        assert!(
+            Config::from_toml_str("[[display.inputs]]\nlabel = \"DP\"\ncode = 15\nname = \"x\"")
+                .is_err()
         );
     }
 

@@ -4,9 +4,9 @@ use std::time::Duration;
 use baton_core::ids::{DisplayId, InputCode};
 use baton_core::ports::{DisplayControl, DisplayInfo};
 use baton_core::{Error, Result};
-use baton_macos_sys::{self as sys, RawDisplayInfo};
+use baton_macos_sys::{self as sys, RawDisplayInfo, RawScreenMode};
 
-use crate::{mccs, retry};
+use crate::{ScreenMode, mccs, retry};
 
 /// DDC/CI 要求主机发完请求后至少等 40 毫秒再读回包。
 const REPLY_DELAY: Duration = Duration::from_millis(50);
@@ -20,7 +20,7 @@ impl DisplayControl for MacDdc {
     }
 
     fn get_input(&self, display: &DisplayId) -> Result<InputCode> {
-        let index = self.index_of(display)?;
+        let index = index_of(display)?;
         let request = mccs::get_vcp_request(mccs::VCP_INPUT_SOURCE);
         retry(|| {
             write(index, &request)?;
@@ -34,20 +34,38 @@ impl DisplayControl for MacDdc {
     }
 
     fn set_input(&self, display: &DisplayId, input: InputCode) -> Result<()> {
-        let index = self.index_of(display)?;
+        let index = index_of(display)?;
         let request = mccs::set_vcp_request(mccs::VCP_INPUT_SOURCE, input.0);
         retry(|| write(index, &request))
     }
 }
 
-impl MacDdc {
-    fn index_of(&self, display: &DisplayId) -> Result<u32> {
-        self.list()?
-            .iter()
-            .position(|d| d.id == *display)
-            .map(|i| i as u32)
-            .ok_or_else(|| Error::Ddc(format!("找不到显示器 {}", display.0)))
+pub(crate) fn screen_mode(display: &DisplayId) -> Result<ScreenMode> {
+    let index = index_of(display)?;
+    let mut raw = RawScreenMode::default();
+    // SAFETY: `raw` 是局部变量，原生函数只写入这一个结构体。
+    match unsafe { sys::deskbaton_screen_mode(index, &mut raw) } {
+        sys::OK => Ok(ScreenMode {
+            width: raw.width,
+            height: raw.height,
+            pixel_width: raw.pixel_width,
+            pixel_height: raw.pixel_height,
+            refresh_hz: (raw.refresh_hz > 0.0).then_some(raw.refresh_hz),
+        }),
+        sys::ERR_NOT_FOUND => Err(Error::Ddc(format!(
+            "系统显示列表里找不到显示器 {}",
+            display.0
+        ))),
+        rc => Err(Error::Ddc(format!("读取显示模式失败（原生错误码 {rc}）"))),
     }
+}
+
+fn index_of(display: &DisplayId) -> Result<u32> {
+    to_display_infos(&list_raw()?)
+        .iter()
+        .position(|d| d.id == *display)
+        .map(|i| i as u32)
+        .ok_or_else(|| Error::Ddc(format!("找不到显示器 {}", display.0)))
 }
 
 fn list_raw() -> Result<Vec<RawDisplayInfo>> {
