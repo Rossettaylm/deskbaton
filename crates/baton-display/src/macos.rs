@@ -6,10 +6,8 @@ use baton_core::ports::{DisplayControl, DisplayInfo};
 use baton_core::{Error, Result};
 use baton_macos_sys::{self as sys, RawDisplayInfo};
 
-use crate::mccs;
+use crate::{mccs, retry};
 
-const ATTEMPTS: usize = 3;
-const RETRY_INTERVAL: Duration = Duration::from_millis(200);
 /// DDC/CI 要求主机发完请求后至少等 40 毫秒再读回包。
 const REPLY_DELAY: Duration = Duration::from_millis(50);
 
@@ -107,18 +105,6 @@ fn write(index: u32, data: &[u8]) -> Result<()> {
 fn read(index: u32, out: &mut [u8]) -> Result<()> {
     // SAFETY: `out` 在调用期间有效，原生函数最多写入 `out.len()` 字节。
     check(unsafe { sys::deskbaton_ddc_read(index, out.as_mut_ptr(), out.len() as u32) }).map(drop)
-}
-
-fn retry<T>(mut op: impl FnMut() -> Result<T>) -> Result<T> {
-    let mut last = op();
-    for _ in 1..ATTEMPTS {
-        if last.is_ok() {
-            break;
-        }
-        thread::sleep(RETRY_INTERVAL);
-        last = op();
-    }
-    last
 }
 
 fn check(rc: i32) -> Result<u32> {

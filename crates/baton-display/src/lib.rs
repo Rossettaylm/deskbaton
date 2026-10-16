@@ -1,5 +1,7 @@
 //! 显示器输入源控制（DDC/CI）的各平台实现。
 
+#[cfg(any(target_os = "windows", test))]
+mod edid;
 #[cfg(any(target_os = "macos", test))]
 mod mccs;
 mod quirks;
@@ -20,6 +22,22 @@ pub fn platform_display() -> Box<dyn DisplayControl> {
     return Box::new(windows::WinDdc);
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return Box::new(unsupported::UnsupportedDisplay);
+}
+
+/// DDC 读写失败时共尝试 3 次，间隔 200 毫秒。
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+fn retry<T>(mut op: impl FnMut() -> baton_core::Result<T>) -> baton_core::Result<T> {
+    const ATTEMPTS: usize = 3;
+    const INTERVAL: std::time::Duration = std::time::Duration::from_millis(200);
+    let mut last = op();
+    for _ in 1..ATTEMPTS {
+        if last.is_ok() {
+            break;
+        }
+        std::thread::sleep(INTERVAL);
+        last = op();
+    }
+    last
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]

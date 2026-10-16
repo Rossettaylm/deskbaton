@@ -9,7 +9,8 @@
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
-- [ ] Windows 端 DDC 读写（Dxva2），🔧 到 Windows 机器上跑 `deskbaton-cli` 验证
+- [x] Windows 端 DDC 读写（Dxva2，型号和序列号取自注册表 EDID）+ `wake_display`
+- [ ] 🔧 到 Windows 机器上跑 `deskbaton-cli displays / get-input / set-input` 验证
 - [ ] 🔧 实测免配件唤醒：显示器「USB Power(Sleep)」打开后 KVM 键盘能否唤醒合盖 Mac；蓝牙 HID 能否唤醒
 - [ ] 把 HP D27k 实测（HDMI 读回 `0x11`、m1ddc 读回 `0`、切走后能否自动切回）记录到 `docs/research/`
 

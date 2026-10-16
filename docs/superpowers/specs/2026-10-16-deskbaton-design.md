@@ -129,6 +129,7 @@ pub trait DisplayControl: Send + Sync {
 目标显示器由 `DisplayInfo::select` 选择：配置为 `auto` 时要求恰好一台，否则按型号子串匹配。
 
 - macOS 的 `DisplayId` 取 framebuffer 的 EDID UUID；同一 UUID 出现多次时，后出现的追加 `#序号`。
+- Windows 的 `DisplayId` 为 `\\.\DISPLAYn#序号`。Dxva2 给出的描述多为「通用即插即用监视器」，型号和序列号改从注册表 `Enum\DISPLAY\…\Device Parameters\EDID` 解析；读不到 EDID 时退回 Dxva2 描述。
 - MCCS 报文的拼装和回包校验在 Rust 侧（`baton-display/src/mccs.rs`），原生层只做原始 I2C 读写。回包的长度、校验和、VCP 编码任一不对都按错误处理，不当作编码 `0`；读写失败共尝试 3 次，间隔 200 毫秒。
 - 输入源（VCP `0x60`）只取低字节。
 

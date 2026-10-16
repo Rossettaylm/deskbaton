@@ -23,6 +23,7 @@ toml = "1"
 thiserror = "2"
 clap = { version = "4", features = ["derive"] }
 cc = "1"
+windows = "0.62"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
