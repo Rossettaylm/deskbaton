@@ -414,6 +414,16 @@ where
             peer.device_id.0, expected.0
         )));
     }
+    // 拨号方还要校验对端名称；接受方等到拨号方发来第一帧（登记后立即发出的心跳）才算连接建立，
+    // 否则拨号方拒绝后这里会误报一次上线和离线。
+    let confirmation = match role {
+        Role::Client => None,
+        Role::Server => Some(
+            timeout(HANDSHAKE_TIMEOUT, read_frame(&mut reader, &mut buf))
+                .await
+                .map_err(|_| Error::Net("等待对端确认超时".into()))??,
+        ),
+    };
     let dialer = match role {
         Role::Client => shared.me.device_id.clone(),
         Role::Server => peer.device_id.clone(),
@@ -427,7 +437,15 @@ where
     shared.emit(Event::PeerOnline(peer));
 
     let writer_task = tokio::spawn(write_loop(Arc::clone(&shared), writer, Arc::clone(&outbox)));
-    let result = read_loop(&shared, &mut reader, &mut buf, &peer_id, &outbox).await;
+    let result = read_loop(
+        &shared,
+        &mut reader,
+        &mut buf,
+        &peer_id,
+        &outbox,
+        confirmation,
+    )
+    .await;
     outbox.close();
     let _ = writer_task.await;
     if shared.unregister(&peer_id, generation) {
@@ -455,8 +473,12 @@ async fn read_loop<R: AsyncRead + Unpin>(
     buf: &mut Vec<u8>,
     peer: &DeviceId,
     outbox: &Outbox,
+    first: Option<Frame>,
 ) -> Result<()> {
     let mut reassembler = Reassembler::default();
+    if let Some(frame) = first {
+        dispatch(shared, &mut reassembler, peer, frame);
+    }
     let closed = outbox.closed.subscribe();
     tokio::pin! {
         let closed = wait_closed(closed);
@@ -469,27 +491,31 @@ async fn read_loop<R: AsyncRead + Unpin>(
             },
             _ = &mut closed => return Ok(()),
         };
-        if frame.channel == ChannelId::CONTROL {
-            match frame.to_message() {
-                Ok(Message::Heartbeat { .. } | Message::Hello { .. }) => {}
-                Ok(message) => shared.emit(Event::Message {
-                    from: peer.clone(),
-                    message,
-                }),
-                Err(e) => log::warn!("{} 发来无法解析的控制帧：{e}", peer.0),
-            }
-            continue;
-        }
-        match reassembler.accept(frame) {
-            Ok(Some(done)) => shared.emit(Event::Data {
+        dispatch(shared, &mut reassembler, peer, frame);
+    }
+}
+
+fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, frame: Frame) {
+    if frame.channel == ChannelId::CONTROL {
+        match frame.to_message() {
+            Ok(Message::Heartbeat { .. } | Message::Hello { .. }) => {}
+            Ok(message) => shared.emit(Event::Message {
                 from: peer.clone(),
-                channel: done.channel,
-                handoff_id: done.handoff_id,
-                payload: done.payload,
+                message,
             }),
-            Ok(None) => {}
-            Err(e) => log::warn!("{} 的数据传输出错：{e}", peer.0),
+            Err(e) => log::warn!("{} 发来无法解析的控制帧：{e}", peer.0),
         }
+        return;
+    }
+    match reassembler.accept(frame) {
+        Ok(Some(done)) => shared.emit(Event::Data {
+            from: peer.clone(),
+            channel: done.channel,
+            handoff_id: done.handoff_id,
+            payload: done.payload,
+        }),
+        Ok(None) => {}
+        Err(e) => log::warn!("{} 的数据传输出错：{e}", peer.0),
     }
 }
 
