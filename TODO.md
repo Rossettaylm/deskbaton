@@ -33,6 +33,14 @@
 - [ ] Mac `stay_awake` 回退路径：IOKit 合盖控制失败时由特权助手执行 `pmset -a disablesleep 1`，并在启动时清理残留的 `SleepDisabled`
 - [ ] 🔧 验收清单第 1、3、4、5 项
 
+## 显示器面板（`docs/superpowers/specs/2026-10-16-display-panel-design.md`）
+
+- [ ] `display.inputs` 配置项 + `baton-display` 屏幕模式（macOS CoreGraphics、Windows EnumDisplaySettings）
+- [ ] `baton-gui`：Tauri 托盘面板，显示器信息 + 输入源切换，CI Linux 排除
+- [ ] 🔧 面板硬件验收清单第 1–3 项（Mac mini + 两台 HP D27k）
+- [ ] 🔧 面板硬件验收清单第 4 项（Windows）
+- [ ] 读取 capabilities 字符串自动识别输入口
+
 ## P3 · M3 扩展（另立设计文档）
 
 - [ ] HID 唤醒配件（验收清单第 2 项）

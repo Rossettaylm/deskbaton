@@ -104,6 +104,8 @@ crates/
                     （macOS 为 native 中的 NSApplication，Windows 为消息循环），全局热键依赖它分发；
                     `--stdin` 可用回车代替热键调试；Ctrl+C 经 Shutdown 事件退出，退出前释放保持唤醒
   baton-cli/        调试工具 deskbaton-cli：displays / get-input / set-input / wol / stay-awake
+  baton-gui/        显示器面板 deskbaton-gui（Tauri 2）：查看显示器信息、切换输入源，
+                    设计见 `2026-10-16-display-panel-design.md`
 ```
 
 **扩展方式**：新增一种能力只需新增对应 trait 的实现并在 agent 里注入，不改核心层。例如：
@@ -329,6 +331,10 @@ token = "两端相同的随机字符串"   # M1 预共享令牌，配对完成�
 mode = "ddc"            # ddc | none
 match = "auto"          # 或 EDID 型号子串
 input_code = 0x1B       # 本机在显示器上对应的输入源编码
+
+[[display.inputs]]      # 显示器面板的输入源按钮；默认 DP 0x0F / HDMI1 0x11 / HDMI2 0x12 / USB-C 0x1B
+label = "DP"
+code = 0x0F
 
 [input]
 mode = "monitor_kvm"    # monitor_kvm | software（需再写 backend = "deskflow" | "native"）
