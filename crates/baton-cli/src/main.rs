@@ -34,6 +34,8 @@ enum Command {
     Wol { mac: MacAddr },
     /// 在指定秒数内阻止本机睡眠（含合盖睡眠）
     StayAwake { secs: u64 },
+    /// 恢复上次异常退出残留的睡眠设置
+    RestoreSleep,
 }
 
 fn resolve(display: &dyn DisplayControl, matcher: &str) -> Result<DisplayId> {
@@ -75,6 +77,10 @@ fn run(command: Command) -> Result<()> {
             let _guard = baton_power::platform_power().stay_awake(duration)?;
             println!("保持唤醒 {secs} 秒，期间可合盖测试");
             thread::sleep(duration);
+        }
+        Command::RestoreSleep => {
+            baton_power::platform_power().restore_sleep()?;
+            println!("睡眠设置已恢复");
         }
     }
     Ok(())

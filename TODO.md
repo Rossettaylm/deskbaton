@@ -6,8 +6,8 @@
 
 - [x] Mac 端 DDC 读写
 - [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档
-- [ ] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言；失败时回退到特权助手执行 `pmset -a disablesleep 1`
-- [ ] Mac 启动时检查并清理残留的 `SleepDisabled`
+- [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
+- [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
 - [ ] Windows 端 DDC 读写（Dxva2），🔧 到 Windows 机器上跑 `deskbaton-cli` 验证
 - [ ] 🔧 实测免配件唤醒：显示器「USB Power(Sleep)」打开后 KVM 键盘能否唤醒合盖 Mac；蓝牙 HID 能否唤醒
@@ -30,6 +30,7 @@
 - [ ] 剪贴板通道 transfer（Begin / Chunk / End / Cancel + sha256 校验）
 - [ ] mDNS 发现、指纹配对界面，配对信息独立存储
 - [ ] 托盘、通知、开机自启
+- [ ] Mac `stay_awake` 回退路径：IOKit 合盖控制失败时由特权助手执行 `pmset -a disablesleep 1`，并在启动时清理残留的 `SleepDisabled`
 - [ ] 🔧 验收清单第 1、3、4、5 项
 
 ## P3 · M3 扩展（另立设计文档）

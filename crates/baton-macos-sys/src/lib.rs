@@ -34,7 +34,7 @@ unsafe extern "C" {
     pub fn deskbaton_ddc_write(display_index: u32, data: *const u8, len: u32) -> i32;
     pub fn deskbaton_ddc_read(display_index: u32, out: *mut u8, len: u32) -> i32;
 
-    pub fn deskbaton_stay_awake_begin(seconds: u32) -> i32;
+    pub fn deskbaton_stay_awake_begin() -> i32;
     pub fn deskbaton_stay_awake_end() -> i32;
     pub fn deskbaton_wake_display() -> i32;
 }

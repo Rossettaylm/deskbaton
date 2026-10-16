@@ -23,9 +23,10 @@ int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity);
 int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len);
 int32_t deskbaton_ddc_read(uint32_t display_index, uint8_t *out, uint32_t len);
 
-/* 电源：在 seconds 秒内阻止系统睡眠（含合盖睡眠），end 立即恢复 */
-int32_t deskbaton_stay_awake_begin(uint32_t seconds);
+/* 电源：begin 阻止空闲睡眠和合盖睡眠，end 恢复；两者都可重复调用。 */
+int32_t deskbaton_stay_awake_begin(void);
 int32_t deskbaton_stay_awake_end(void);
+/* 声明一次本地用户活动，点亮显示输出。 */
 int32_t deskbaton_wake_display(void);
 
 #endif

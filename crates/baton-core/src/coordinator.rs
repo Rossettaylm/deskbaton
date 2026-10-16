@@ -104,6 +104,9 @@ mod tests {
         fn wake_display(&self) -> Result<()> {
             Ok(())
         }
+        fn restore_sleep(&self) -> Result<()> {
+            Ok(())
+        }
     }
 
     impl InputRouter for Noop {

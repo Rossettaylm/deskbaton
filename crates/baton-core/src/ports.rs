@@ -47,9 +47,12 @@ pub trait DisplayControl: Send + Sync {
 /// 本机电源控制。
 pub trait PowerControl: Send + Sync {
     /// 在 `duration` 内阻止本机睡眠（包括合盖睡眠）。到期或 guard 被释放后恢复系统原有策略。
+    /// `Duration::MAX` 表示一直保持到 guard 被释放。多个 guard 可以重叠，最后一个结束时才恢复。
     fn stay_awake(&self, duration: Duration) -> Result<AwakeGuard>;
     /// 点亮本机显示输出，接棒前调用。
     fn wake_display(&self) -> Result<()>;
+    /// 恢复上次运行（可能异常退出）残留的睡眠设置，agent 启动时调用。
+    fn restore_sleep(&self) -> Result<()>;
 }
 
 /// 释放时恢复系统睡眠策略。

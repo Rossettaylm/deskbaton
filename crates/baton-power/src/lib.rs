@@ -4,6 +4,8 @@ pub mod wake;
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(any(target_os = "macos", test))]
+mod switch;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -42,6 +44,9 @@ mod unsupported {
         }
         fn wake_display(&self) -> Result<()> {
             Err(Error::Unsupported("当前操作系统的显示唤醒"))
+        }
+        fn restore_sleep(&self) -> Result<()> {
+            Ok(())
         }
     }
 }

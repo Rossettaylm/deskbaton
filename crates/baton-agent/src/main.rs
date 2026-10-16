@@ -14,6 +14,9 @@ fn build_coordinator(config: Config) -> Coordinator {
 }
 
 fn main() {
+    if let Err(e) = baton_power::platform_power().restore_sleep() {
+        eprintln!("恢复残留的睡眠设置失败：{e}");
+    }
     let mut coordinator = build_coordinator(Config::default());
     println!(
         "DeskBaton {}（骨架版本，交棒流程尚未实现）",

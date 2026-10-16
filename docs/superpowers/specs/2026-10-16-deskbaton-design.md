@@ -136,8 +136,9 @@ pub trait DisplayControl: Send + Sync {
 
 ```rust
 pub trait PowerControl: Send + Sync {
-    fn stay_awake(&self, duration: Duration) -> Result<AwakeGuard>;  // 含合盖睡眠；到期或 guard 释放后恢复
+    fn stay_awake(&self, duration: Duration) -> Result<AwakeGuard>;  // 含合盖睡眠；到期或 guard 释放后恢复；Duration::MAX 表示直到释放
     fn wake_display(&self) -> Result<()>;
+    fn restore_sleep(&self) -> Result<()>;                           // agent 启动时恢复上次异常退出的残留
 }
 pub trait Waker: Send + Sync {
     fn method(&self) -> WakeMethod;
@@ -145,7 +146,13 @@ pub trait Waker: Send + Sync {
 }
 ```
 
-**Mac 的 `stay_awake`**：先试 IOKit 合盖睡眠状态控制（据称不需要 root，M0 验证），失败再回退为特权助手执行 `pmset -a disablesleep 1`；同时持有防空闲睡眠断言。使用场景：
+**Mac 的 `stay_awake`**：经 `IOPMrootDomain` 的 `kPMSetClamshellSleepState` 关闭合盖睡眠，同时持有 `PreventUserIdleSystemSleep` 断言。普通用户调用该接口返回成功（已在 macOS 26 验证接口可调用；合盖效果待在 MacBook 上验收）。失败时回退为特权助手执行 `pmset -a disablesleep 1`（第二期，见 `TODO.md`）。
+
+- 多个 guard 可以重叠，按引用计数共用一个系统级开关，最后一个释放或到期时恢复；释放会等待正在进行的恢复完成，保证进程正常退出前已恢复。
+- 开启时在临时目录写标记文件，恢复后删除；agent 启动时发现标记就执行恢复（`restore_sleep`），处理崩溃或被强杀的情况。
+- `wake_display` 用 `IOPMAssertionDeclareUserActivity` 声明本地用户活动。
+
+使用场景：
 
 1. Mac 交出控制权后：默认 `stay_awake_until = "peer_offline"`，一直保持到对端心跳消失（Windows 关机或睡眠）为止；
    设为 `"duration"` 时改为保持 `power.stay_awake_secs` 秒；
