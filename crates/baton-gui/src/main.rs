@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Rect, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Rect, WebviewWindow, WindowEvent};
 
 use crate::placement::Bounds;
 
@@ -150,31 +150,47 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
     }
 }
 
+/// 托盘矩形和显示器位置都是「各屏逻辑坐标 × 该屏缩放比例」，不能跨屏直接比较；
+/// 先按各屏比例换回逻辑坐标找出图标所在的屏幕，再在该屏的逻辑坐标里计算。
 fn try_place(window: &WebviewWindow, rect: Rect) -> tauri::Result<()> {
-    let scale = window.scale_factor()?;
-    let position = rect.position.to_physical::<f64>(scale);
-    let size = rect.size.to_physical::<f64>(scale);
-    let Some(monitor) = window.monitor_from_point(position.x, position.y)? else {
+    let window_scale = window.scale_factor()?;
+    let position = rect.position.to_physical::<f64>(window_scale);
+    let size = rect.size.to_physical::<f64>(window_scale);
+    let found = window.available_monitors()?.into_iter().find_map(|m| {
+        let scale = m.scale_factor();
+        let screen = logical_bounds(&m);
+        screen
+            .contains(position.x / scale, position.y / scale)
+            .then_some((screen, scale))
+    });
+    let Some((screen, scale)) = found else {
+        log::warn!("找不到托盘图标所在的屏幕");
         return Ok(());
     };
     let tray = Bounds {
-        x: position.x,
-        y: position.y,
-        width: size.width,
-        height: size.height,
+        x: position.x / scale,
+        y: position.y / scale,
+        width: size.width / scale,
+        height: size.height / scale,
     };
-    let screen = Bounds {
-        x: f64::from(monitor.position().x),
-        y: f64::from(monitor.position().y),
-        width: f64::from(monitor.size().width),
-        height: f64::from(monitor.size().height),
-    };
-    let panel = window.outer_size()?;
-    let (x, y) = placement::panel_origin(
-        tray,
-        (f64::from(panel.width), f64::from(panel.height)),
-        screen,
-        GAP * monitor.scale_factor(),
-    );
-    window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32))
+    let panel = window.outer_size()?.to_logical::<f64>(window_scale);
+    let (x, y) = placement::panel_origin(tray, (panel.width, panel.height), screen, GAP);
+    // macOS 窗口坐标本身就是全局逻辑坐标；Windows 是全局物理坐标。
+    #[cfg(target_os = "macos")]
+    return window.set_position(tauri::LogicalPosition::new(x, y));
+    #[cfg(not(target_os = "macos"))]
+    window.set_position(tauri::PhysicalPosition::new(
+        (x * scale).round() as i32,
+        (y * scale).round() as i32,
+    ))
+}
+
+fn logical_bounds(monitor: &tauri::Monitor) -> Bounds {
+    let scale = monitor.scale_factor();
+    Bounds {
+        x: f64::from(monitor.position().x) / scale,
+        y: f64::from(monitor.position().y) / scale,
+        width: f64::from(monitor.size().width) / scale,
+        height: f64::from(monitor.size().height) / scale,
+    }
 }

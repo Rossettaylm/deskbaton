@@ -1,4 +1,4 @@
-//! 面板相对托盘图标的摆放计算，坐标均为同一屏幕坐标系下的物理像素。
+//! 面板相对托盘图标的摆放计算，坐标均为同一屏幕的逻辑像素。
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
@@ -9,6 +9,10 @@ pub struct Bounds {
 }
 
 impl Bounds {
+    pub fn contains(&self, x: f64, y: f64) -> bool {
+        (self.x..self.right()).contains(&x) && (self.y..self.bottom()).contains(&y)
+    }
+
     fn right(&self) -> f64 {
         self.x + self.width
     }
@@ -74,6 +78,14 @@ mod tests {
             panel_origin(tray(1700.0, 1048.0), (360.0, 440.0), SCREEN, 6.0),
             (1538.0, 602.0)
         );
+    }
+
+    #[test]
+    fn contains_is_half_open() {
+        assert!(SCREEN.contains(0.0, 0.0));
+        assert!(SCREEN.contains(1919.5, 1079.5));
+        assert!(!SCREEN.contains(1920.0, 10.0));
+        assert!(!SCREEN.contains(10.0, -1.0));
     }
 
     #[test]
