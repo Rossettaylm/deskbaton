@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>DeskBaton 显示器面板 · 风格样张</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Martian+Mono:wght@300;400;600&family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(120% 80% at 20% 0%, #c98a5a 0%, transparent 55%),
+      radial-gradient(90% 70% at 90% 100%, #5b3a2a 0%, transparent 60%),
+      linear-gradient(160deg, #8a5a3c, #2b1c16);
+    color: #eee;
+    padding: 40px 32px 64px;
+  }
+  header.page { max-width: 1240px; margin: 0 auto 32px; }
+  header.page h1 { font-size: 20px; font-weight: 600; letter-spacing: .02em; }
+  header.page p { opacity: .75; font-size: 13px; margin-top: 6px; }
+  .row { display: flex; gap: 40px; justify-content: center; flex-wrap: wrap; align-items: flex-start; }
+  .col { width: 360px; }
+  .col > .tag { font-size: 13px; margin-bottom: 12px; display: flex; gap: 8px; align-items: baseline; }
+  .col > .tag b { font-size: 15px; }
+  .col > .tag span { opacity: .7; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  /* ================= A · 信号台 ================= */
+  .sd {
+    --bg: #121315;
+    --card: #1a1b1e;
+    --line: rgba(255,255,255,.07);
+    --ink: #ECEAE6;
+    --mute: #8A8781;
+    --signal: #FF6A1A;
+    --signal-dim: rgba(255,106,26,.16);
+    --ok: #3DDC84;
+    --mono: "Martian Mono", ui-monospace, monospace;
+    position: relative;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 16px;
+    color: var(--ink);
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.04);
+    overflow: hidden;
+  }
+  .sd::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: .06;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .sd > * { position: relative; animation: rise .5s cubic-bezier(.2,.7,.2,1) both; }
+  .sd > *:nth-child(2) { animation-delay: .06s; }
+  .sd > *:nth-child(3) { animation-delay: .12s; }
+  .sd > *:nth-child(4) { animation-delay: .18s; }
+  .sd-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+  .sd-logo {
+    width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center;
+    background: linear-gradient(145deg, #ff7a2e, #e2520c);
+    box-shadow: 0 6px 16px -6px var(--signal);
+  }
+  .sd-title { flex: 1; min-width: 0; }
+  .sd-title b { font-size: 17px; font-weight: 600; display: block; }
+  .sd-title small { font-family: var(--mono); font-size: 10px; color: var(--mute); letter-spacing: .02em; }
+  .sd-more { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--mute); font-size: 16px; cursor: pointer; }
+  .sd-more:hover { color: var(--ink); background: rgba(255,255,255,.04); }
+
+  .sd-screen {
+    border-radius: 12px; padding: 14px 14px 10px;
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .sd-bezel {
+    position: relative; aspect-ratio: 16/9; border-radius: 6px;
+    border: 3px solid #2a2b2f; background: #0b0b0c; overflow: hidden;
+    display: grid; place-items: center; text-align: center;
+  }
+  .sd-bezel::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(70% 90% at 50% 30%, rgba(255,106,26,.28), transparent 70%);
+    transition: opacity .4s;
+  }
+  .sd-bezel::after {
+    content: ""; position: absolute; inset: 0; opacity: .25;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px);
+  }
+  .sd-bezel > div { position: relative; }
+  .sd-res { font-family: var(--mono); font-size: 26px; font-weight: 600; letter-spacing: -.02em; }
+  .sd-res i { font-style: normal; color: var(--signal); font-weight: 300; margin: 0 4px; }
+  .sd-sub { font-family: var(--mono); font-size: 9.5px; color: var(--mute); margin-top: 6px; }
+  .sd-stand { width: 38%; height: 4px; margin: 7px auto 0; border-radius: 2px; background: #2a2b2f; }
+  .sd-now { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 11px; color: var(--mute); }
+  .sd-now span:first-child::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--signal); margin-right: 6px; box-shadow: 0 0 8px var(--signal); vertical-align: 1px; }
+  .sd-now b { font-family: var(--mono); color: var(--signal); font-weight: 600; font-size: 11px; }
+
+  .sd-card { margin-top: 10px; border-radius: 12px; padding: 12px; background: var(--card); border: 1px solid var(--line); }
+  .sd-card h3 { font-size: 13px; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 10px; }
+  .sd-card h3 small { font-family: var(--mono); font-size: 9.5px; color: var(--mute); font-weight: 400; }
+  .sd-ports { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .sd-port {
+    position: relative; border-radius: 9px; padding: 10px 0 8px;
+    background: #141517; border: 1px solid var(--line); color: var(--mute);
+    font-family: var(--mono); font-size: 10px; font-weight: 600; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    transition: border-color .2s, color .2s, background .2s, transform .1s;
+  }
+  .sd-port:hover { color: var(--ink); border-color: rgba(255,255,255,.16); }
+  .sd-port:active { transform: scale(.97); }
+  .sd-port svg { width: 30px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+  .sd-port .led { position: absolute; top: 5px; right: 6px; width: 4px; height: 4px; border-radius: 50%; background: #2c2d31; transition: .2s; }
+  .sd-port.on { color: var(--signal); border-color: rgba(255,106,26,.55); background: var(--signal-dim); }
+  .sd-port.on svg { fill: rgba(255,106,26,.25); }
+  .sd-port.on .led { background: var(--signal); box-shadow: 0 0 6px var(--signal); }
+  .sd-foot { margin-top: 12px; padding: 0 2px; display: flex; justify-content: space-between; font-size: 10.5px; color: var(--mute); }
+  .sd-foot span:first-child::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+  .sd-foot span:last-child { font-family: var(--mono); font-size: 9.5px; }
+
+  /* ================= B · 原生磨砂 ================= */
+  .nf {
+    --ink: rgba(255,255,255,.92);
+    --mute: rgba(255,255,255,.55);
+    --accent: #0A84FF;
+    background: rgba(38,38,42,.62);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px; padding: 14px; color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", "PingFang SC", sans-serif;
+    box-shadow: 0 20px 50px -10px rgba(0,0,0,.5);
+  }
+  .nf > * { animation: rise .35s ease both; }
+  .nf-head { display: flex; gap: 10px; align-items: center; }
+  .nf-head .ic { width: 28px; height: 28px; border-radius: 7px; background: rgba(255,255,255,.12); display: grid; place-items: center; }
+  .nf-head b { font-size: 13px; font-weight: 600; display: block; }
+  .nf-head small { font-size: 11px; color: var(--mute); }
+  .nf-head .sp { flex: 1; }
+  .nf-sep { height: 1px; background: rgba(255,255,255,.1); margin: 12px -14px; }
+  .nf-label { font-size: 11px; font-weight: 600; color: var(--mute); margin-bottom: 8px; }
+  .nf-info { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 12px; }
+  .nf-info dt { color: var(--mute); }
+  .nf-info dd { text-align: right; font-variant-numeric: tabular-nums; }
+  .nf-seg { display: flex; padding: 2px; border-radius: 8px; background: rgba(0,0,0,.25); }
+  .nf-seg button {
+    flex: 1; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12px;
+    padding: 5px 0; border-radius: 6px; cursor: pointer; transition: background .15s;
+  }
+  .nf-seg button.on { background: rgba(255,255,255,.18); box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .nf-item { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 6px; margin: 0 -6px; border-radius: 5px; }
+  .nf-item:hover { background: var(--accent); }
+
+  /* ================= C · 纸面接力 ================= */
+  .pr {
+    --paper: #F3EEE3;
+    --ink: #1B1A17;
+    --mute: #7C766A;
+    --rule: #1B1A17;
+    --baton: #E8501C;
+    --serif: "Instrument Serif", "Songti SC", serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+    position: relative; overflow: hidden;
+    background: var(--paper); color: var(--ink);
+    border-radius: 4px; padding: 18px 20px 16px;
+    box-shadow: 0 24px 50px -18px rgba(0,0,0,.55);
+  }
+  .pr::after {
+    content: ""; position: absolute; top: -20px; right: 34px; width: 14px; height: 140px;
+    background: var(--baton); transform: rotate(32deg); transform-origin: top;
+  }
+  .pr > * { position: relative; z-index: 1; animation: rise .5s ease both; }
+  .pr > *:nth-child(2) { animation-delay: .08s; }
+  .pr > *:nth-child(3) { animation-delay: .16s; }
+  .pr-kicker { font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+  .pr-name { font-family: var(--serif); font-size: 34px; line-height: 1; margin: 6px 0 14px; }
+  .pr-name em { color: var(--baton); }
+  .pr-hero { border-top: 2px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 12px 0 10px; }
+  .pr-res { font-family: var(--serif); font-size: 52px; line-height: .95; letter-spacing: -.01em; font-variant-numeric: lining-nums; }
+  .pr-res i { color: var(--baton); font-size: 34px; margin: 0 2px; }
+  .pr-meta { display: flex; gap: 14px; margin-top: 8px; font-family: var(--mono); font-size: 10px; color: var(--mute); }
+  .pr-meta b { color: var(--ink); font-weight: 500; }
+  .pr-sec { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 0 8px; }
+  .pr-sec h3 { font-size: 13px; font-weight: 600; }
+  .pr-sec small { font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
+  .pr-ports { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border-top: 1px solid var(--rule); }
+  .pr-port {
+    display: flex; gap: 10px; align-items: baseline; padding: 10px 2px;
+    border: 0; border-bottom: 1px solid rgba(27,26,23,.2); background: transparent; color: var(--ink);
+    font-family: var(--mono); font-size: 12px; cursor: pointer; text-align: left; transition: color .2s;
+  }
+  .pr-port:nth-child(odd) { border-right: 1px solid rgba(27,26,23,.2); }
+  .pr-port:nth-child(even) { padding-left: 12px; }
+  .pr-port small { font-size: 9px; color: var(--mute); }
+  .pr-port.on { color: var(--baton); }
+  .pr-port.on::after { content: "●"; margin-left: auto; font-size: 8px; padding-right: 6px; }
+  .pr-foot { margin-top: 12px; font-family: var(--mono); font-size: 9.5px; color: var(--mute); display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>DeskBaton 显示器面板 · 风格样张</h1>
+  <p>三个方向，同一份内容（HP D27k · 当前 DP）。点输入源按钮可以看切换态。字体在样张里取自 Google Fonts，实现时随应用打包。</p>
+</header>
+
+<div class="row">
+  <!-- A -->
+  <div class="col">
+    <div class="tag"><b>A · 信号台</b><span>显示器 OSD 气质，接口轮廓 + 信号灯</span></div>
+    <div class="sd" data-group>
+      <div class="sd-head">
+        <div class="sd-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+        </div>
+        <div class="sd-title"><b>HP D27k</b><small>外接显示器 · <span data-now>DP</span> · 2560×1440 · 60Hz</small></div>
+        <button class="sd-more">⋯</button>
+      </div>
+      <div class="sd-screen">
+        <div class="sd-bezel"><div>
+          <div class="sd-res">2560<i>×</i>1440</div>
+          <div class="sd-sub">HiDPI · 渲染 5120×2880 · 60 Hz</div>
+        </div></div>
+        <div class="sd-stand"></div>
+        <div class="sd-now"><span>当前画面</span><b data-now>DP</b></div>
+      </div>
+      <div class="sd-card">
+        <h3>输入源 <small>DDC/CI · VCP 0x60</small></h3>
+        <div class="sd-ports">
+          <button class="sd-port on" data-port="DP"><i class="led"></i>
+            <svg viewBox="0 0 30 14"><path d="M2 2h26v7l-4 3H2z"/></svg>DP</button>
+          <button class="sd-port" data-port="HDMI1"><i class="led"></i>
+            <svg viewBox="0 0 30 14"><path d="M2 2h26v6l-3 4H5l-3-4z"/></svg>HDMI1</button>
+          <button class="sd-port" data-port="HDMI2"><i class="led"></i>
+            <svg viewBox="0 0 30 14"><path d="M2 2h26v6l-3 4H5l-3-4z"/></svg>HDMI2</button>
+          <button class="sd-port" data-port="USB-C"><i class="led"></i>
+            <svg viewBox="0 0 30 14"><rect x="4" y="2.5" width="22" height="9" rx="4.5"/></svg>USB-C</button>
+        </div>
+      </div>
+      <div class="sd-foot"><span>DDC 正常</span><span>SN BVTB42350197</span></div>
+    </div>
+  </div>
+
+  <!-- B -->
+  <div class="col">
+    <div class="tag"><b>B · 原生磨砂</b><span>贴近 macOS 菜单栏，存在感最低</span></div>
+    <div class="nf" data-group>
+      <div class="nf-head">
+        <div class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
+        <div><b>HP D27k</b><small>外接显示器 · <span data-now>DP</span></small></div>
+        <div class="sp"></div>
+        <small>⋯</small>
+      </div>
+      <div class="nf-sep"></div>
+      <div class="nf-label">输入源</div>
+      <div class="nf-seg">
+        <button class="on" data-port="DP">DP</button>
+        <button data-port="HDMI1">HDMI1</button>
+        <button data-port="HDMI2">HDMI2</button>
+        <button data-port="USB-C">USB-C</button>
+      </div>
+      <div class="nf-sep"></div>
+      <div class="nf-label">显示器</div>
+      <dl class="nf-info">
+        <dt>分辨率</dt><dd>2560 × 1440</dd>
+        <dt>渲染</dt><dd>5120 × 2880（HiDPI）</dd>
+        <dt>刷新率</dt><dd>60 Hz</dd>
+        <dt>当前画面</dt><dd data-now>DP</dd>
+        <dt>序列号</dt><dd>BVTB42350197</dd>
+      </dl>
+      <div class="nf-sep"></div>
+      <div class="nf-item"><span>刷新</span><small>⌘R</small></div>
+      <div class="nf-item"><span>退出</span><small>⌘Q</small></div>
+    </div>
+  </div>
+
+  <!-- C -->
+  <div class="col">
+    <div class="tag"><b>C · 纸面接力</b><span>杂志排版，衬线大数字，橙色接力棒</span></div>
+    <div class="pr" data-group>
+      <div>
+        <div class="pr-kicker">外接显示器 · No.01 / 02</div>
+        <div class="pr-name">HP <em>D27k</em></div>
+      </div>
+      <div class="pr-hero">
+        <div class="pr-res">2560<i>×</i>1440</div>
+        <div class="pr-meta"><span>渲染 <b>5120×2880</b></span><span><b>60</b> Hz</span><span>HiDPI</span><span>当前 <b data-now>DP</b></span></div>
+      </div>
+      <div>
+        <div class="pr-sec"><h3>输入源</h3><small>VCP 0x60</small></div>
+        <div class="pr-ports">
+          <button class="pr-port on" data-port="DP"><small>01</small>DP</button>
+          <button class="pr-port" data-port="HDMI1"><small>02</small>HDMI1</button>
+          <button class="pr-port" data-port="HDMI2"><small>03</small>HDMI2</button>
+          <button class="pr-port" data-port="USB-C"><small>04</small>USB-C</button>
+        </div>
+        <div class="pr-foot"><span>DDC 正常</span><span>SN BVTB42350197</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  for (const group of document.querySelectorAll("[data-group]")) {
+    group.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-port]");
+      if (!btn) return;
+      for (const b of group.querySelectorAll("[data-port]")) b.classList.toggle("on", b === btn);
+      for (const n of group.querySelectorAll("[data-now]")) n.textContent = btn.dataset.port;
+    });
+  }
+</script>
+</body>
+</html>
