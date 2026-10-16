@@ -5,6 +5,7 @@ use std::time::Duration;
 use baton_core::Result;
 use baton_core::ids::{DisplayId, InputCode, MacAddr};
 use baton_core::ports::{DisplayControl, DisplayInfo};
+use baton_power::sleep_helper;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -36,6 +37,21 @@ enum Command {
     StayAwake { secs: u64 },
     /// 恢复上次异常退出残留的睡眠设置
     RestoreSleep,
+    /// 管理免密码执行 pmset 的 sudoers 规则（macOS 合盖切换时阻止睡眠需要它）
+    SleepHelper {
+        #[command(subcommand)]
+        action: HelperAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum HelperAction {
+    /// 为当前用户安装规则，会提示输入管理员密码
+    Install,
+    /// 删除规则
+    Uninstall,
+    /// 查看规则是否生效
+    Status,
 }
 
 fn resolve(display: &dyn DisplayControl, matcher: &str) -> Result<DisplayId> {
@@ -86,6 +102,11 @@ fn run(command: Command) -> Result<()> {
             println!("已向 {mac} 发送魔术包");
         }
         Command::StayAwake { secs } => {
+            if cfg!(target_os = "macos") && !sleep_helper::installed() {
+                eprintln!(
+                    "警告：未安装 sleep-helper，只能阻止空闲睡眠，合盖的 Mac 切回时仍会睡眠。先运行 deskbaton-cli sleep-helper install"
+                );
+            }
             let duration = Duration::from_secs(secs);
             let _guard = baton_power::platform_power().stay_awake(duration)?;
             println!("保持唤醒 {secs} 秒，期间可合盖测试");
@@ -95,6 +116,23 @@ fn run(command: Command) -> Result<()> {
             baton_power::platform_power().restore_sleep()?;
             println!("睡眠设置已恢复");
         }
+        Command::SleepHelper { action } => match action {
+            HelperAction::Install => {
+                sleep_helper::install()?;
+                println!("已写入 {}", sleep_helper::SUDOERS_PATH);
+            }
+            HelperAction::Uninstall => {
+                sleep_helper::uninstall()?;
+                println!("已删除 {}", sleep_helper::SUDOERS_PATH);
+            }
+            HelperAction::Status => {
+                if sleep_helper::installed() {
+                    println!("已生效：{}", sleep_helper::SUDOERS_PATH);
+                } else {
+                    println!("未生效，运行 deskbaton-cli sleep-helper install 安装");
+                }
+            }
+        },
     }
     Ok(())
 }

@@ -40,7 +40,7 @@ typedef struct {
 /* display_index 同 deskbaton_ddc_list；显示器不在 CoreGraphics 的在线列表中时返回 NOT_FOUND。 */
 int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out);
 
-/* 电源：begin 阻止空闲睡眠和合盖睡眠，end 恢复；两者都可重复调用。 */
+/* 电源：begin 持有防空闲睡眠断言，end 释放；两者都可重复调用。合盖睡眠由 Rust 侧经 pmset 控制。 */
 int32_t deskbaton_stay_awake_begin(void);
 int32_t deskbaton_stay_awake_end(void);
 /* 声明一次本地用户活动，点亮显示输出。 */

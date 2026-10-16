@@ -10,7 +10,7 @@
 - [ ] 🔧 用新 DDC 实现在 HP D27k 上复测 `get-input` / `set-input`
 - [x] 合盖 Mac 切回时外接屏短暂消失触发合盖睡眠，IOKit `kPMSetClamshellSleepState` 会被 powerd 覆盖而失效：设计文档改为以 `pmset -a disablesleep 1` 为 `stay_awake` 主路径
 - [x] 🔧 手动 `sudo pmset -a disablesleep 1` 后合盖切走再切回，Mac 不睡、切回后不开盖画面恢复（2026-10-16 用户确认）
-- [ ] Mac `stay_awake` 主路径：经 sudoers 规则执行 `sudo -n pmset -a disablesleep 1/0`，去掉 IOKit 合盖控制；规则缺失时只记警告；标记文件挪到 `~/Library/Application Support/DeskBaton/`；`deskbaton-cli sleep-helper install / uninstall / status`
+- [x] Mac `stay_awake` 主路径：经 sudoers 规则执行 `sudo -n pmset -a disablesleep 1/0`，去掉 IOKit 合盖控制；规则缺失时只记警告；标记文件挪到 `~/Library/Application Support/DeskBaton/`；`deskbaton-cli sleep-helper install / uninstall / status`
 - [ ] 🔧 装好 sudoers 规则后用 agent / `deskbaton-cli stay-awake` 复测合盖切走再切回
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置

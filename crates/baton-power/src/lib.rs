@@ -1,5 +1,6 @@
 //! 本机电源控制（短时保持唤醒、点亮显示）与唤醒对端的各种方式。
 
+pub mod sleep_helper;
 pub mod wake;
 
 #[cfg(target_os = "macos")]
