@@ -8,4 +8,7 @@ fn main() {
         .file("native/power.m")
         .flag("-fobjc-arc")
         .compile("deskbaton_native");
+    for framework in ["IOKit", "CoreFoundation", "Foundation"] {
+        println!("cargo:rustc-link-lib=framework={framework}");
+    }
 }

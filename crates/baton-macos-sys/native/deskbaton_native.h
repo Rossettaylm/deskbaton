@@ -6,11 +6,22 @@
 /* 返回值约定：0 成功，负数为错误码。 */
 #define DESKBATON_OK 0
 #define DESKBATON_ERR_UNIMPLEMENTED (-1)
+#define DESKBATON_ERR_NOT_FOUND (-2)
+#define DESKBATON_ERR_IO (-3)
 
 /* DDC/CI（Apple Silicon，经 IOAVService） */
-int32_t deskbaton_ddc_display_count(void);
-int32_t deskbaton_ddc_get_input(uint32_t display_index, uint16_t *out_input);
-int32_t deskbaton_ddc_set_input(uint32_t display_index, uint16_t input);
+typedef struct {
+    char edid_uuid[64];
+    char vendor[16];
+    char model[64];
+    char serial[64];
+} deskbaton_display_info;
+
+/* 枚举外接显示器，最多写入 capacity 项；返回实际台数（可能大于 capacity）。 */
+int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity);
+/* display_index 为 deskbaton_ddc_list 中的序号；data 为不含主机源地址的 DDC/CI 报文。 */
+int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len);
+int32_t deskbaton_ddc_read(uint32_t display_index, uint8_t *out, uint32_t len);
 
 /* 电源：在 seconds 秒内阻止系统睡眠（含合盖睡眠），end 立即恢复 */
 int32_t deskbaton_stay_awake_begin(uint32_t seconds);

@@ -3,13 +3,36 @@
 
 #![cfg(target_os = "macos")]
 
+use std::ffi::c_char;
+
 pub const OK: i32 = 0;
 pub const ERR_UNIMPLEMENTED: i32 = -1;
+pub const ERR_NOT_FOUND: i32 = -2;
+pub const ERR_IO: i32 = -3;
+
+/// 对应 `deskbaton_display_info`，字段均为以 NUL 结尾的 UTF-8。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RawDisplayInfo {
+    pub edid_uuid: [c_char; 64],
+    pub vendor: [c_char; 16],
+    pub model: [c_char; 64],
+    pub serial: [c_char; 64],
+}
+
+impl RawDisplayInfo {
+    pub const EMPTY: Self = Self {
+        edid_uuid: [0; 64],
+        vendor: [0; 16],
+        model: [0; 64],
+        serial: [0; 64],
+    };
+}
 
 unsafe extern "C" {
-    pub fn deskbaton_ddc_display_count() -> i32;
-    pub fn deskbaton_ddc_get_input(display_index: u32, out_input: *mut u16) -> i32;
-    pub fn deskbaton_ddc_set_input(display_index: u32, input: u16) -> i32;
+    pub fn deskbaton_ddc_list(out: *mut RawDisplayInfo, capacity: u32) -> i32;
+    pub fn deskbaton_ddc_write(display_index: u32, data: *const u8, len: u32) -> i32;
+    pub fn deskbaton_ddc_read(display_index: u32, out: *mut u8, len: u32) -> i32;
 
     pub fn deskbaton_stay_awake_begin(seconds: u32) -> i32;
     pub fn deskbaton_stay_awake_end() -> i32;

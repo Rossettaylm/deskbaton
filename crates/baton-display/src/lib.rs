@@ -1,5 +1,7 @@
 //! 显示器输入源控制（DDC/CI）的各平台实现。
 
+#[cfg(any(target_os = "macos", test))]
+mod mccs;
 mod quirks;
 
 #[cfg(target_os = "macos")]
