@@ -273,20 +273,22 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 ### 6.1 状态
 
 `Holding`（持棒）/ `Idle`（不持棒）/ `HandingOff(id)` / `Receiving(id)`。
-启动时 `refresh_state`：`get_input` 读到本机的输入源编码即为 `Holding`，否则为 `Idle`。
+启动时 `refresh_state`：`get_input` 读到本机的输入源编码即为 `Holding`，否则为 `Idle`。`Idle` 时按下热键会先重新判定一次，避免上次交棒超时后画面才切过来、两边都不响应热键。
+
+协调器是事件驱动的状态机：`handle(event, now)` 处理事件，`tick(now)` 处理超时和轮询，`next_deadline()` 给出下一次需要 `tick` 的时间。所有等待都不阻塞事件处理，测试用假时钟驱动。
 
 ### 6.2 流程（持棒方 A 按下热键）
 
 1. A 检查 B 的心跳。
 2. B 离线时，A 运行唤醒链。结果为 `Sent` 就等 B 的心跳（最多 30 秒）；结果为 `NeedsUser` 就弹通知并结束。
-3. B 上线（或被唤醒）后，如果 B 是 Mac，立即 `stay_awake(60s)`，防止合盖睡回去。
-4. A → `prepare`。B 调用 `wake_display()`，回 `ready`（3 秒超时）。
+3. B 上线（或被唤醒）后，A 立即发 `prepare`。
+4. B 收到 `prepare` 后先 `stay_awake(60s)`（防止合盖的 Mac 睡回去；Windows 上为空操作），再调用 `wake_display()`，回 `ready`。A 等 `ready` 最多 3 秒。B 正在交棒或自己持棒时回 `abort`。
 5. A 调用 `input.release(B)`，如果 A 是 Mac，再按 `stay_awake_until` 策略调用 `stay_awake`（`peer_offline` 时由协调器在 B 心跳消失时释放 guard）。
    同时并行调用各交棒参与者的 `pack`，经数据通道发给 B，不等待传输完成。
 6. A 调用 `set_input(B 的输入源编码)`；KVM 模式下，键鼠随之切给 B。
 7. B 每 300 毫秒轮询一次 `get_input`，读到自己的编码就调用 `input.acquire()`，回 `taken`，进入 `Holding`，并释放第 3 步拿到的 guard。最长等 8 秒。
 8. A 收到 `taken` 后进入 `Idle`。A 是 Mac 时，第 5 步的 guard 到期后，Mac 正常睡眠。
-9. A 超时没收到 `taken`：尝试 `set_input(自己的编码)` 切回，并通知报错。
+9. A 超时没收到 `taken`（或 B 在此之前掉线、回 `abort`）：尝试 `set_input(自己的编码)` 切回、收回键鼠，再按 `get_input` 重新判定状态，并通知报错。B 轮询超时则回 `abort` 并进入 `Idle`。
 10. B 收到完整的参与者数据后调用对应参与者的 `unpack`（可能早于或晚于 `taken`）。交棒被中止时，B 丢弃未交付的数据。
 
 ## 7. 错误处理

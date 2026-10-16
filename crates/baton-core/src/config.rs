@@ -95,7 +95,10 @@ pub enum SoftwareBackend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PowerConfig {
-    /// 交棒后本机保持唤醒的秒数；0 表示立即允许系统睡眠。
+    /// 交出控制权后保持唤醒到什么时候。
+    #[serde(default)]
+    pub stay_awake_until: StayAwakeUntil,
+    /// `duration` 模式下交棒后本机保持唤醒的秒数；0 表示立即允许系统睡眠。
     #[serde(default = "default_stay_awake_secs")]
     pub stay_awake_secs: u64,
     /// 接棒方离线时按顺序尝试的唤醒方式。
@@ -106,10 +109,21 @@ pub struct PowerConfig {
 impl Default for PowerConfig {
     fn default() -> Self {
         Self {
+            stay_awake_until: StayAwakeUntil::default(),
             stay_awake_secs: default_stay_awake_secs(),
             wake_chain: default_wake_chain(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StayAwakeUntil {
+    /// 一直保持到接棒方离线（关机、睡眠）。
+    #[default]
+    PeerOffline,
+    /// 保持 `stay_awake_secs` 秒。
+    Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +185,7 @@ mod tests {
             input_code = 0x1B
 
             [power]
+            stay_awake_until = "duration"
             stay_awake_secs = 0
             wake_chain = ["hid_dongle", "prompt"]
 
@@ -185,6 +200,7 @@ mod tests {
         assert_eq!(cfg.display.mode, DisplayMode::Ddc);
         assert_eq!(cfg.display.input_code, Some(InputCode(0x1B)));
         assert_eq!(cfg.input, InputRouting::MonitorKvm);
+        assert_eq!(cfg.power.stay_awake_until, StayAwakeUntil::Duration);
         assert_eq!(cfg.power.stay_awake_secs, 0);
         assert_eq!(
             cfg.peers[0].wol_mac,

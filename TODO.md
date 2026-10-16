@@ -17,10 +17,10 @@
 ## P1 · M1 命令行交棒
 
 - [x] `baton-core`：补 `channel.rs`（`ChannelId`）、`participant.rs`（`HandoffParticipant`）、`event.rs`（`Event`），`PeerLink` 改为事件驱动
-- [ ] `Coordinator` 交棒流程（设计 6.2 第 1–10 步），用假实现单测正常交棒、各类超时、掉线、唤醒失败、并发热键
+- [x] `Coordinator` 交棒流程（设计 6.2 第 1–10 步），用假实现单测正常交棒、各类超时、掉线、唤醒失败、并发热键
 - [ ] `baton-net`：`mux` 控制帧优先的发送调度，单测「大数据传输期间控制帧最多等一个块」
 - [ ] `baton-net`：TCP + TLS 连接、预共享令牌、2 秒心跳与离线判定
-- [ ] `peer_offline` 保持唤醒策略：对端心跳消失时释放 `AwakeGuard`
+- [x] `peer_offline` 保持唤醒策略：对端离线时释放 `AwakeGuard`
 - [ ] `baton-agent`：组装各平台实现、全局热键、写死对端地址
 - [ ] 本机回环地址上两个 agent 跑通握手、心跳、交棒消息
 - [ ] 🔧 验收清单第 1、3、4 项
