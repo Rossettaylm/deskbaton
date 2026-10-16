@@ -1,6 +1,3 @@
-use std::thread;
-use std::time::Duration;
-
 use baton_core::ids::{DisplayId, InputCode};
 use baton_core::ports::{DisplayControl, DisplayInfo};
 use baton_core::{Error, Result};
@@ -9,7 +6,9 @@ use baton_macos_sys::{self as sys, RawDisplayInfo, RawScreenMode};
 use crate::{ScreenMode, mccs, retry};
 
 /// DDC/CI 要求主机发完请求后至少等 40 毫秒再读回包。
-const REPLY_DELAY: Duration = Duration::from_millis(50);
+const REPLY_DELAY_MS: u32 = 50;
+/// P275MV 只收到一次请求时回 Null Message，连发两次才回值；对其它显示器重复请求无副作用。
+const WRITE_CYCLES: u32 = 2;
 
 /// Apple Silicon 上经 IOAVService 读写 DDC。`DisplayId` 为 EDID UUID，同一 UUID 的后续显示器追加 `#序号`。
 pub struct MacDdc;
@@ -23,13 +22,15 @@ impl DisplayControl for MacDdc {
         let index = index_of(display)?;
         let request = mccs::get_vcp_request(mccs::VCP_INPUT_SOURCE);
         retry(|| {
-            write(index, &request)?;
-            thread::sleep(REPLY_DELAY);
             let mut reply = [0u8; mccs::VCP_REPLY_LEN];
-            read(index, &mut reply)?;
-            let value = mccs::parse_vcp_reply(mccs::VCP_INPUT_SOURCE, &reply)?;
-            // 输入源是 MCCS 非连续值，只有低字节有效；部分显示器会在高字节放非零值。
-            Ok(InputCode(value & 0xFF))
+            transact(index, &request, &mut reply)?;
+            match mccs::classify_vcp_reply(mccs::VCP_INPUT_SOURCE, &reply)? {
+                // 输入源是 MCCS 非连续值，只有低字节有效；部分显示器会在高字节放非零值。
+                mccs::VcpReply::Ready(value) => Ok(InputCode(value & 0xFF)),
+                mccs::VcpReply::NotReady => {
+                    Err(Error::Ddc("显示器回了空消息，没有给出当前输入源".into()))
+                }
+            }
         })
     }
 
@@ -117,12 +118,27 @@ fn text(field: &[std::ffi::c_char]) -> String {
 
 fn write(index: u32, data: &[u8]) -> Result<()> {
     // SAFETY: `data` 在调用期间有效，原生函数只读取 `data.len()` 字节。
-    check(unsafe { sys::deskbaton_ddc_write(index, data.as_ptr(), data.len() as u32) }).map(drop)
+    check(unsafe {
+        sys::deskbaton_ddc_write(index, data.as_ptr(), data.len() as u32, WRITE_CYCLES)
+    })
+    .map(drop)
 }
 
-fn read(index: u32, out: &mut [u8]) -> Result<()> {
-    // SAFETY: `out` 在调用期间有效，原生函数最多写入 `out.len()` 字节。
-    check(unsafe { sys::deskbaton_ddc_read(index, out.as_mut_ptr(), out.len() as u32) }).map(drop)
+/// 每次调用都重新发请求：不重发而再读，读到的不是回包而是总线上的残留数据。
+fn transact(index: u32, request: &[u8], reply: &mut [u8]) -> Result<()> {
+    // SAFETY: `request` 只被读取 `request.len()` 字节，`reply` 最多被写入 `reply.len()` 字节，两者在调用期间有效。
+    check(unsafe {
+        sys::deskbaton_ddc_transact(
+            index,
+            request.as_ptr(),
+            request.len() as u32,
+            WRITE_CYCLES,
+            REPLY_DELAY_MS,
+            reply.as_mut_ptr(),
+            reply.len() as u32,
+        )
+    })
+    .map(drop)
 }
 
 fn check(rc: i32) -> Result<u32> {

@@ -42,8 +42,21 @@ pub struct RawScreenMode {
 
 unsafe extern "C" {
     pub fn deskbaton_ddc_list(out: *mut RawDisplayInfo, capacity: u32) -> i32;
-    pub fn deskbaton_ddc_write(display_index: u32, data: *const u8, len: u32) -> i32;
-    pub fn deskbaton_ddc_read(display_index: u32, out: *mut u8, len: u32) -> i32;
+    pub fn deskbaton_ddc_write(
+        display_index: u32,
+        data: *const u8,
+        len: u32,
+        write_cycles: u32,
+    ) -> i32;
+    pub fn deskbaton_ddc_transact(
+        display_index: u32,
+        data: *const u8,
+        data_len: u32,
+        write_cycles: u32,
+        reply_delay_ms: u32,
+        out: *mut u8,
+        out_len: u32,
+    ) -> i32;
     pub fn deskbaton_screen_mode(display_index: u32, out: *mut RawScreenMode) -> i32;
 
     pub fn deskbaton_stay_awake_begin() -> i32;

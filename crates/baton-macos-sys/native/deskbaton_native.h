@@ -19,9 +19,14 @@ typedef struct {
 
 /* 枚举外接显示器，最多写入 capacity 项；返回实际台数（可能大于 capacity）。 */
 int32_t deskbaton_ddc_list(deskbaton_display_info *out, uint32_t capacity);
-/* display_index 为 deskbaton_ddc_list 中的序号；data 为不含主机源地址的 DDC/CI 报文。 */
-int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len);
-int32_t deskbaton_ddc_read(uint32_t display_index, uint8_t *out, uint32_t len);
+/* display_index 为 deskbaton_ddc_list 中的序号；data 为不含主机源地址的 DDC/CI 报文。
+ * 同一报文连发 write_cycles 次，每次前等 10 毫秒。 */
+int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len,
+                            uint32_t write_cycles);
+/* 在同一 IOAVService 上按 deskbaton_ddc_write 的方式发请求，等 reply_delay_ms 后读一次回包。 */
+int32_t deskbaton_ddc_transact(uint32_t display_index, const uint8_t *data, uint32_t data_len,
+                               uint32_t write_cycles, uint32_t reply_delay_ms, uint8_t *out,
+                               uint32_t out_len);
 
 /* 屏幕当前模式；width / height 为逻辑分辨率，pixel_* 为渲染分辨率，refresh_hz 为 0 表示未知。 */
 typedef struct {

@@ -14,6 +14,13 @@ const LENGTH_FLAG: u8 = 0x80;
 const GET_VCP: u8 = 0x01;
 const GET_VCP_REPLY: u8 = 0x02;
 const SET_VCP: u8 = 0x03;
+const NULL_MESSAGE: u8 = 0xBE;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VcpReply {
+    Ready(u16),
+    NotReady,
+}
 
 pub fn get_vcp_request(vcp: u8) -> [u8; 4] {
     with_checksum([LENGTH_FLAG | 2, GET_VCP, vcp, 0])
@@ -22,6 +29,18 @@ pub fn get_vcp_request(vcp: u8) -> [u8; 4] {
 pub fn set_vcp_request(vcp: u8, value: u16) -> [u8; 6] {
     let [high, low] = value.to_be_bytes();
     with_checksum([LENGTH_FLAG | 4, SET_VCP, vcp, high, low, 0])
+}
+
+/// Null Message（`6E 80 BE`）只有 3 字节，缓冲区其余部分是总线残留，只看头三字节。
+fn is_null_message(reply: &[u8; VCP_REPLY_LEN]) -> bool {
+    reply[0] == DISPLAY_ADDRESS && reply[1] == LENGTH_FLAG && reply[2] == NULL_MESSAGE
+}
+
+pub fn classify_vcp_reply(vcp: u8, reply: &[u8; VCP_REPLY_LEN]) -> Result<VcpReply> {
+    if is_null_message(reply) {
+        return Ok(VcpReply::NotReady);
+    }
+    Ok(VcpReply::Ready(parse_vcp_reply(vcp, reply)?))
 }
 
 /// 解析 Get VCP Feature 回包：`6E 88 02 结果 VCP 类型 最大值(2) 当前值(2) 校验和`，返回当前值。
@@ -106,5 +125,32 @@ mod tests {
         r[3] = 0x01;
         r[10] = xor(0x50, &r[..10]);
         assert!(parse_vcp_reply(VCP_INPUT_SOURCE, &r).is_err());
+    }
+
+    #[test]
+    fn classifies_null_message_as_not_ready_regardless_of_tail() {
+        let p275mv_null = [
+            0x6E, 0x80, 0xBE, 0x0D, 0xD1, 0x08, 0x06, 0xB2, 0x67, 0xBE, 0xA2,
+        ];
+        assert_eq!(
+            classify_vcp_reply(VCP_INPUT_SOURCE, &p275mv_null).unwrap(),
+            VcpReply::NotReady
+        );
+    }
+
+    #[test]
+    fn classifies_valid_reply_as_ready() {
+        assert_eq!(
+            classify_vcp_reply(VCP_INPUT_SOURCE, &reply(0x0F)).unwrap(),
+            VcpReply::Ready(0x0F)
+        );
+    }
+
+    #[test]
+    fn classifies_garbage_as_error() {
+        let garbage = [
+            0xA8, 0xFC, 0x9B, 0x0D, 0xD1, 0x08, 0x06, 0xB2, 0x67, 0xBE, 0xA2,
+        ];
+        assert!(classify_vcp_reply(VCP_INPUT_SOURCE, &garbage).is_err());
     }
 }

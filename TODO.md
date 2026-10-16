@@ -5,7 +5,9 @@
 ## P0 · M0 原型：验证设计前提
 
 - [x] Mac 端 DDC 读写
-- [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档
+- [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档（[部分记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：USB-C 读到 `0x0F`，可能与 DP 撞码；DP 编码和 KVM 跟随未测）
+- [x] Mac DDC 请求连发两次：P275MV 只收到一次请求时回 Null Message
+- [ ] 🔧 用新 DDC 实现在 HP D27k 上复测 `get-input` / `set-input`
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖

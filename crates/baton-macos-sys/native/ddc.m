@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <IOKit/IOKitLib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "deskbaton_native.h"
 #include "external_display.h"
@@ -112,14 +113,34 @@ static int32_t with_av_service(uint32_t display_index, IOReturn (^op)(IOAVServic
     }
 }
 
-int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len) {
+static const useconds_t kWriteGapUs = 10000;
+
+static IOReturn write_repeated(IOAVServiceRef service, const uint8_t *data, uint32_t len,
+                               uint32_t write_cycles) {
+    IOReturn rc = kIOReturnSuccess;
+    for (uint32_t i = 0; i < write_cycles && rc == kIOReturnSuccess; i++) {
+        usleep(kWriteGapUs);
+        rc = IOAVServiceWriteI2C(service, kDdcChipAddress, kDdcHostAddress, (void *)data, len);
+    }
+    return rc;
+}
+
+int32_t deskbaton_ddc_write(uint32_t display_index, const uint8_t *data, uint32_t len,
+                            uint32_t write_cycles) {
     return with_av_service(display_index, ^IOReturn(IOAVServiceRef service) {
-        return IOAVServiceWriteI2C(service, kDdcChipAddress, kDdcHostAddress, (void *)data, len);
+        return write_repeated(service, data, len, write_cycles);
     });
 }
 
-int32_t deskbaton_ddc_read(uint32_t display_index, uint8_t *out, uint32_t len) {
+int32_t deskbaton_ddc_transact(uint32_t display_index, const uint8_t *data, uint32_t data_len,
+                               uint32_t write_cycles, uint32_t reply_delay_ms, uint8_t *out,
+                               uint32_t out_len) {
     return with_av_service(display_index, ^IOReturn(IOAVServiceRef service) {
-        return IOAVServiceReadI2C(service, kDdcChipAddress, kDdcHostAddress, out, len);
+        IOReturn rc = write_repeated(service, data, data_len, write_cycles);
+        if (rc != kIOReturnSuccess) {
+            return rc;
+        }
+        usleep(reply_delay_ms * 1000);
+        return IOAVServiceReadI2C(service, kDdcChipAddress, kDdcHostAddress, out, out_len);
     });
 }
