@@ -221,6 +221,10 @@ pub trait InputRouter: Send + Sync {
 
 **数据通道的传输单元**是一次 transfer：Begin 帧携带 `{ transfer_id, handoff_id, format, total_len, sha256 }`，之后是若干 Chunk 帧（每块 64 KiB），最后是 End 帧。接收方校验长度和哈希后才交付。任一方可以发 Cancel 中止。
 
+- Chunk / End / Cancel 的负载以 8 字节大端 `transfer_id` 开头（Chunk 后接原始字节），同一通道上交替发送的多个 transfer 据此区分。
+- 单次 transfer 上限 256 MiB（`MAX_TRANSFER_LEN`），超过时发送方拒绝、接收方丢弃；参与者自己的上限（如 `clipboard.max_bytes`）更小。
+- 线上格式版本 `PROTOCOL_VERSION = 2`（v1 为不带通道号的 `len | JSON`）。
+
 **发送调度**（`mux`）：每条连接一个写任务，维护两个队列。
 - 控制队列永远优先发送；
 - 数据队列按 transfer 轮转，每次只发一个 Chunk。

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr};
 use crate::state::AgentState;
 
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 
 /// agent 之间的消息。交棒流程见 `docs/superpowers/specs/2026-10-16-deskbaton-design.md`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
