@@ -89,6 +89,8 @@ pub struct Coordinator {
     state: AgentState,
     known: HashMap<DeviceId, PeerInfo>,
     online: HashSet<DeviceId>,
+    /// 本机输入源编码：配置值，或自动学到的值。
+    my_code: Option<InputCode>,
     pending: Option<Pending>,
     /// 交出控制权后保持唤醒的 guard；`peer_offline` 策略下在该对端离线时释放。
     awake_after_handoff: Option<(DeviceId, AwakeGuard)>,
@@ -100,6 +102,7 @@ impl Coordinator {
     pub fn new(me: DeviceId, config: Config, ports: Ports) -> Self {
         Self {
             me,
+            my_code: config.display.input_code,
             config,
             ports,
             timings: Timings::default(),
@@ -122,6 +125,12 @@ impl Coordinator {
         for peer in peers {
             self.known.insert(peer.device_id.clone(), peer);
         }
+        self
+    }
+
+    /// 本机输入源编码的初始值（配置值或上次学到的值）。
+    pub fn with_input_code(mut self, code: Option<InputCode>) -> Self {
+        self.my_code = code;
         self
     }
 
@@ -177,8 +186,11 @@ impl Coordinator {
 
     pub fn handle(&mut self, event: Event, now: Instant) {
         match event {
-            Event::Hotkey => self.on_hotkey(now),
+            Event::Hotkey => self.on_handoff_request(None, now),
+            Event::HandoffTo(target) => self.on_handoff_request(Some(target), now),
+            Event::LocalInputCode(code) => self.on_local_input_code(code),
             Event::PeerOnline(info) => self.on_peer_online(info, now),
+            Event::PeerUpdated(info) => self.on_peer_updated(info),
             Event::PeerOffline(peer) => self.on_peer_offline(&peer),
             Event::PeerRemoved(peer) => {
                 self.on_peer_offline(&peer);
@@ -269,22 +281,42 @@ impl Coordinator {
         }
     }
 
-    fn on_hotkey(&mut self, now: Instant) {
+    /// 热键（`target` 为空，自动选目标）或面板上点了某台电脑。
+    fn on_handoff_request(&mut self, target: Option<DeviceId>, now: Instant) {
         if self.pending.is_some() {
-            log::info!("交棒进行中，忽略热键");
+            log::info!("交棒进行中，忽略本次请求");
             return;
         }
         if self.state != AgentState::Holding {
             // 判定可能已过时（例如上次交棒超时后画面才切过来），按显示器实际输入源重新判定。
-            let _ = self.refresh_state();
+            if let Err(e) = self.refresh_state() {
+                self.notify(&format!("无法判定持棒状态：{e}"));
+                return;
+            }
             if self.state != AgentState::Holding {
-                log::info!("本机不持棒，忽略热键");
+                if target.is_some() {
+                    self.notify("画面不在本机，请在持有画面的电脑上操作");
+                } else {
+                    log::info!("本机不持棒，忽略热键");
+                }
                 return;
             }
         }
-        let Some(target) = self.pick_target() else {
-            self.notify("没有可交棒的对端，请先在 DeskBaton 面板中配对设备");
-            return;
+        let target = match target {
+            Some(target) if self.known.contains_key(&target) || self.online.contains(&target) => {
+                target
+            }
+            Some(target) => {
+                self.notify(&format!("{} 不是已配对的设备", target.0));
+                return;
+            }
+            None => match self.pick_target() {
+                Some(target) => target,
+                None => {
+                    self.notify("没有可交棒的对端，请先在 DeskBaton 面板中配对设备");
+                    return;
+                }
+            },
         };
         if self.online.contains(&target) {
             self.start_prepare(target, now);
@@ -329,6 +361,28 @@ impl Coordinator {
         }
     }
 
+    fn on_local_input_code(&mut self, code: Option<InputCode>) {
+        log::info!(
+            "本机输入源编码：{}",
+            code.map_or_else(|| "未识别".to_owned(), |c| c.to_string())
+        );
+        self.my_code = code;
+        if self.pending.is_none() && self.refresh_state().is_err() {
+            self.set_state(AgentState::Idle);
+        }
+    }
+
+    fn on_peer_updated(&mut self, info: PeerInfo) {
+        let Some(old) = self.known.get_mut(&info.device_id) else {
+            self.known.insert(info.device_id.clone(), info);
+            return;
+        };
+        old.platform = info.platform.or(old.platform);
+        old.input_code = info.input_code;
+        old.wol_mac = info.wol_mac.or(old.wol_mac);
+        old.ip = info.ip.or(old.ip);
+    }
+
     fn on_peer_offline(&mut self, peer: &DeviceId) {
         log::info!("{} 离线", peer.0);
         self.online.remove(peer);
@@ -365,11 +419,19 @@ impl Coordinator {
             | Message::PairReveal { .. }
             | Message::PairPending
             | Message::PairAccept
-            | Message::Heartbeat { .. } => {}
+            | Message::Heartbeat { .. }
+            | Message::InputCode { .. } => {}
         }
     }
 
     fn start_prepare(&mut self, target: DeviceId, now: Instant) {
+        if self.known.get(&target).and_then(|p| p.input_code).is_none() {
+            self.notify(&format!(
+                "{0} 还没识别接口：先用显示器菜单切到 {0}，在它上面操作一次键鼠",
+                target.0
+            ));
+            return;
+        }
         let id = new_handoff_id();
         if let Err(e) = self
             .ports
@@ -646,10 +708,8 @@ impl Coordinator {
     fn my_input_code(&self) -> Result<InputCode> {
         match self.config.display.mode {
             DisplayMode::Ddc => self
-                .config
-                .display
-                .input_code
-                .ok_or_else(|| Error::Config("未配置 display.input_code".into())),
+                .my_code
+                .ok_or_else(|| Error::Config("本机还没识别接口，请先在本机操作一次键鼠".into())),
             DisplayMode::None => Err(Error::Unsupported("不切屏模式的持棒判定")),
         }
     }

@@ -65,3 +65,14 @@ unsafe extern "C" {
 
     pub fn deskbaton_run_app_loop();
 }
+
+/// `kCGEventSourceStateHIDSystemState`：汇总所有硬件输入设备。
+pub const CG_EVENT_SOURCE_STATE_HID_SYSTEM: i32 = 1;
+/// `kCGAnyInputEventType`。
+pub const CG_ANY_INPUT_EVENT_TYPE: u32 = u32::MAX;
+
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    /// 距离该来源最近一次指定类型事件的秒数。
+    pub fn CGEventSourceSecondsSinceLastEventType(state_id: i32, event_type: u32) -> f64;
+}

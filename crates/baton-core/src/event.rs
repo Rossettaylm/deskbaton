@@ -20,8 +20,14 @@ pub struct PeerInfo {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
     Hotkey,
+    /// 用户在面板上点了某台电脑：与热键走同一流程，目标由用户指定。
+    HandoffTo(DeviceId),
+    /// 本机输入源编码学到了，或被重新识别清空。
+    LocalInputCode(Option<InputCode>),
     /// 握手完成。
     PeerOnline(PeerInfo),
+    /// 在线对端的信息变了（如输入源编码）。`input_code` 按原值替换，其余字段为空时保留旧值。
+    PeerUpdated(PeerInfo),
     /// 连续 3 次没收到心跳，或连接断开。
     PeerOffline(DeviceId),
     /// 用户取消了与该设备的配对。

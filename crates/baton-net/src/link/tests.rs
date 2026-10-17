@@ -245,6 +245,42 @@ fn token_pairs_once_and_later_connects_without_it() {
 }
 
 #[test]
+fn learned_input_code_reaches_peer_and_its_profile() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let mut win_config = with_token(win_dev.config(local(), &[]), "token");
+    win_config.me.input_code = None;
+    let (b, b_rx) = start(win_config);
+    let (_a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
+    let online = expect(&a_rx, "win 上线", is_online("win"));
+    assert!(matches!(online, Event::PeerOnline(p) if p.input_code.is_none()));
+    expect(&b_rx, "mac 上线", is_online("mac"));
+
+    b.set_local_input_code(Some(InputCode(0x10)));
+    let updated = expect(&a_rx, "win 的编码", |e| {
+        matches!(e, Event::PeerUpdated(_))
+    });
+    let Event::PeerUpdated(peer) = updated else {
+        unreachable!()
+    };
+    assert_eq!(peer.device_id.0, "win");
+    assert_eq!(peer.input_code, Some(InputCode(0x10)));
+    let profile = mac_dev.store.find(&win_dev.identity.fingerprint).unwrap();
+    assert_eq!(profile.input_code, Some(InputCode(0x10)));
+
+    b.set_local_input_code(None);
+    expect(
+        &a_rx,
+        "win 清空编码",
+        |e| matches!(e, Event::PeerUpdated(p) if p.input_code.is_none()),
+    );
+    let profile = mac_dev.store.find(&win_dev.identity.fingerprint).unwrap();
+    assert_eq!(profile.input_code, None);
+}
+
+#[test]
 fn rejects_wrong_token() {
     let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
     let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "right"));

@@ -297,6 +297,7 @@ fn kinds(messages: &[Message]) -> Vec<&'static str> {
             | Message::PairPending
             | Message::PairAccept => "handshake",
             Message::Heartbeat { .. } => "heartbeat",
+            Message::InputCode { .. } => "input_code",
             Message::Prepare { .. } => "prepare",
             Message::Ready { .. } => "ready",
             Message::Taken { .. } => "taken",
@@ -338,8 +339,98 @@ fn initial_state_follows_monitor() {
 fn missing_input_code_is_a_config_error() {
     let monitor = Monitor::new(MAC, false);
     let mut m = machine("mac", MAC, &monitor, Setup::default());
-    m.c.config.display.input_code = None;
+    m.c.handle(Event::LocalInputCode(None), Instant::now());
     assert!(matches!(m.c.refresh_state(), Err(Error::Config(_))));
+}
+
+#[test]
+fn learned_input_code_decides_holding() {
+    let monitor = Monitor::new(MAC, false);
+    let mut m = machine("mac", MAC, &monitor, Setup::default());
+    let now = Instant::now();
+    m.c.handle(Event::LocalInputCode(None), now);
+    assert_eq!(m.c.state(), AgentState::Idle);
+    m.c.handle(Event::LocalInputCode(Some(MAC)), now);
+    assert_eq!(m.c.state(), AgentState::Holding);
+}
+
+#[test]
+fn handoff_to_picks_the_requested_peer() {
+    let monitor = Monitor::new(MAC, false);
+    let (mut a, mut b, now) = pair(&monitor, Setup::default(), Setup::default());
+    let other = machine("aaa", InputCode(0x11), &monitor, Setup::default());
+    online(&mut a, &other, now);
+
+    a.c.handle(Event::HandoffTo(b.id.clone()), now);
+    let sent = a.probe.take_sent();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].0, b.id);
+    assert_eq!(kinds(&[sent[0].1.clone()]), ["prepare"]);
+    b.c.handle(
+        Event::Message {
+            from: a.id.clone(),
+            message: sent[0].1.clone(),
+        },
+        now,
+    );
+    assert_eq!(kinds(&deliver(&b, &mut a, now)), ["ready"]);
+    assert_eq!(monitor.current(), WIN);
+    assert!(other.probe.take_sent().is_empty());
+}
+
+#[test]
+fn handoff_to_unknown_device_or_from_non_holder_is_refused() {
+    let monitor = Monitor::new(MAC, false);
+    let (mut a, mut b, now) = pair(&monitor, Setup::default(), Setup::default());
+    a.c.handle(Event::HandoffTo(DeviceId("nobody".into())), now);
+    assert!(a.probe.take_sent().is_empty());
+    assert!(a.probe.notes().contains("不是已配对的设备"));
+
+    b.c.handle(Event::HandoffTo(a.id.clone()), now);
+    assert!(b.probe.take_sent().is_empty());
+    assert!(b.probe.notes().contains("画面不在本机"));
+}
+
+#[test]
+fn peer_without_input_code_gets_no_prepare() {
+    let monitor = Monitor::new(MAC, false);
+    let (mut a, b, now) = pair(&monitor, Setup::default(), Setup::default());
+    a.c.handle(
+        Event::PeerUpdated(PeerInfo {
+            device_id: b.id.clone(),
+            platform: None,
+            input_code: None,
+            wol_mac: None,
+            ip: None,
+        }),
+        now,
+    );
+    a.c.handle(Event::Hotkey, now);
+    assert!(a.probe.take_sent().is_empty());
+    assert!(a.probe.notes().contains("还没识别接口"));
+    assert_eq!(a.c.state(), AgentState::Holding);
+
+    a.c.handle(
+        Event::PeerUpdated(PeerInfo {
+            device_id: b.id.clone(),
+            platform: None,
+            input_code: Some(WIN),
+            wol_mac: None,
+            ip: None,
+        }),
+        now,
+    );
+    a.c.handle(Event::Hotkey, now);
+    assert_eq!(
+        kinds(
+            &a.probe
+                .take_sent()
+                .into_iter()
+                .map(|(_, m)| m)
+                .collect::<Vec<_>>()
+        ),
+        ["prepare"]
+    );
 }
 
 #[test]

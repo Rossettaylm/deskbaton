@@ -305,7 +305,7 @@ fn hello(
         device_id: shared.me.device_id.clone(),
         protocol_version: PROTOCOL_VERSION,
         platform: shared.me.platform.unwrap_or(Platform::current()),
-        input_code: shared.me.input_code,
+        input_code: *lock(&shared.local_input_code),
         wol_mac: shared
             .me
             .wol_mac

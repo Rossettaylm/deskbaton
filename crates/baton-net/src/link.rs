@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use baton_core::channel::ChannelId;
 use baton_core::event::{Event, PeerInfo};
-use baton_core::ids::{DeviceId, HandoffId};
+use baton_core::ids::{DeviceId, HandoffId, InputCode};
 use baton_core::participant::Payload;
 use baton_core::ports::PeerLink;
 use baton_core::protocol::Message;
@@ -179,7 +179,7 @@ impl TcpPeerLink {
             .map(Arc::new);
         let interval = config.heartbeat_interval;
         let shared = Arc::new(Shared {
-            me: config.me,
+            me: config.me.clone(),
             listen_port: local_addr.port(),
             token,
             heartbeat: interval,
@@ -190,6 +190,7 @@ impl TcpPeerLink {
             observer: config.observer,
             discovery,
             events,
+            local_input_code: Mutex::new(config.me.input_code),
             state: Mutex::new(AgentState::Idle),
             conns: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
@@ -278,6 +279,25 @@ impl TcpPeerLink {
         });
     }
 
+    /// 本机输入源编码变了：之后的 `hello` 带上它，并立即告诉已连接的对端。
+    pub fn set_local_input_code(&self, code: Option<InputCode>) {
+        *lock(&self.shared.local_input_code) = code;
+        let frame = match Frame::message(&Message::InputCode { input_code: code }) {
+            Ok(frame) => frame,
+            Err(e) => {
+                log::warn!("无法编码输入源编码消息：{e}");
+                return;
+            }
+        };
+        let outboxes: Vec<Arc<Outbox>> = lock(&self.shared.conns)
+            .values()
+            .map(|c| Arc::clone(&c.outbox))
+            .collect();
+        for outbox in outboxes {
+            outbox.push_control(frame.clone());
+        }
+    }
+
     /// 取消配对：删除档案、断开连接，之后它再连进来也不弹配对请求（本次运行内）。
     pub fn unpair(&self, fingerprint: &Fingerprint) -> Result<()> {
         let removed = self.shared.store.remove(fingerprint)?;
@@ -346,6 +366,8 @@ struct Shared {
     observer: Option<Arc<dyn LinkObserver>>,
     discovery: Option<Arc<Discovery>>,
     events: mpsc::Sender<Event>,
+    /// 本机输入源编码；`me.input_code` 只是启动时的值。
+    local_input_code: Mutex<Option<InputCode>>,
     state: Mutex<AgentState>,
     conns: Mutex<HashMap<DeviceId, Conn>>,
     sessions: Mutex<HashMap<u64, Session>>,
@@ -674,6 +696,7 @@ fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, fra
                 | Message::PairPending
                 | Message::PairAccept,
             ) => {}
+            Ok(Message::InputCode { input_code }) => peer_input_code(shared, peer, input_code),
             Ok(message) => shared.emit(Event::Message {
                 from: peer.clone(),
                 message,
@@ -692,6 +715,24 @@ fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, fra
         Ok(None) => {}
         Err(e) => log::warn!("{} 的数据传输出错：{e}", peer.0),
     }
+}
+
+/// 对端学到或清空了自己的输入源编码：写入档案并通知协调器。
+fn peer_input_code(shared: &Shared, peer: &DeviceId, input_code: Option<InputCode>) {
+    let fingerprint = lock(&shared.conns).get(peer).map(|c| c.fingerprint);
+    if let Some(fingerprint) = fingerprint
+        && let Err(e) = shared.store.set_input_code(&fingerprint, input_code)
+    {
+        log::warn!("更新 {} 的输入源编码失败：{e}", peer.0);
+    }
+    shared.emit(Event::PeerUpdated(PeerInfo {
+        device_id: peer.clone(),
+        platform: None,
+        input_code,
+        wol_mac: None,
+        ip: None,
+    }));
+    shared.changed();
 }
 
 async fn write_loop<W: AsyncWrite + Unpin>(

@@ -227,6 +227,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "toml 1.1.8+spec-1.1.0",
 ]
@@ -261,6 +262,8 @@ name = "baton-input"
 version = "0.0.1"
 dependencies = [
  "baton-core",
+ "baton-macos-sys",
+ "windows",
 ]
 
 [[package]]

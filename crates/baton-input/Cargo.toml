@@ -10,5 +10,14 @@ repository.workspace = true
 [dependencies]
 baton-core.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+baton-macos-sys.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_System_SystemInformation",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
 [lints]
 workspace = true

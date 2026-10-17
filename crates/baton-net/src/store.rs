@@ -158,6 +158,23 @@ impl PeerStore {
         self.save(&peers)
     }
 
+    /// 对端通知的输入源编码，`None` 表示对端重新识别、暂时未知。设备不在档案里时什么也不做。
+    pub fn set_input_code(
+        &self,
+        fingerprint: &Fingerprint,
+        input_code: Option<InputCode>,
+    ) -> Result<()> {
+        let mut peers = self.lock();
+        let Some(peer) = peers.iter_mut().find(|p| p.matches(fingerprint)) else {
+            return Ok(());
+        };
+        if peer.input_code == input_code {
+            return Ok(());
+        }
+        peer.input_code = input_code;
+        self.save(&peers)
+    }
+
     pub fn remove(&self, fingerprint: &Fingerprint) -> Result<Option<PairedPeer>> {
         let mut peers = self.lock();
         let Some(index) = peers.iter().position(|p| p.matches(fingerprint)) else {

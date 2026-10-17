@@ -114,6 +114,12 @@ pub trait InputRouter: Send + Sync {
     fn release(&self, to: &DeviceId) -> Result<()>;
 }
 
+/// 本机键鼠活动。显示器 KVM 让键鼠跟着画面走，本机刚收到输入说明画面此刻在本机。
+pub trait InputActivity: Send + Sync {
+    /// 距离最近一次键鼠输入的时长。
+    fn idle(&self) -> Result<Duration>;
+}
+
 /// 与其他 agent 的通信链路。握手和心跳由链路自己维护，收到的内容以 [`crate::event::Event`] 交给协调器。
 pub trait PeerLink: Send + Sync {
     /// 经控制通道发送，优先于数据通道。

@@ -45,7 +45,7 @@
   - [x] 面板「设备」卡片：配对请求（6 位码、同意 / 拒绝）、已配对设备、可配对设备与发起配对、取消配对
   - [ ] 🔧 配对设计验收清单第 1–5 项
 - 零配置（[设计](docs/superpowers/specs/2026-10-17-zero-config-design.md)），按顺序推进：
-  - [ ] 本机输入源编码自动学习：`InputActivity` 端口与 macOS / Windows 实现、`InputCodeLearner`、`state.toml`、协议 v5 `input_code` 消息、协调器本机编码可变
+  - [x] 本机输入源编码自动学习：`InputActivity` 端口与 macOS / Windows 实现、`InputCodeLearner`、`state.toml`、协议 v5 `input_code` 消息、协调器本机编码可变
   - [ ] 自动拨号未配对设备，配对请求去掉配对码，「可配对」按钮改为「连接」
   - [ ] 面板「电脑」卡片：按电脑列出、点对端交棒（`Event::HandoffTo`）、「重新识别本机接口」
   - [ ] 🔧 零配置设计验收清单第 1–5 项

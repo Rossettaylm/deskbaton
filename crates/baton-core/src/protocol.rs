@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr, Platform};
 use crate::state::AgentState;
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// agent 之间的消息。交棒流程见 `docs/superpowers/specs/2026-10-16-deskbaton-design.md`，
 /// 握手与配对见 `docs/superpowers/specs/2026-10-17-pairing-design.md`。
@@ -41,6 +41,10 @@ pub enum Message {
     PairAccept,
     Heartbeat {
         state: AgentState,
+    },
+    /// 本机输入源编码变了：学到新值，或被重新识别清空（`null`）。
+    InputCode {
+        input_code: Option<InputCode>,
     },
     Prepare {
         handoff_id: HandoffId,
@@ -81,6 +85,10 @@ mod tests {
             Message::Heartbeat {
                 state: AgentState::HandingOff(HandoffId(7)),
             },
+            Message::InputCode {
+                input_code: Some(InputCode(0x10)),
+            },
+            Message::InputCode { input_code: None },
             Message::Abort {
                 handoff_id: HandoffId(7),
                 reason: "timeout".into(),
@@ -102,7 +110,7 @@ mod tests {
 
         let hello = Message::Hello {
             device_id: DeviceId("mac".into()),
-            protocol_version: 4,
+            protocol_version: 5,
             platform: Platform::Macos,
             input_code: Some(InputCode(0x1B)),
             wol_mac: Some("aa:bb:cc:dd:ee:ff".parse().unwrap()),
@@ -111,7 +119,18 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&hello).unwrap(),
-            r#"{"type":"hello","device_id":"mac","protocol_version":4,"platform":"macos","input_code":27,"wol_mac":"aa:bb:cc:dd:ee:ff","listen_port":47800}"#
+            r#"{"type":"hello","device_id":"mac","protocol_version":5,"platform":"macos","input_code":27,"wol_mac":"aa:bb:cc:dd:ee:ff","listen_port":47800}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Message::InputCode {
+                input_code: Some(InputCode(0x10))
+            })
+            .unwrap(),
+            r#"{"type":"input_code","input_code":16}"#
+        );
+        assert_eq!(
+            serde_json::to_string(&Message::InputCode { input_code: None }).unwrap(),
+            r#"{"type":"input_code","input_code":null}"#
         );
         assert_eq!(
             serde_json::to_string(&Message::PairAccept).unwrap(),
