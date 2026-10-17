@@ -344,6 +344,14 @@ fn missing_input_code_is_a_config_error() {
 }
 
 #[test]
+fn local_name_updates_device_id() {
+    let monitor = Monitor::new(MAC, false);
+    let mut m = machine("mac", MAC, &monitor, Setup::default());
+    m.c.handle(Event::LocalName(DeviceId("studio".into())), Instant::now());
+    assert_eq!(m.c.device_id(), &DeviceId("studio".into()));
+}
+
+#[test]
 fn learned_input_code_decides_holding() {
     let monitor = Monitor::new(MAC, false);
     let mut m = machine("mac", MAC, &monitor, Setup::default());

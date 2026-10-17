@@ -183,7 +183,7 @@ impl TcpPeerLink {
             .map(Arc::new);
         let interval = config.heartbeat_interval;
         let shared = Arc::new(Shared {
-            me: config.me.clone(),
+            me: Mutex::new(config.me.clone()),
             listen_port: local_addr.port(),
             token,
             heartbeat: interval,
@@ -249,7 +249,7 @@ impl TcpPeerLink {
             &self.shared.config_peers,
         );
         LinkSnapshot {
-            me: self.shared.me.device_id.clone(),
+            me: self.shared.local_id(),
             fingerprint: auth::to_hex(&self.shared.identity.fingerprint),
             paired,
             sessions,
@@ -286,6 +286,18 @@ impl TcpPeerLink {
                 }
             }
         });
+    }
+
+    /// 本机名称变了：之后的 `hello` 和 mDNS 用新名称；已有连接不断开。
+    pub fn set_local_name(&self, name: DeviceId) -> Result<()> {
+        lock(&self.shared.me).device_id = name.clone();
+        if let Some(discovery) = &self.shared.discovery
+            && let Err(e) = discovery.set_name(&name)
+        {
+            return Err(e);
+        }
+        self.shared.changed();
+        Ok(())
     }
 
     /// 本机输入源编码变了：之后的 `hello` 带上它，并立即告诉已连接的对端。
@@ -384,7 +396,7 @@ impl PeerLink for TcpPeerLink {
 }
 
 struct Shared {
-    me: PeerInfo,
+    me: Mutex<PeerInfo>,
     listen_port: u16,
     token: Option<Vec<u8>>,
     heartbeat: Duration,
@@ -487,8 +499,12 @@ impl Shared {
             .unwrap_or_default()
     }
 
+    fn local_id(&self) -> DeviceId {
+        lock(&self.me).device_id.clone()
+    }
+
     fn preferred_dialer(&self, peer: &DeviceId) -> DeviceId {
-        self.me.device_id.clone().min(peer.clone())
+        self.local_id().min(peer.clone())
     }
 
     fn emit(&self, event: Event) {
@@ -647,7 +663,7 @@ where
     .await?;
 
     let dialer = match role {
-        Role::Client => shared.me.device_id.clone(),
+        Role::Client => shared.local_id(),
         Role::Server => peer.device_id.clone(),
     };
     let outbox = Arc::new(Outbox::new());

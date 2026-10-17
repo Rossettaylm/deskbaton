@@ -215,6 +215,153 @@ function render() {
   fit();
 }
 
+/**
+ * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, autostart: boolean }} PrefsView
+ */
+
+let recordingHotkey = false;
+/** @type {string} */
+let lastHotkey = "";
+
+async function refreshPrefs() {
+  try {
+    /** @type {PrefsView} */
+    const prefs = await invoke("prefs");
+    const name = /** @type {HTMLInputElement} */ ($("pref-name"));
+    const hotkey = $("pref-hotkey");
+    const autostart = /** @type {HTMLInputElement} */ ($("pref-autostart"));
+    const notify = /** @type {HTMLInputElement} */ ($("pref-notify"));
+    name.placeholder = prefs.hostname;
+    if (document.activeElement !== name) name.value = prefs.name;
+    lastHotkey = prefs.hotkey;
+    if (!recordingHotkey) {
+      hotkey.textContent = prefs.hotkey;
+      hotkey.classList.remove("recording");
+    }
+    autostart.checked = prefs.autostart;
+    notify.checked = prefs.notify;
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+}
+
+async function saveName() {
+  const name = /** @type {HTMLInputElement} */ ($("pref-name"));
+  try {
+    await invoke("set_name", { name: name.value });
+    state.agent = await invoke("agent_status");
+    await Promise.all([refresh(), refreshDevices(), refreshPrefs()]);
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+}
+
+async function saveNotify() {
+  const on = /** @type {HTMLInputElement} */ ($("pref-notify")).checked;
+  try {
+    await invoke("set_notify", { notify: on });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+async function saveAutostart() {
+  const on = /** @type {HTMLInputElement} */ ($("pref-autostart")).checked;
+  try {
+    const enabled = await invoke("set_autostart", { on });
+    /** @type {HTMLInputElement} */ ($("pref-autostart")).checked = enabled;
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+/** @param {KeyboardEvent} e */
+function comboFromEvent(e) {
+  if (["Shift", "Control", "Alt", "Meta"].includes(e.key)) return null;
+  const mods = [];
+  if (e.ctrlKey) mods.push("Ctrl");
+  if (e.altKey) mods.push("Alt");
+  if (e.metaKey) mods.push("Super");
+  if (e.shiftKey) mods.push("Shift");
+  if (!e.ctrlKey && !e.altKey && !e.metaKey) return null;
+  const key = keyName(e);
+  if (!key) return null;
+  mods.push(key);
+  return mods.join("+");
+}
+
+/** @param {KeyboardEvent} e */
+function keyName(e) {
+  const code = e.code;
+  if (code === "Space") return "Space";
+  if (code.startsWith("Key") && code.length === 4) return code.slice(3);
+  if (code.startsWith("Digit") && code.length === 6) return code.slice(5);
+  if (/^F\d{1,2}$/.test(code)) return code;
+  /** @type {Record<string, string>} */
+  const named = {
+    ArrowUp: "Up",
+    ArrowDown: "Down",
+    ArrowLeft: "Left",
+    ArrowRight: "Right",
+    Enter: "Return",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Minus: "Minus",
+    Equal: "Equal",
+  };
+  return named[code] ?? null;
+}
+
+async function startHotkeyRecord() {
+  if (recordingHotkey) return;
+  recordingHotkey = true;
+  const btn = $("pref-hotkey");
+  btn.textContent = "按下新热键…";
+  btn.classList.add("recording");
+  try {
+    await invoke("suspend_hotkey");
+  } catch (e) {
+    recordingHotkey = false;
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+}
+
+async function cancelHotkeyRecord() {
+  if (!recordingHotkey) return;
+  recordingHotkey = false;
+  $("pref-hotkey").classList.remove("recording");
+  try {
+    await invoke("resume_hotkey");
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  await refreshPrefs();
+}
+
+/** @param {string} combo */
+async function commitHotkey(combo) {
+  recordingHotkey = false;
+  try {
+    const hotkey = await invoke("set_hotkey", { hotkey: combo });
+    lastHotkey = hotkey;
+    $("pref-hotkey").textContent = hotkey;
+    $("pref-hotkey").classList.remove("recording");
+    state.agent = await invoke("agent_status");
+    render();
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    await cancelHotkeyRecord();
+  }
+}
+
 async function refreshDevices() {
   try {
     state.devices = await invoke("list_devices");
@@ -574,7 +721,32 @@ document.addEventListener("click", (e) => {
 });
 
 document.addEventListener("keydown", (e) => {
+  if (recordingHotkey) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      cancelHotkeyRecord();
+      return;
+    }
+    const combo = comboFromEvent(e);
+    if (combo) commitHotkey(combo);
+    return;
+  }
   if (e.key === "Escape") closeMenu();
+});
+
+$("pref-name").addEventListener("change", saveName);
+$("pref-name").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    /** @type {HTMLInputElement} */ ($("pref-name")).blur();
+  }
+});
+$("pref-hotkey").addEventListener("click", startHotkeyRecord);
+$("pref-notify").addEventListener("change", saveNotify);
+$("pref-autostart").addEventListener("change", saveAutostart);
+window.addEventListener("blur", () => {
+  if (recordingHotkey) cancelHotkeyRecord();
 });
 
 tauri.event.listen("panel-shown", () => {
@@ -582,6 +754,7 @@ tauri.event.listen("panel-shown", () => {
   reveal();
   if (state.pending == null) refresh();
   refreshDevices();
+  refreshPrefs();
 });
 
 let displaysTimer = 0;
@@ -614,3 +787,4 @@ invoke("agent_status")
 
 refresh();
 refreshDevices();
+refreshPrefs();

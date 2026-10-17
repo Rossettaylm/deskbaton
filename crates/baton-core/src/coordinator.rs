@@ -142,6 +142,11 @@ impl Coordinator {
         self.state
     }
 
+    #[cfg(test)]
+    pub fn device_id(&self) -> &DeviceId {
+        &self.me
+    }
+
     /// 通过读取显示器当前输入源判断本机是否持棒：读到本机的输入源编码即为持棒。
     pub fn refresh_state(&mut self) -> Result<AgentState> {
         let mine = self.my_input_code()?;
@@ -193,6 +198,7 @@ impl Coordinator {
             Event::Hotkey => self.on_handoff_request(None, now),
             Event::HandoffTo(target) => self.on_handoff_request(Some(target), now),
             Event::LocalInputCode(code) => self.on_local_input_code(code),
+            Event::LocalName(name) => self.me = name,
             Event::PeerOnline(info) => self.on_peer_online(info, now),
             Event::PeerUpdated(info) => self.on_peer_updated(info),
             Event::PeerOffline(peer) => self.on_peer_offline(&peer),

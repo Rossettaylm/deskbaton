@@ -21,8 +21,12 @@ pub struct AgentStatus {
 #[tauri::command]
 pub fn agent_status(slot: State<'_, AgentSlot>) -> AgentStatus {
     AgentStatus {
-        name: slot.name.clone(),
-        hotkey: slot.hotkey.clone(),
+        name: slot
+            .with_agent(|a| a.me().0.clone())
+            .or_else(|| slot.name.clone()),
+        hotkey: slot
+            .with_agent(|a| a.hotkey().to_owned())
+            .or_else(|| slot.hotkey.clone()),
         error: slot.error.clone(),
         input_code_configured: slot.input_code_configured(),
     }

@@ -153,6 +153,15 @@ fn is_offline(name: &str) -> impl Fn(&Event) -> bool + '_ {
 }
 
 #[test]
+fn set_local_name_updates_snapshot() {
+    let dev = Device::new("mac");
+    let (link, _rx) = start(dev.config(local(), &[]));
+    assert_eq!(link.snapshot().me.0, "mac");
+    link.set_local_name(DeviceId("studio".into())).unwrap();
+    assert_eq!(link.snapshot().me.0, "studio");
+}
+
+#[test]
 fn handshakes_and_exchanges_messages_and_data() {
     let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
     let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));

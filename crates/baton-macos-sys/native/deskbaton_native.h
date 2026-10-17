@@ -49,4 +49,7 @@ int32_t deskbaton_wake_display(void);
 /* 在主线程运行 NSApplication 事件循环（不显示 Dock 图标），全局热键依赖它分发事件；不返回。 */
 void deskbaton_run_app_loop(void);
 
+/* 弹出系统通知；message 为 UTF-8。 */
+int32_t deskbaton_notify(const char *message);
+
 #endif

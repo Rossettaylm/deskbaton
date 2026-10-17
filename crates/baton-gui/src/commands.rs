@@ -139,7 +139,9 @@ fn machines(app: &AppHandle) -> Machines {
             .collect()
     });
     Machines {
-        me: slot.name.clone(),
+        me: slot
+            .with_agent(|a| a.me().0.clone())
+            .or_else(|| slot.name.clone()),
         my_code: slot.local_input_code(),
         peers,
     }

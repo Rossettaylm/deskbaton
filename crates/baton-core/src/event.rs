@@ -24,6 +24,8 @@ pub enum Event {
     HandoffTo(DeviceId),
     /// 本机输入源编码学到了，或被重新识别清空。
     LocalInputCode(Option<InputCode>),
+    /// 本机名称在面板里改了；不是线上消息。
+    LocalName(DeviceId),
     /// 握手完成。
     PeerOnline(PeerInfo),
     /// 在线对端的信息变了（如输入源编码）。`input_code` 按原值替换，其余字段为空时保留旧值。

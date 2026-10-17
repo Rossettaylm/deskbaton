@@ -295,19 +295,19 @@ fn hello(
     server_fp: &Fingerprint,
     local_addr: SocketAddr,
 ) -> Result<Message> {
+    let me = lock(&shared.me);
     let auth = shared
         .token
         .as_ref()
-        .map(|token| auth::proof(token, role, &shared.me.device_id, client_fp, server_fp))
+        .map(|token| auth::proof(token, role, &me.device_id, client_fp, server_fp))
         .transpose()?
         .map(|proof| auth::to_hex(&proof));
     Ok(Message::Hello {
-        device_id: shared.me.device_id.clone(),
+        device_id: me.device_id.clone(),
         protocol_version: PROTOCOL_VERSION,
-        platform: shared.me.platform.unwrap_or(Platform::current()),
+        platform: me.platform.unwrap_or(Platform::current()),
         input_code: *lock(&shared.local_input_code),
-        wol_mac: shared
-            .me
+        wol_mac: me
             .wol_mac
             .or_else(|| iface::mac_for_local_ip(local_addr.ip())),
         listen_port: shared.listen_port,
@@ -345,7 +345,7 @@ fn check_hello(
             device_id.0
         )));
     }
-    if device_id == shared.me.device_id {
+    if device_id == shared.local_id() {
         return Err(Error::Net("对端名称与本机相同".into()));
     }
     let token_ok = match (&shared.token, auth) {
@@ -387,7 +387,7 @@ fn parse_nonce(hex: &str) -> Result<Vec<u8>> {
 
 fn dialer(shared: &Shared, role: Role, peer: &DeviceId) -> DeviceId {
     match role {
-        Role::Client => shared.me.device_id.clone(),
+        Role::Client => shared.local_id(),
         Role::Server => peer.clone(),
     }
 }

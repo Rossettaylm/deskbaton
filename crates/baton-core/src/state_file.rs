@@ -9,15 +9,65 @@ use serde::{Deserialize, Serialize};
 use crate::ids::InputCode;
 use crate::{Error, Result};
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LocalState {
     /// 自动学到的本机输入源编码。
     #[serde(default)]
     pub input_code: Option<InputCode>,
+    /// 面板保存过的本机名称；`None` 表示未保存，空字符串表示用主机名。
+    #[serde(default)]
+    pub name: Option<String>,
+    /// 面板保存过的交棒热键。
+    #[serde(default)]
+    pub hotkey: Option<String>,
+    /// 是否弹出系统通知。
+    #[serde(default = "default_notify")]
+    pub notify: bool,
+    /// 面板已经成功种过一次登录项；之后不再擅自打开开机自启。
+    #[serde(default)]
+    pub autostart_seeded: bool,
+}
+
+impl Default for LocalState {
+    fn default() -> Self {
+        Self {
+            input_code: None,
+            name: None,
+            hotkey: None,
+            notify: default_notify(),
+            autostart_seeded: false,
+        }
+    }
+}
+
+fn default_notify() -> bool {
+    true
 }
 
 impl LocalState {
+    /// `state.toml` > 配置 > 主机名；空字符串表示用户清空了名称，只用主机名。
+    pub fn name<'a>(&'a self, config: Option<&'a str>, hostname: &'a str) -> &'a str {
+        match self.name.as_deref() {
+            Some("") => hostname,
+            Some(name) => name,
+            None => config.unwrap_or(hostname),
+        }
+    }
+
+    /// `state.toml` > 配置（配置侧已带默认热键）。
+    pub fn hotkey<'a>(&'a self, config: &'a str) -> &'a str {
+        self.hotkey.as_deref().unwrap_or(config)
+    }
+
+    /// 加载、修改、写回，避免只保存部分字段把其余偏好冲掉。
+    pub fn update(path: &Path, f: impl FnOnce(&mut Self)) -> Result<Self> {
+        let mut state = Self::load(path)?;
+        f(&mut state);
+        state.save(path)?;
+        Ok(state)
+    }
+
     /// 文件不存在时为空状态。
     pub fn load(path: &Path) -> Result<Self> {
         match fs::read_to_string(path) {
@@ -59,6 +109,7 @@ mod tests {
         assert_eq!(LocalState::load(&path).unwrap(), LocalState::default());
         let state = LocalState {
             input_code: Some(InputCode(0x10)),
+            ..LocalState::default()
         };
         state.save(&path).unwrap();
         assert_eq!(LocalState::load(&path).unwrap(), state);
@@ -72,5 +123,75 @@ mod tests {
         let path = dir.path().join("state.toml");
         fs::write(&path, "input_code = 16\nextra = 1\n").unwrap();
         assert!(LocalState::load(&path).is_err());
+    }
+
+    #[test]
+    fn prefs_default_when_file_omits_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.toml");
+        fs::write(&path, "input_code = 16\n").unwrap();
+        let state = LocalState::load(&path).unwrap();
+        assert_eq!(state.input_code, Some(InputCode(16)));
+        assert_eq!(state.name, None);
+        assert_eq!(state.hotkey, None);
+        assert!(state.notify);
+        assert!(!state.autostart_seeded);
+    }
+
+    #[test]
+    fn name_prefers_state_then_config_then_hostname() {
+        let hostname = "mini";
+        let with_state = LocalState {
+            name: Some("panel".into()),
+            ..LocalState::default()
+        };
+        assert_eq!(with_state.name(Some("config"), hostname), "panel");
+
+        let empty = LocalState {
+            name: Some(String::new()),
+            ..LocalState::default()
+        };
+        assert_eq!(empty.name(Some("config"), hostname), hostname);
+
+        let unset = LocalState::default();
+        assert_eq!(unset.name(Some("config"), hostname), "config");
+        assert_eq!(unset.name(None, hostname), hostname);
+    }
+
+    #[test]
+    fn hotkey_prefers_state_then_config() {
+        let from_state = LocalState {
+            hotkey: Some("Ctrl+Alt+B".into()),
+            ..LocalState::default()
+        };
+        assert_eq!(from_state.hotkey("Ctrl+Alt+Space"), "Ctrl+Alt+B");
+        assert_eq!(
+            LocalState::default().hotkey("Ctrl+Alt+Space"),
+            "Ctrl+Alt+Space"
+        );
+    }
+
+    #[test]
+    fn update_keeps_other_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.toml");
+        LocalState {
+            input_code: Some(InputCode(0x10)),
+            name: Some("macbook".into()),
+            hotkey: Some("Ctrl+Alt+B".into()),
+            notify: false,
+            autostart_seeded: true,
+        }
+        .save(&path)
+        .unwrap();
+
+        LocalState::update(&path, |state| state.input_code = None).unwrap();
+
+        let loaded = LocalState::load(&path).unwrap();
+        assert_eq!(loaded.input_code, None);
+        assert_eq!(loaded.name.as_deref(), Some("macbook"));
+        assert_eq!(loaded.hotkey.as_deref(), Some("Ctrl+Alt+B"));
+        assert!(!loaded.notify);
+        assert!(loaded.autostart_seeded);
     }
 }

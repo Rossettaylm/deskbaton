@@ -5,7 +5,10 @@
 mod agent;
 mod commands;
 mod devices;
+mod notify;
 mod placement;
+mod prefs;
+mod startup;
 mod view;
 
 use std::process::ExitCode;
@@ -53,11 +56,19 @@ fn main() -> ExitCode {
             devices::unpair_device,
             devices::handoff_to,
             devices::relearn_input,
+            prefs::prefs,
+            prefs::set_name,
+            prefs::set_hotkey,
+            prefs::set_notify,
+            prefs::set_autostart,
+            prefs::suspend_hotkey,
+            prefs::resume_hotkey,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             build_tray(app.handle())?;
+            crate::prefs::apply_autostart_on_launch();
             app.manage(AgentSlot::start(app.handle()));
             let handle = app.handle().clone();
             if let Err(e) = ctrlc::set_handler(move || handle.exit(0)) {

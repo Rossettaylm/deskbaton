@@ -9,10 +9,12 @@ use baton_core::config::default_config_path;
 use baton_core::event::Event;
 use baton_core::ids::{DeviceId, InputCode};
 use baton_core::ports::Notifier;
+use baton_core::state_file::LocalState;
 use baton_core::{Error, Result};
 use baton_net::{LinkObserver, TcpPeerLink};
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::notify;
 use crate::{PANEL, show_panel};
 
 thread_local! {
@@ -29,13 +31,15 @@ pub struct AgentSlot {
     /// agent 启动失败的原因；面板照常可用。
     pub error: Option<String>,
     exiting: Arc<AtomicBool>,
+    notify: Arc<AtomicBool>,
 }
 
 impl AgentSlot {
     /// 在主线程调用。
     pub fn start(app: &AppHandle) -> Self {
         let exiting = Arc::new(AtomicBool::new(false));
-        match try_start(app, &exiting) {
+        let notify = Arc::new(AtomicBool::new(true));
+        match try_start(app, &exiting, Arc::clone(&notify)) {
             Ok(agent) => Self {
                 link: Some(Arc::clone(agent.link())),
                 name: Some(agent.me().0.clone()),
@@ -43,6 +47,7 @@ impl AgentSlot {
                 agent: Mutex::new(Some(agent)),
                 error: None,
                 exiting,
+                notify,
             },
             Err(e) => {
                 log::error!("agent 启动失败：{e}");
@@ -53,17 +58,51 @@ impl AgentSlot {
                     hotkey: None,
                     error: Some(format!("交棒服务未启动：{e}")),
                     exiting,
+                    notify,
                 }
             }
         }
     }
 
-    fn with_agent<T>(&self, f: impl FnOnce(&Agent) -> T) -> Option<T> {
+    pub(crate) fn with_agent<T>(&self, f: impl FnOnce(&Agent) -> T) -> Option<T> {
         self.agent
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .as_ref()
             .map(f)
+    }
+
+    pub(crate) fn with_agent_mut<T>(&self, f: impl FnOnce(&mut Agent) -> T) -> Option<T> {
+        self.agent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_mut()
+            .map(f)
+    }
+
+    pub(crate) fn notify(&self) -> bool {
+        self.notify.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_notify(&self, on: bool) {
+        self.notify.store(on, Ordering::SeqCst);
+    }
+
+    pub(crate) fn register_hotkey(&self, text: &str) -> Result<hotkey::Registration> {
+        let parsed = hotkey::parse(text)?;
+        let events = self
+            .with_agent(Agent::events)
+            .ok_or_else(|| Error::Config("交棒服务未启动".into()))?;
+        hotkey::register(parsed, events)
+    }
+
+    pub(crate) fn resume_hotkey(&self) -> Result<()> {
+        let Some(text) = self.with_agent(|a| a.hotkey().to_owned()) else {
+            return Ok(());
+        };
+        let registration = self.register_hotkey(&text)?;
+        HOTKEY.with(|h| *h.borrow_mut() = Some(registration));
+        Ok(())
     }
 
     pub fn local_input_code(&self) -> Option<InputCode> {
@@ -105,10 +144,21 @@ impl AgentSlot {
     }
 }
 
-fn try_start(app: &AppHandle, exiting: &Arc<AtomicBool>) -> Result<Agent> {
+pub(crate) fn drop_hotkey() {
+    HOTKEY.with(|h| h.borrow_mut().take());
+}
+
+pub(crate) fn take_hotkey(registration: hotkey::Registration) {
+    HOTKEY.with(|h| *h.borrow_mut() = Some(registration));
+}
+
+fn try_start(app: &AppHandle, exiting: &Arc<AtomicBool>, notify: Arc<AtomicBool>) -> Result<Agent> {
     let path = default_config_path()?;
     let config = load_config(&path, true)?;
-    let hotkey = hotkey::parse(&config.hotkey)?;
+    let local = LocalState::load(&data_dir_of(&path).join("state.toml")).unwrap_or_default();
+    notify.store(local.notify, Ordering::SeqCst);
+    let combo = local.hotkey(&config.hotkey);
+    let hotkey = hotkey::parse(combo)?;
     let on_stopped = {
         let app = app.clone();
         let exiting = Arc::clone(exiting);
@@ -121,7 +171,10 @@ fn try_start(app: &AppHandle, exiting: &Arc<AtomicBool>) -> Result<Agent> {
     let agent = Agent::start(Options {
         config,
         data_dir: data_dir_of(&path),
-        notifier: Box::new(PanelNotifier(app.clone())),
+        notifier: Box::new(PanelNotifier {
+            app: app.clone(),
+            os: notify,
+        }),
         observer: Some(Arc::new(PanelObserver {
             app: app.clone(),
             shown_session: AtomicU64::new(0),
@@ -142,11 +195,18 @@ fn notice(app: &AppHandle, message: &str) {
     let _ = app.emit_to(PANEL, "notice", message);
 }
 
-struct PanelNotifier(AppHandle);
+struct PanelNotifier {
+    app: AppHandle,
+    os: Arc<AtomicBool>,
+}
 
 impl Notifier for PanelNotifier {
     fn notify(&self, message: &str) {
-        notice(&self.0, message);
+        log::info!("{message}");
+        notice(&self.app, message);
+        if self.os.load(Ordering::SeqCst) {
+            notify::show(message);
+        }
     }
 }
 

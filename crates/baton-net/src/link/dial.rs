@@ -137,9 +137,10 @@ fn dedup(addresses: &mut Vec<String>) {
 
 pub(super) async fn supervise(shared: Arc<Shared>) {
     loop {
+        let me = shared.local_id();
         let auto = AutoPair {
             enabled: shared.observer.is_some(),
-            me: Some(&shared.me.device_id),
+            me: Some(&me),
             skip: lock(&shared.rejected)
                 .iter()
                 .chain(lock(&shared.auto_paused).iter())
@@ -166,7 +167,7 @@ pub(super) async fn supervise(shared: Arc<Shared>) {
 }
 
 async fn dial_target(shared: Arc<Shared>, target: DialTarget) {
-    if shared.me.device_id > target.name {
+    if shared.local_id() > target.name {
         // 名称较大的一方晚一点拨号，减少两端同时互拨。
         tokio::time::sleep(REDIAL_INTERVAL / 2).await;
     }

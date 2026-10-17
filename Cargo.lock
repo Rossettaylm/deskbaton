@@ -248,6 +248,7 @@ dependencies = [
  "baton-agent",
  "baton-core",
  "baton-display",
+ "baton-macos-sys",
  "baton-net",
  "ctrlc",
  "env_logger",
@@ -255,6 +256,7 @@ dependencies = [
  "serde",
  "tauri",
  "tauri-build",
+ "windows",
 ]
 
 [[package]]

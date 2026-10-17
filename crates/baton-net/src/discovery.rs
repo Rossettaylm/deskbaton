@@ -37,6 +37,9 @@ impl Discovered {
 pub struct Discovery {
     daemon: ServiceDaemon,
     found: Arc<Mutex<HashMap<String, Discovered>>>,
+    fingerprint: String,
+    port: u16,
+    fullname: Mutex<String>,
 }
 
 impl Discovery {
@@ -61,11 +64,13 @@ impl Discovery {
         let service = ServiceInfo::new(SERVICE_TYPE, &name.0, &host, "", port, &properties[..])
             .map_err(mdns)?
             .enable_addr_auto();
+        let fullname = service.get_fullname().to_owned();
         daemon.register(service).map_err(mdns)?;
         let events = daemon.browse(SERVICE_TYPE).map_err(mdns)?;
 
         let found = Arc::new(Mutex::new(HashMap::new()));
         let sink = Arc::clone(&found);
+        let skip = own.clone();
         thread::Builder::new()
             .name("deskbaton-mdns".into())
             .spawn(move || {
@@ -79,7 +84,7 @@ impl Discovery {
                                 service.get_addresses().iter().map(|ip| ip.to_ip_addr()),
                                 service.get_port(),
                             )
-                            .filter(|d| d.fingerprint != own) else {
+                            .filter(|d| d.fingerprint != skip) else {
                                 continue;
                             };
                             let mut found = lock(&sink);
@@ -98,7 +103,37 @@ impl Discovery {
                 }
             })
             .map_err(|e| Error::Net(format!("无法启动 mDNS 线程：{e}")))?;
-        Ok(Self { daemon, found })
+        Ok(Self {
+            daemon,
+            found,
+            fingerprint: own,
+            port,
+            fullname: Mutex::new(fullname),
+        })
+    }
+
+    /// 注销旧实例并以新名称重新注册；浏览线程继续跑。
+    pub fn set_name(&self, name: &DeviceId) -> Result<()> {
+        let mdns = |e: mdns_sd::Error| Error::Net(format!("mDNS：{e}"));
+        let old = lock(&self.fullname).clone();
+        if let Err(e) = self.daemon.unregister(&old) {
+            log::warn!("注销旧的 mDNS 名称失败：{e}");
+        }
+        let host = format!("deskbaton-{}.local.", &self.fingerprint[..12]);
+        let version = PROTOCOL_VERSION.to_string();
+        let properties = [
+            ("fp", self.fingerprint.as_str()),
+            ("name", name.0.as_str()),
+            ("v", version.as_str()),
+        ];
+        let service =
+            ServiceInfo::new(SERVICE_TYPE, &name.0, &host, "", self.port, &properties[..])
+                .map_err(mdns)?
+                .enable_addr_auto();
+        let fullname = service.get_fullname().to_owned();
+        self.daemon.register(service).map_err(mdns)?;
+        *lock(&self.fullname) = fullname;
+        Ok(())
     }
 
     pub fn list(&self) -> Vec<Discovered> {

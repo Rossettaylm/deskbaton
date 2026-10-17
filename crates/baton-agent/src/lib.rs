@@ -61,15 +61,16 @@ impl Agent {
         if let Err(e) = power.restore_sleep() {
             log::warn!("恢复残留的睡眠设置失败：{e}");
         }
-        let me = DeviceId(config.name.clone().unwrap_or_else(hostname));
+        let state_path = data_dir.join("state.toml");
+        let local = LocalState::load(&state_path)
+            .inspect_err(|e| log::warn!("读取本机状态失败，按未识别处理：{e}"))
+            .unwrap_or_default();
+        let host = hostname();
+        let me = DeviceId(local.name(config.name.as_deref(), &host).to_owned());
         let store = Arc::new(PeerStore::open(&data_dir.join("peers.toml"))?);
         let known: Vec<PeerInfo> = store.list().iter().map(PairedPeer::info).collect();
         let identity = Arc::new(TlsIdentity::load_or_create(&data_dir.join("identity"))?);
-        let state_path = data_dir.join("state.toml");
-        let learned = LocalState::load(&state_path)
-            .inspect_err(|e| log::warn!("读取本机状态失败，按未识别处理：{e}"))
-            .unwrap_or_default()
-            .input_code;
+        let learned = local.input_code;
         let learner = Arc::new(Mutex::new(InputCodeLearner::new(
             config.display.input_code,
             learned,
@@ -80,16 +81,14 @@ impl Agent {
         let mut link_config = link_config(&me, &config, identity, store);
         link_config.me.input_code = my_code;
         link_config.observer = observer;
+        let hotkey = local.hotkey(&config.hotkey).to_owned();
         let link = Arc::new(TcpPeerLink::start(link_config, events.clone())?);
         log::info!(
-            "{} 监听 {}，热键 {}，数据目录 {}",
+            "{} 监听 {}，热键 {hotkey}，数据目录 {}",
             me.0,
             link.local_addr(),
-            config.hotkey,
             data_dir.display()
         );
-
-        let hotkey = config.hotkey.clone();
         let (stop_learning, learning) = if config.display.mode == DisplayMode::Ddc {
             let (stop, stopped) = mpsc::channel();
             let learning = Learning {
@@ -157,7 +156,7 @@ impl Agent {
                 "配置文件写了 display.input_code，以配置为准".into(),
             ));
         }
-        LocalState::default().save(&self.state_path)?;
+        LocalState::update(&self.state_path, |state| state.input_code = None)?;
         let _ = self.events.send(Event::LocalInputCode(None));
         self.link.set_local_input_code(None);
         Ok(())
@@ -169,6 +168,19 @@ impl Agent {
 
     pub fn hotkey(&self) -> &str {
         &self.hotkey
+    }
+
+    pub fn set_hotkey_label(&mut self, hotkey: String) {
+        self.hotkey = hotkey;
+    }
+
+    /// 本机名称立刻用于展示、mDNS 和之后的握手；不断开已有连接。
+    pub fn set_name(&mut self, name: String) -> Result<()> {
+        let id = DeviceId(name);
+        let published = self.link.set_local_name(id.clone());
+        self.me = id.clone();
+        let _ = self.events.send(Event::LocalName(id));
+        published
     }
 
     /// 热键、`--stdin` 等外部输入经它送入协调器。
@@ -227,10 +239,9 @@ impl Learning {
                 continue;
             };
             log::info!("已识别本机输入源编码 {code}");
-            let state = LocalState {
-                input_code: Some(code),
-            };
-            if let Err(e) = state.save(&self.state_path) {
+            if let Err(e) = LocalState::update(&self.state_path, |state| {
+                state.input_code = Some(code);
+            }) {
                 log::warn!("保存本机输入源编码失败，下次启动需要重新识别：{e}");
             }
             let _ = self.events.send(Event::LocalInputCode(Some(code)));

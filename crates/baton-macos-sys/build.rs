@@ -8,7 +8,9 @@ fn main() {
         .file("native/ddc.m")
         .file("native/power.m")
         .file("native/screen.m")
+        .file("native/notify.m")
         .flag("-fobjc-arc")
+        .flag("-Wno-deprecated-declarations")
         .compile("deskbaton_native");
     for framework in [
         "AppKit",

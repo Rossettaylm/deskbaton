@@ -22,6 +22,17 @@ log.workspace = true
 env_logger.workspace = true
 tauri.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+baton-macos-sys.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [build-dependencies]
 tauri-build.workspace = true
 
