@@ -4,6 +4,7 @@ use std::time::Instant;
 use baton_core::ids::InputCode;
 
 use super::*;
+use crate::discovery::Discovered;
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -443,4 +444,102 @@ fn empty_token_is_rejected() {
         TcpPeerLink::start(config, tx),
         Err(Error::Config(_))
     ));
+}
+
+#[test]
+fn candidates_skip_paired_and_duplicate_devices() {
+    let paired = [PairedPeer::new("win", &[1; 32])];
+    let discovered = [
+        Discovered {
+            name: DeviceId("win".into()),
+            fingerprint: auth::to_hex(&[1; 32]),
+            addresses: vec!["192.168.1.20:47800".parse().unwrap()],
+        },
+        Discovered {
+            name: DeviceId("mini".into()),
+            fingerprint: auth::to_hex(&[2; 32]),
+            addresses: vec!["192.168.1.30:47800".parse().unwrap()],
+        },
+    ];
+    let configured = [
+        PeerAddr {
+            device_id: DeviceId("mini".into()),
+            address: "mini.local:47800".into(),
+        },
+        PeerAddr {
+            device_id: DeviceId("nas".into()),
+            address: "192.168.1.40:47800".into(),
+        },
+    ];
+    assert_eq!(
+        candidates(&paired, &discovered, &configured),
+        [
+            Candidate {
+                name: DeviceId("mini".into()),
+                fingerprint: Some(auth::to_hex(&[2; 32])),
+                address: "192.168.1.30:47800".into(),
+            },
+            Candidate {
+                name: DeviceId("nas".into()),
+                fingerprint: None,
+                address: "192.168.1.40:47800".into(),
+            },
+        ]
+    );
+}
+
+/// 需要本机网卡允许组播，CI 上不一定具备，手动运行：`cargo test -p baton-net -- --ignored`。
+#[test]
+#[ignore]
+fn devices_find_each_other_over_mdns() {
+    let (mac_dev, win_dev) = (Device::new("mdns-mac"), Device::new("mdns-win"));
+    let mut mac_config = mac_dev.config("0.0.0.0:0".parse().unwrap(), &[]);
+    let mut win_config = win_dev.config("0.0.0.0:0".parse().unwrap(), &[]);
+    mac_config.discovery = true;
+    win_config.discovery = true;
+    let (a, _a_rx) = start(mac_config);
+    let (_b, _b_rx) = start(win_config);
+    let win_fp = auth::to_hex(&win_dev.identity.fingerprint);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if a.snapshot()
+            .candidates
+            .iter()
+            .any(|c| c.fingerprint.as_deref() == Some(win_fp.as_str()))
+        {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("10 秒内没有经 mDNS 发现对方");
+}
+
+/// 档案里没有地址、配置里也没写，只靠 mDNS 解析到的地址连上。手动运行，同上。
+#[test]
+#[ignore]
+fn paired_devices_connect_via_mdns_address() {
+    let (mac_dev, win_dev) = (Device::new("mdns-mac2"), Device::new("mdns-win2"));
+    mac_dev
+        .store
+        .upsert(PairedPeer::new("mdns-win2", &win_dev.identity.fingerprint))
+        .unwrap();
+    win_dev
+        .store
+        .upsert(PairedPeer::new("mdns-mac2", &mac_dev.identity.fingerprint))
+        .unwrap();
+    let mut mac_config = mac_dev.config("0.0.0.0:0".parse().unwrap(), &[]);
+    let mut win_config = win_dev.config("0.0.0.0:0".parse().unwrap(), &[]);
+    mac_config.discovery = true;
+    win_config.discovery = true;
+    let (_a, a_rx) = start(mac_config);
+    let (_b, _b_rx) = start(win_config);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        if let Ok(Event::PeerOnline(p)) = a_rx.recv_timeout(left)
+            && p.device_id.0 == "mdns-win2"
+        {
+            return;
+        }
+    }
+    panic!("10 秒内没有经 mDNS 地址连上");
 }

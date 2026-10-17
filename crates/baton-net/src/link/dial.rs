@@ -16,6 +16,7 @@ use super::{
     peer_fingerprint, serve,
 };
 use crate::auth::{self, Fingerprint, Role};
+use crate::discovery::Discovered;
 use crate::store::PairedPeer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,9 +28,11 @@ pub(super) struct DialTarget {
     pub addresses: Vec<String>,
 }
 
-/// 档案里的设备：先试最后已知地址，再试配置地址。有令牌时，配置里未配对的对端也拨。
+/// 档案里的设备：依次试 mDNS 按指纹解析到的地址、最后已知地址、配置地址。
+/// 有令牌时，配置里未配对的对端也拨。
 pub(super) fn targets(
     paired: &[PairedPeer],
+    discovered: &[Discovered],
     configured: &[PeerAddr],
     token: bool,
 ) -> Vec<DialTarget> {
@@ -45,11 +48,15 @@ pub(super) fn targets(
         let Some(fingerprint) = auth::parse_fingerprint(&peer.fingerprint) else {
             continue;
         };
-        let mut addresses: Vec<String> = peer
-            .last_ip
-            .zip(peer.port)
-            .map(|(ip, port)| SocketAddr::new(ip, port).to_string())
-            .into_iter()
+        let mut addresses: Vec<String> = discovered
+            .iter()
+            .filter(|d| d.fingerprint == peer.fingerprint)
+            .flat_map(|d| d.addresses.iter().map(SocketAddr::to_string))
+            .chain(
+                peer.last_ip
+                    .zip(peer.port)
+                    .map(|(ip, port)| SocketAddr::new(ip, port).to_string()),
+            )
             .chain(configured_address(&peer.name))
             .collect();
         dedup(&mut addresses);
@@ -88,6 +95,7 @@ pub(super) async fn supervise(shared: Arc<Shared>) {
     loop {
         let targets = targets(
             &shared.store.list(),
+            &shared.discovered(),
             &shared.config_peers,
             shared.token.is_some(),
         );
@@ -174,7 +182,7 @@ mod tests {
             configured("win", "192.168.1.20:47800"),
         ];
         assert_eq!(
-            targets(&[peer], &config, false),
+            targets(&[peer], &[], &config, false),
             [DialTarget {
                 name: DeviceId("win".into()),
                 fingerprint: Some(A),
@@ -186,9 +194,9 @@ mod tests {
     #[test]
     fn unpaired_config_peers_are_dialed_only_with_token() {
         let config = [configured("win", "192.168.1.20:47800")];
-        assert!(targets(&[], &config, false).is_empty());
+        assert!(targets(&[], &[], &config, false).is_empty());
         assert_eq!(
-            targets(&[], &config, true),
+            targets(&[], &[], &config, true),
             [DialTarget {
                 name: DeviceId("win".into()),
                 fingerprint: None,
@@ -198,7 +206,30 @@ mod tests {
     }
 
     #[test]
+    fn discovered_address_comes_first() {
+        let mut peer = PairedPeer::new("win", &A);
+        peer.last_ip = Some("192.168.1.20".parse().unwrap());
+        peer.port = Some(47800);
+        let discovered = [
+            Discovered {
+                name: DeviceId("win".into()),
+                fingerprint: auth::to_hex(&A),
+                addresses: vec!["192.168.1.30:47800".parse().unwrap()],
+            },
+            Discovered {
+                name: DeviceId("win".into()),
+                fingerprint: auth::to_hex(&[9; 32]),
+                addresses: vec!["192.168.1.40:47800".parse().unwrap()],
+            },
+        ];
+        assert_eq!(
+            targets(&[peer], &discovered, &[], false)[0].addresses,
+            ["192.168.1.30:47800", "192.168.1.20:47800"]
+        );
+    }
+
+    #[test]
     fn paired_peer_without_address_is_skipped() {
-        assert!(targets(&[PairedPeer::new("win", &A)], &[], true).is_empty());
+        assert!(targets(&[PairedPeer::new("win", &A)], &[], &[], true).is_empty());
     }
 }

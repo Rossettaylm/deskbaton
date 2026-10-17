@@ -133,6 +133,7 @@ fn link_config(
     let identity = Arc::new(TlsIdentity::load_or_create(&dir.join("identity"))?);
     let mut link = LinkConfig::new(info, listen, identity, store);
     link.token.clone_from(&config.network.token);
+    link.discovery = true;
     link.peers = config
         .peers
         .iter()

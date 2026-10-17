@@ -13,8 +13,10 @@ pub mod transfer;
 mod link;
 
 pub use auth::Fingerprint;
+pub use discovery::Discovered;
 pub use identity::TlsIdentity;
 pub use link::{
-    LinkConfig, LinkObserver, LinkSnapshot, PairedStatus, PairingSession, PeerAddr, TcpPeerLink,
+    Candidate, LinkConfig, LinkObserver, LinkSnapshot, PairedStatus, PairingSession, PeerAddr,
+    TcpPeerLink,
 };
 pub use store::{PairedPeer, PeerStore};

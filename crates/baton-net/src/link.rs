@@ -27,6 +27,7 @@ use tokio::time::{MissedTickBehavior, timeout};
 use tokio_rustls::TlsAcceptor;
 
 use crate::auth::{self, Fingerprint, Role};
+use crate::discovery::{Discovered, Discovery};
 use crate::frame::{self, Frame};
 use crate::identity::TlsIdentity;
 use crate::mux::SendQueue;
@@ -67,6 +68,8 @@ pub struct LinkConfig {
     pub peers: Vec<PeerAddr>,
     pub token: Option<String>,
     pub observer: Option<Arc<dyn LinkObserver>>,
+    /// 开启 mDNS 广播与浏览。
+    pub discovery: bool,
     pub heartbeat_interval: Duration,
     /// 连续这么多个心跳周期收不到任何帧即判定离线。
     pub missed_heartbeats: u32,
@@ -87,6 +90,7 @@ impl LinkConfig {
             peers: Vec::new(),
             token: None,
             observer: None,
+            discovery: false,
             heartbeat_interval: Duration::from_secs(2),
             missed_heartbeats: 3,
         }
@@ -100,6 +104,16 @@ pub struct LinkSnapshot {
     pub fingerprint: String,
     pub paired: Vec<PairedStatus>,
     pub sessions: Vec<PairingSession>,
+    /// 可以发起配对的设备：mDNS 发现到的、配置里写了地址的，都尚未配对。
+    pub candidates: Vec<Candidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Candidate {
+    pub name: DeviceId,
+    /// mDNS 发现的设备才有。
+    pub fingerprint: Option<String>,
+    pub address: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -144,6 +158,25 @@ impl TcpPeerLink {
             .block_on(TcpListener::bind(config.listen))
             .map_err(|e| Error::Net(format!("监听 {} 失败：{e}", config.listen)))?;
         let local_addr = listener.local_addr().map_err(io)?;
+        let discovery = config
+            .discovery
+            .then(|| {
+                let observer = config.observer.clone();
+                Discovery::start(
+                    &config.me.device_id,
+                    &config.identity.fingerprint,
+                    local_addr.port(),
+                    move || {
+                        if let Some(observer) = &observer {
+                            observer.changed();
+                        }
+                    },
+                )
+                .inspect_err(|e| log::warn!("局域网发现不可用：{e}"))
+                .ok()
+            })
+            .flatten()
+            .map(Arc::new);
         let interval = config.heartbeat_interval;
         let shared = Arc::new(Shared {
             me: config.me,
@@ -155,6 +188,7 @@ impl TcpPeerLink {
             store: config.store,
             config_peers: config.peers,
             observer: config.observer,
+            discovery,
             events,
             state: Mutex::new(AgentState::Idle),
             conns: Mutex::new(HashMap::new()),
@@ -199,11 +233,17 @@ impl TcpPeerLink {
             .map(|s| s.view.clone())
             .collect();
         sessions.sort_by_key(|s| s.id);
+        let candidates = candidates(
+            &self.shared.store.list(),
+            &self.shared.discovered(),
+            &self.shared.config_peers,
+        );
         LinkSnapshot {
             me: self.shared.me.device_id.clone(),
             fingerprint: auth::to_hex(&self.shared.identity.fingerprint),
             paired,
             sessions,
+            candidates,
         }
     }
 
@@ -257,6 +297,9 @@ impl TcpPeerLink {
 
 impl Drop for TcpPeerLink {
     fn drop(&mut self) {
+        if let Some(discovery) = &self.shared.discovery {
+            discovery.shutdown();
+        }
         if let Some(runtime) = self.runtime.take() {
             runtime.shutdown_background();
         }
@@ -297,6 +340,7 @@ struct Shared {
     store: Arc<PeerStore>,
     config_peers: Vec<PeerAddr>,
     observer: Option<Arc<dyn LinkObserver>>,
+    discovery: Option<Arc<Discovery>>,
     events: mpsc::Sender<Event>,
     state: Mutex<AgentState>,
     conns: Mutex<HashMap<DeviceId, Conn>>,
@@ -376,6 +420,13 @@ impl Shared {
         false
     }
 
+    fn discovered(&self) -> Vec<Discovered> {
+        self.discovery
+            .as_ref()
+            .map(|d| d.list())
+            .unwrap_or_default()
+    }
+
     fn preferred_dialer(&self, peer: &DeviceId) -> DeviceId {
         self.me.device_id.clone().min(peer.clone())
     }
@@ -395,6 +446,38 @@ impl Shared {
             observer.notice(message);
         }
     }
+}
+
+/// 尚未配对、可以发起配对的设备：mDNS 发现到的优先，配置里同名的不再重复列出。
+fn candidates(
+    paired: &[PairedPeer],
+    discovered: &[Discovered],
+    configured: &[PeerAddr],
+) -> Vec<Candidate> {
+    let is_paired_fp = |fp: &str| paired.iter().any(|p| p.fingerprint == fp);
+    let mut out: Vec<Candidate> = discovered
+        .iter()
+        .filter(|d| !is_paired_fp(&d.fingerprint))
+        .filter_map(|d| {
+            Some(Candidate {
+                name: d.name.clone(),
+                fingerprint: Some(d.fingerprint.clone()),
+                address: d.addresses.first()?.to_string(),
+            })
+        })
+        .collect();
+    for c in configured {
+        let known = paired.iter().any(|p| p.name == c.device_id.0)
+            || out.iter().any(|o| o.name == c.device_id);
+        if !known {
+            out.push(Candidate {
+                name: c.device_id.clone(),
+                fingerprint: None,
+                address: c.address.clone(),
+            });
+        }
+    }
+    out
 }
 
 /// 一条连接的发送队列；写任务从这里取帧。

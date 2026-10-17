@@ -21,6 +21,7 @@ tokio-rustls.workspace = true
 rcgen.workspace = true
 getrandom.workspace = true
 netdev.workspace = true
+mdns-sd.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -31,6 +31,7 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 getrandom = "0.4"
 tempfile = "3"
 netdev = { version = "0.46", default-features = false }
+mdns-sd = { version = "0.21", default-features = false, features = ["logging"] }
 global-hotkey = "0.8"
 ctrlc = { version = "3", features = ["termination"] }
 env_logger = "0.11"
