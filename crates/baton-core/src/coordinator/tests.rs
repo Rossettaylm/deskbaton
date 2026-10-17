@@ -516,7 +516,7 @@ fn ready_timeout_keeps_holding() {
         ),
         ["abort"]
     );
-    assert!(a.probe.notes().contains("对端没有响应"));
+    assert!(a.probe.notes().contains("对方没有响应"));
     assert_eq!(monitor.current(), MAC);
 }
 

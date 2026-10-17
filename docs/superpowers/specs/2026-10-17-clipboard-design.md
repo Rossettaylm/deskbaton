@@ -85,7 +85,7 @@ Payload { format: "text/plain" | "image/png", data: 原始字节 }
 
 | 项 | 真相 | 默认 |
 |---|---|---|
-| 交棒时同步剪贴板 | `state.toml` 的 `clipboard_sync` | 开 |
+| 切换时同步剪贴板 | `state.toml` 的 `clipboard_sync` | 开 |
 | 体积上限 | 代码常量 `MAX_CLIPBOARD_BYTES` = 32 MiB | 不进面板、不进文件 |
 
 `LocalState` 增加 `clipboard_sync: bool`，缺省 `true`，继续 `deny_unknown_fields`。写入走现有读-改-写。

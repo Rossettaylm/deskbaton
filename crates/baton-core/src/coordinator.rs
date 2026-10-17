@@ -165,7 +165,7 @@ impl Coordinator {
             if self.my_code.is_none() && self.config.display.mode == DisplayMode::Ddc {
                 log::info!("本机接口尚未识别，在本机操作一次键鼠后自动识别");
             } else {
-                self.notify(&format!("无法判定持棒状态：{e}"));
+                self.notify(&format!("无法确认当前画面所在电脑：{e}"));
             }
         }
         log::info!("{} 启动，状态 {:?}", self.me.0, self.state);
@@ -228,7 +228,7 @@ impl Coordinator {
                 target,
                 deadline,
             }) if now >= deadline => {
-                self.abort_before_switch(&target, id, "对端没有响应");
+                self.abort_before_switch(&target, id, "对方没有响应");
             }
             Some(Pending::AwaitTaken {
                 id,
@@ -236,7 +236,7 @@ impl Coordinator {
                 deadline,
                 ..
             }) if now >= deadline => {
-                self.revert(&target, id, "对端没有确认接棒", true);
+                self.revert(&target, id, "对方没有确认切换", true);
             }
             Some(Pending::Receiving {
                 id,
@@ -258,7 +258,7 @@ impl Coordinator {
                         &from,
                         Message::Abort {
                             handoff_id: id,
-                            reason: "接棒方超时未看到画面切换".into(),
+                            reason: "对方未看到画面切换".into(),
                         },
                     );
                     self.discarded = Some(id);
@@ -300,12 +300,12 @@ impl Coordinator {
         if self.state != AgentState::Holding {
             // 判定可能已过时（例如上次交棒超时后画面才切过来），按显示器实际输入源重新判定。
             if let Err(e) = self.refresh_state() {
-                self.notify(&format!("无法判定持棒状态：{e}"));
+                self.notify(&format!("无法确认当前画面所在电脑：{e}"));
                 return;
             }
             if self.state != AgentState::Holding {
                 if target.is_some() {
-                    self.notify("画面不在本机，请在持有画面的电脑上操作");
+                    self.notify("画面不在本机，请在当前显示画面的电脑上操作");
                 } else {
                     log::info!("本机不持棒，忽略热键");
                 }
@@ -323,7 +323,7 @@ impl Coordinator {
             None => match self.pick_target() {
                 Some(target) => target,
                 None => {
-                    self.notify("没有可交棒的对端，请先在 DeskBaton 面板中配对设备");
+                    self.notify("没有可切换的电脑，请先在面板中配对");
                     return;
                 }
             },
@@ -404,10 +404,10 @@ impl Coordinator {
         }
         match self.pending.take() {
             Some(Pending::AwaitReady { id, target, .. }) if target == *peer => {
-                self.abort_before_switch(&target, id, "对端离线");
+                self.abort_before_switch(&target, id, "对方已离线");
             }
             Some(Pending::AwaitTaken { id, target, .. }) if target == *peer => {
-                self.revert(&target, id, "对端在确认接棒前离线", false);
+                self.revert(&target, id, "对方在确认切换前离线", false);
             }
             Some(Pending::Receiving { id, from, .. }) if from == *peer => {
                 self.discarded = Some(id);
@@ -465,13 +465,13 @@ impl Coordinator {
             self.pending,
             Some(Pending::Waking { .. } | Pending::AwaitReady { .. } | Pending::AwaitTaken { .. })
         ) {
-            self.send_abort(&from, id, "接棒方正在交棒");
+            self.send_abort(&from, id, "对方正在切换");
             return;
         }
         if self.state == AgentState::Holding {
             let _ = self.refresh_state();
             if self.state == AgentState::Holding {
-                self.send_abort(&from, id, "接棒方当前持棒");
+                self.send_abort(&from, id, "对方当前已是画面所在电脑");
                 return;
             }
         }
@@ -513,7 +513,7 @@ impl Coordinator {
         }
         self.pending = None;
         let Some(target_code) = self.known.get(&from).and_then(|p| p.input_code) else {
-            self.abort_before_switch(&from, id, "对端没有声明输入源编码");
+            self.abort_before_switch(&from, id, "对方还没识别接口");
             return;
         };
         if let Err(e) = self.ports.input.release(&from) {
@@ -559,7 +559,7 @@ impl Coordinator {
                 ..
             }) if pending == id && target == *from => {
                 self.set_state(AgentState::Holding);
-                self.notify(&format!("{} 放弃接棒：{reason}", target.0));
+                self.notify(&format!("未能切换到 {}：{reason}", target.0));
             }
             Some(Pending::AwaitTaken {
                 id: pending,
@@ -608,7 +608,7 @@ impl Coordinator {
         self.send_abort(target, id, reason);
         self.pending = None;
         self.set_state(AgentState::Holding);
-        self.notify(&format!("交棒失败：{reason}"));
+        self.notify(&format!("未能切换：{reason}"));
     }
 
     /// 输入源可能已经切走：尽力切回本机，再按显示器实际状态判定是否持棒。
@@ -629,7 +629,7 @@ impl Coordinator {
         if self.refresh_state().is_err() {
             self.set_state(AgentState::Idle);
         }
-        self.notify(&format!("交棒失败：{reason}，已尝试切回本机"));
+        self.notify(&format!("未能切换：{reason}，已尝试切回本机"));
     }
 
     fn stay_awake_after_handoff(&self) -> Option<AwakeGuard> {

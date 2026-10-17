@@ -56,7 +56,7 @@ impl AgentSlot {
                     link: None,
                     name: None,
                     hotkey: None,
-                    error: Some(format!("交棒服务未启动：{e}")),
+                    error: Some(format!("未能启动：{e}")),
                     exiting,
                     notify,
                 }
@@ -96,7 +96,7 @@ impl AgentSlot {
         let parsed = hotkey::parse(text)?;
         let events = self
             .with_agent(Agent::events)
-            .ok_or_else(|| Error::Config("交棒服务未启动".into()))?;
+            .ok_or_else(|| Error::Config("未能启动".into()))?;
         hotkey::register(parsed, events)
     }
 
@@ -120,17 +120,17 @@ impl AgentSlot {
 
     pub fn relearn_input(&self) -> Result<()> {
         self.with_agent(Agent::relearn_input)
-            .unwrap_or_else(|| Err(Error::Config("交棒服务未启动".into())))
+            .unwrap_or_else(|| Err(Error::Config("未能启动".into())))
     }
 
     /// 与热键走同一流程，目标为 `peer`。
     pub fn handoff_to(&self, peer: &str) -> Result<()> {
         let events = self
             .with_agent(Agent::events)
-            .ok_or_else(|| Error::Config("交棒服务未启动".into()))?;
+            .ok_or_else(|| Error::Config("未能启动".into()))?;
         events
             .send(Event::HandoffTo(DeviceId(peer.to_owned())))
-            .map_err(|_| Error::Config("交棒服务已停止".into()))
+            .map_err(|_| Error::Config("后台已停止".into()))
     }
 
     /// 进程退出前调用：等协调器结束，保证保持唤醒已释放。

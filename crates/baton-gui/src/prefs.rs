@@ -193,7 +193,7 @@ impl AgentSlot {
 
     fn set_name(&self, name: String) -> Result<()> {
         self.with_agent_mut(|a| a.set_name(name))
-            .unwrap_or_else(|| Err(Error::Config("交棒服务未启动".into())))
+            .unwrap_or_else(|| Err(Error::Config("未能启动".into())))
     }
 
     fn set_hotkey_label(&self, hotkey: String) {

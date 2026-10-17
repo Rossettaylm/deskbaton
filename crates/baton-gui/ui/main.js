@@ -170,7 +170,7 @@ async function switchTo(display, input) {
       display.current_input = null;
       display.current_label = null;
       for (const b of display.inputs) b.active = false;
-      state.notice = { tone: "idle", text: `已切到 ${outcome.label}，本机不再持有画面` };
+      state.notice = { tone: "idle", text: `已切到 ${outcome.label}，画面已离开本机` };
     }
   } catch (e) {
     state.pending = null;
@@ -182,13 +182,13 @@ async function switchTo(display, input) {
 /** @param {ComputerView} c */
 async function handOffTo(c) {
   if (c.local) {
-    state.notice = { tone: "idle", text: c.active ? "画面已在本机" : "请在持有画面的电脑上操作" };
+    state.notice = { tone: "idle", text: c.active ? "画面已在本机" : "请在当前显示画面的电脑上操作" };
     render();
     return;
   }
   if (state.handingTo) return;
   state.handingTo = c.name;
-  state.notice = { tone: "idle", text: `正在交棒给 ${c.name}…` };
+    state.notice = { tone: "idle", text: `正在切换到 ${c.name}…` };
   render();
   try {
     await invoke("handoff_to", { peer: c.name });
@@ -489,7 +489,7 @@ function renderDevices() {
   const devices = state.devices;
   $("devices-sub").textContent = devices ? `本机 ${devices.me}` : "局域网";
   if (!devices) {
-    const text = state.devicesError ?? state.agent?.error ?? "正在启动交棒服务…";
+    const text = state.devicesError ?? state.agent?.error ?? "正在启动…";
     list.append(h("div", { class: "empty" }, text));
     return;
   }
@@ -503,7 +503,7 @@ function renderDevices() {
         h(
           "div",
           { class: "pair-foot" },
-          h("small", {}, s.awaiting_me ? about || "同意后两台电脑可以互相交棒" : "等待对方同意…"),
+          h("small", {}, s.awaiting_me ? about || "同意后即可在两台电脑间切换" : "等待对方同意…"),
           s.awaiting_me ? h("button", { class: "btn", onclick: () => decide(s, false) }, "拒绝") : null,
           s.awaiting_me ? h("button", { class: "btn primary", onclick: () => decide(s, true) }, "同意") : null,
         ),
@@ -604,7 +604,7 @@ function renderPorts(d) {
   const computers = d?.computers;
   ports.classList.toggle("computers", !!computers);
   $("ports-title").textContent = computers ? "电脑" : "输入源";
-  $("ports-sub").textContent = computers ? "点击即交棒" : "DDC/CI · VCP 0x60";
+  $("ports-sub").textContent = computers ? "点击即可切换" : "DDC/CI · VCP 0x60";
   if (!d) {
     ports.append(h("div", { class: "empty" }, state.loading ? "正在读取…" : "没有可切换的显示器"));
     return;

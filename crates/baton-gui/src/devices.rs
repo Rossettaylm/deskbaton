@@ -44,11 +44,9 @@ pub fn relearn_input(slot: State<'_, AgentSlot>) -> Result<(), String> {
 }
 
 fn link(slot: &AgentSlot) -> Result<&Arc<TcpPeerLink>, String> {
-    slot.link.as_ref().ok_or_else(|| {
-        slot.error
-            .clone()
-            .unwrap_or_else(|| "交棒服务未启动".to_owned())
-    })
+    slot.link
+        .as_ref()
+        .ok_or_else(|| slot.error.clone().unwrap_or_else(|| "未能启动".to_owned()))
 }
 
 #[tauri::command]
