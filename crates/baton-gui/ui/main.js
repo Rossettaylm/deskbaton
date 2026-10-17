@@ -11,6 +11,12 @@
  * @typedef {{ displays: DisplayView[], config_error: string | null }} Snapshot
  * @typedef {{ kind: "confirmed", code: number, label: string } | { kind: "left_local", label: string }} SwitchOutcome
  * @typedef {{ name: string | null, hotkey: string | null, error: string | null }} AgentStatus
+ * @typedef {{ name: string, fingerprint: string, paired_at: number, input_code: number | null,
+ *             wol_mac: string | null, last_ip: string | null, port: number | null }} PairedPeer
+ * @typedef {{ id: number, peer: string, fingerprint: string, code: string, awaiting_me: boolean }} PairingSession
+ * @typedef {{ name: string, fingerprint: string | null, address: string }} Candidate
+ * @typedef {{ me: string, fingerprint: string, paired: { peer: PairedPeer, online: boolean }[],
+ *             sessions: PairingSession[], candidates: Candidate[] }} Devices
  */
 
 const tauri = /** @type {any} */ (window).__TAURI__;
@@ -42,6 +48,14 @@ const state = {
   notice: null,
   /** @type {AgentStatus | null} */
   agent: null,
+  /** @type {Devices | null} */
+  devices: null,
+  /** @type {string | null} 读取设备失败的原因 */
+  devicesError: null,
+  /** @type {Set<string>} 正在发起配对的地址 */
+  pairing: new Set(),
+  /** @type {string | null} 点过一次「移除」、等待再次确认的设备指纹 */
+  removing: null,
 };
 
 /** @param {string} id */
@@ -127,9 +141,144 @@ function render() {
   renderHead(d);
   renderScreen(d);
   renderPorts(d);
+  renderDevices();
   renderFoot(d);
   renderMenu();
   fit();
+}
+
+async function refreshDevices() {
+  try {
+    state.devices = await invoke("list_devices");
+    state.devicesError = null;
+    for (const c of state.devices.candidates) {
+      if (state.devices.sessions.some((s) => s.peer === c.name)) state.pairing.delete(c.address);
+    }
+  } catch (e) {
+    state.devices = null;
+    state.devicesError = String(e);
+  }
+  render();
+}
+
+let devicesTimer = 0;
+function scheduleDevices() {
+  clearTimeout(devicesTimer);
+  devicesTimer = setTimeout(refreshDevices, 80);
+}
+
+/** @param {string} code */
+const spaced = (code) => `${code.slice(0, 3)} ${code.slice(3)}`;
+
+/** @param {PairingSession} session @param {boolean} accept */
+async function decide(session, accept) {
+  try {
+    await invoke("confirm_pairing", { session: session.id, accept });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  scheduleDevices();
+}
+
+/** @param {Candidate} c */
+async function pair(c) {
+  state.pairing.add(c.address);
+  state.notice = { tone: "idle", text: `正在连接 ${c.name}…` };
+  render();
+  try {
+    await invoke("pair_device", { address: c.address, fingerprint: c.fingerprint });
+  } catch (e) {
+    state.pairing.delete(c.address);
+    state.notice = { tone: "err", text: String(e) };
+  }
+  setTimeout(() => {
+    state.pairing.delete(c.address);
+    render();
+  }, 8000);
+  render();
+}
+
+/** @param {PairedPeer} peer */
+async function unpair(peer) {
+  if (state.removing !== peer.fingerprint) {
+    state.removing = peer.fingerprint;
+    render();
+    return;
+  }
+  state.removing = null;
+  try {
+    await invoke("unpair_device", { fingerprint: peer.fingerprint });
+    state.notice = { tone: "idle", text: `已取消与 ${peer.name} 的配对` };
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  scheduleDevices();
+}
+
+function renderDevices() {
+  const box = $("pairing");
+  const list = $("device-list");
+  box.replaceChildren();
+  list.replaceChildren();
+  const devices = state.devices;
+  $("devices-sub").textContent = devices ? `本机 ${devices.me}` : "局域网";
+  if (!devices) {
+    const text = state.devicesError ?? state.agent?.error ?? "正在启动交棒服务…";
+    list.append(h("div", { class: "empty" }, text));
+    return;
+  }
+  for (const s of devices.sessions) {
+    box.append(
+      h(
+        "div",
+        { class: "pair-request" },
+        h("div", { class: "pair-head" }, h("span", {}, "配对请求"), h("b", {}, s.peer)),
+        h("div", { class: "pair-code" }, spaced(s.code)),
+        h(
+          "div",
+          { class: "pair-foot" },
+          h("small", {}, s.awaiting_me ? "请确认两台设备显示相同数字" : "等待对方确认…"),
+          s.awaiting_me ? h("button", { class: "btn", onclick: () => decide(s, false) }, "拒绝") : null,
+          s.awaiting_me ? h("button", { class: "btn primary", onclick: () => decide(s, true) }, "同意") : null,
+        ),
+      ),
+    );
+  }
+  for (const { peer, online } of devices.paired) {
+    const sub = [peer.last_ip, peer.wol_mac].filter(Boolean).join(" · ") || "尚未记下地址";
+    const removing = state.removing === peer.fingerprint;
+    list.append(
+      h(
+        "div",
+        { class: "device" + (online ? " online" : "") },
+        h("i", { class: "dot" }),
+        h("div", { class: "who" }, h("b", {}, peer.name), h("small", {}, sub)),
+        h("span", { class: "state" }, online ? "在线" : "离线"),
+        h(
+          "button",
+          { class: "btn ghost" + (removing ? " danger" : ""), title: "取消配对", onclick: () => unpair(peer) },
+          removing ? "确认移除" : "移除",
+        ),
+      ),
+    );
+  }
+  for (const c of devices.candidates) {
+    if (devices.sessions.some((s) => s.peer === c.name)) continue;
+    const busy = state.pairing.has(c.address);
+    list.append(
+      h(
+        "div",
+        { class: "device candidate" },
+        h("i", { class: "dot" }),
+        h("div", { class: "who" }, h("b", {}, c.name), h("small", {}, c.address)),
+        h("span", { class: "state" }, c.fingerprint ? "可配对" : "配置中的对端"),
+        h("button", { class: "btn", disabled: busy, onclick: () => pair(c) }, busy ? "连接中" : "配对"),
+      ),
+    );
+  }
+  if (devices.paired.length === 0 && devices.candidates.length === 0 && devices.sessions.length === 0) {
+    list.append(h("div", { class: "empty" }, "局域网里还没有发现其他开着 DeskBaton 的设备"));
+  }
 }
 
 /** @param {DisplayView | null} d */
@@ -305,7 +454,10 @@ tauri.event.listen("panel-shown", () => {
   closeMenu();
   reveal();
   if (state.pending == null) refresh();
+  refreshDevices();
 });
+
+tauri.event.listen("devices-changed", scheduleDevices);
 
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
   state.notice = { tone: "idle", text: e.payload };
@@ -320,3 +472,4 @@ invoke("agent_status")
   .catch(() => {});
 
 refresh();
+refreshDevices();

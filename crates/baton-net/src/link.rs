@@ -5,7 +5,7 @@ mod handshake;
 
 use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 
@@ -261,15 +261,19 @@ impl TcpPeerLink {
     /// 用户主动向 `address` 发起配对；`fingerprint` 为 mDNS 发现到的指纹，对不上时断开。
     pub fn pair_with(&self, address: String, fingerprint: Option<Fingerprint>) {
         let shared = Arc::clone(&self.shared);
+        let reported = Arc::new(AtomicBool::new(false));
         let intent = Intent {
             expect_name: None,
             expect_fp: fingerprint,
             initiated_by_user: true,
+            reported: Some(Arc::clone(&reported)),
         };
         self.handle.spawn(async move {
             if let Err(e) = dial::dial_once(&shared, &address, intent).await {
                 log::info!("向 {address} 发起配对失败：{e}");
-                shared.notice(&format!("配对未完成：{e}"));
+                if !reported.load(Ordering::SeqCst) {
+                    shared.notice(&format!("配对未完成：{}", handshake::reason(&e)));
+                }
             }
         });
     }

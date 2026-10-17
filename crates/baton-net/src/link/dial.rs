@@ -120,6 +120,7 @@ async fn dial_target(shared: Arc<Shared>, target: DialTarget) {
         expect_name: target.fingerprint.is_none().then(|| target.name.clone()),
         expect_fp: target.fingerprint,
         initiated_by_user: false,
+        reported: None,
     };
     for address in &target.addresses {
         if shared.is_connected(&target.name) {

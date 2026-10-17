@@ -3,7 +3,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use baton_core::event::PeerInfo;
 use baton_core::ids::DeviceId;
@@ -28,6 +28,8 @@ pub(super) struct Intent {
     pub expect_name: Option<DeviceId>,
     pub expect_fp: Option<Fingerprint>,
     pub initiated_by_user: bool,
+    /// 配对会话结束时已向界面提示过结果，发起方不再重复提示。
+    pub reported: Option<Arc<AtomicBool>>,
 }
 
 struct PeerHello {
@@ -265,7 +267,10 @@ where
         close_session(shared, id);
         match &result {
             Ok(()) => shared.notice(&format!("已与 {} 配对", name.0)),
-            Err(e) => shared.notice(&format!("与 {} 的配对未完成：{e}", name.0)),
+            Err(e) => shared.notice(&format!("与 {} 的配对未完成：{}", name.0, reason(e))),
+        }
+        if let Some(reported) = &intent.reported {
+            reported.store(true, Ordering::SeqCst);
         }
     }
     result?;
@@ -273,6 +278,14 @@ where
         log::warn!("更新设备档案失败：{e}");
     }
     Ok(info)
+}
+
+/// 面向用户的失败原因，去掉错误类别前缀。
+pub(super) fn reason(e: &Error) -> String {
+    match e {
+        Error::Net(message) => message.clone(),
+        other => other.to_string(),
+    }
 }
 
 fn hello(

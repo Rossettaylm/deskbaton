@@ -47,6 +47,10 @@ fn main() -> ExitCode {
             commands::fit_panel,
             commands::quit,
             devices::agent_status,
+            devices::list_devices,
+            devices::confirm_pairing,
+            devices::pair_device,
+            devices::unpair_device,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -132,6 +136,21 @@ fn toggle_panel(app: &AppHandle) {
         .unwrap_or_else(PoisonError::into_inner)
         .is_some_and(|at| at.elapsed() < BLUR_CLICK_GRACE);
     if just_hidden {
+        return;
+    }
+    place_panel(&window);
+    if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+        log::warn!("显示面板失败：{e}");
+    }
+    let _ = app.emit_to(PANEL, "panel-shown", ());
+}
+
+/// 有配对请求时主动弹出面板；已显示时不动。
+pub(crate) fn show_panel(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(PANEL) else {
+        return;
+    };
+    if window.is_visible().unwrap_or(false) {
         return;
     }
     place_panel(&window);

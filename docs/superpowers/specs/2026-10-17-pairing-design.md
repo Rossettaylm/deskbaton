@@ -143,11 +143,14 @@ port = 47800
 └──────────────────────────────────┘
 ```
 
-- 有需要本机确认的配对请求时自动弹出面板（摆在最近一次的托盘位置）。
-- 本机已同意、等对方时显示「等待对方确认…」；结束后状态行提示「已与 X 配对」或「配对未完成：原因」。
+- 有需要本机确认的新配对请求时自动弹出面板（摆在最近一次的托盘位置）。
+- 本机已同意、等对方时显示「等待对方确认…」；结束后状态行提示「已与 X 配对」或「与 X 的配对未完成：原因」，发起方只提示一次。
+- 「可配对」列出 mDNS 发现到的未配对设备，以及配置里写了地址、尚未配对的对端（标「配置中的对端」）。
+- 「移除」要点两次（第二次显示「确认移除」）才取消配对。
 - 后端在设备、会话或连接状态变化时发 `devices-changed` 事件，前端调用 `list_devices` 取快照重新渲染。
-- Tauri 命令：`list_devices`、`confirm_pairing(session, accept)`、`pair_device(fingerprint | address)`、`unpair_device(fingerprint)`。
-- 协调器的提示（交棒失败等）经 `notice` 事件显示在状态行。
+- Tauri 命令：`agent_status`、`list_devices`、`confirm_pairing(session, accept)`、`pair_device(address, fingerprint?)`、`unpair_device(fingerprint)`。
+- 协调器的提示（交棒失败等）经 `notice` 事件显示在状态行；agent 启动失败的原因显示在状态行和设备卡片里。
+- 面板与链路共用一个 `Arc<TcpPeerLink>`，不经 agent 的锁：链路会在调用方线程上同步回调观察者，经同一把锁会死锁。
 
 ## 11. 代码落点
 
