@@ -33,6 +33,11 @@ const invoke = tauri.core.invoke;
 
 const SELECTED_KEY = "deskbaton.display";
 
+/** @typedef {"handoff" | "devices" | "local" | "clipboard"} TabId */
+
+/** @type {TabId[]} */
+const TABS = ["handoff", "devices", "local", "clipboard"];
+
 const PORT_PATHS = {
   dp: '<path d="M2 2h26v7l-4 3H2z"/>',
   hdmi: '<path d="M2 2h26v6l-3 4H5l-3-4z"/>',
@@ -81,6 +86,10 @@ const state = {
   removing: null,
   /** @type {string | null} 正在交棒的目标电脑 */
   handingTo: null,
+  /** @type {TabId} */
+  tab: "handoff",
+  /** @type {Set<number>} 已经提示过的配对请求，避免用户切回交棒后又被拽走 */
+  seenPairing: new Set(),
 };
 
 /** @param {string} id */
@@ -204,8 +213,36 @@ async function relearnInput() {
   refresh();
 }
 
+function awaitingPair() {
+  return state.devices?.sessions.some((s) => s.awaiting_me) ?? false;
+}
+
+/** @param {TabId} next */
+function setTab(next) {
+  if (state.tab === next) {
+    applyTab();
+    return;
+  }
+  if (state.tab === "local" && recordingHotkey) cancelHotkeyRecord();
+  state.tab = next;
+  applyTab();
+  fit();
+}
+
+function applyTab() {
+  for (const id of TABS) {
+    const selected = state.tab === id;
+    const tab = $(`tab-${id}`);
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    $(`pane-${id}`).hidden = !selected;
+  }
+  $("tab-devices").classList.toggle("mark", awaitingPair());
+}
+
 function render() {
   const d = selected();
+  applyTab();
   renderHead(d);
   renderScreen(d);
   renderPorts(d);
@@ -369,6 +406,10 @@ async function refreshDevices() {
     for (const c of state.devices.candidates) {
       if (state.devices.sessions.some((s) => s.peer === c.name)) state.pairing.delete(c.address);
     }
+    const waiting = state.devices.sessions.filter((s) => s.awaiting_me);
+    const fresh = waiting.some((s) => !state.seenPairing.has(s.id));
+    state.seenPairing = new Set(waiting.map((s) => s.id));
+    if (fresh && state.tab === "handoff") state.tab = "devices";
   } catch (e) {
     state.devices = null;
     state.devicesError = String(e);
@@ -707,6 +748,20 @@ function reveal() {
   void panel.offsetWidth;
   panel.classList.add("reveal");
 }
+
+$("tabs").addEventListener("click", (e) => {
+  const btn = /** @type {HTMLElement | null} */ (/** @type {HTMLElement} */ (e.target).closest("[data-tab]"));
+  if (btn?.dataset.tab) setTab(/** @type {TabId} */ (btn.dataset.tab));
+});
+
+$("tabs").addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const i = TABS.indexOf(state.tab);
+  const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
+  setTab(next);
+  $(`tab-${next}`).focus();
+  e.preventDefault();
+});
 
 $("more").addEventListener("click", (e) => {
   e.stopPropagation();

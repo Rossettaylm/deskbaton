@@ -20,47 +20,73 @@
       <div class="menu" id="menu" role="menu" hidden></div>
     </header>
 
-    <section class="screen">
-      <div class="bezel" id="bezel">
-        <div>
-          <div class="res" id="res"></div>
-          <div class="sub" id="screen-sub"></div>
-        </div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="面板分页">
+      <button type="button" role="tab" id="tab-handoff" aria-controls="pane-handoff" aria-selected="true" data-tab="handoff">交棒</button>
+      <button type="button" role="tab" id="tab-devices" aria-controls="pane-devices" aria-selected="false" data-tab="devices">设备</button>
+      <button type="button" role="tab" id="tab-local" aria-controls="pane-local" aria-selected="false" data-tab="local">本机</button>
+      <button type="button" role="tab" id="tab-clipboard" aria-controls="pane-clipboard" aria-selected="false" data-tab="clipboard">剪贴板</button>
+    </nav>
+
+    <div class="panes">
+      <div class="pane" id="pane-handoff" role="tabpanel" aria-labelledby="tab-handoff" data-pane="handoff">
+        <section class="screen">
+          <div class="bezel" id="bezel">
+            <div>
+              <div class="res" id="res"></div>
+              <div class="sub" id="screen-sub"></div>
+            </div>
+          </div>
+          <div class="stand"></div>
+          <div class="now" id="now"><span>当前画面</span><b id="now-label">—</b></div>
+        </section>
+
+        <section class="card">
+          <h3><span id="ports-title">输入源</span> <small id="ports-sub">DDC/CI · VCP 0x60</small></h3>
+          <div class="ports" id="ports"></div>
+        </section>
       </div>
-      <div class="stand"></div>
-      <div class="now" id="now"><span>当前画面</span><b id="now-label">—</b></div>
-    </section>
 
-    <section class="card">
-      <h3><span id="ports-title">输入源</span> <small id="ports-sub">DDC/CI · VCP 0x60</small></h3>
-      <div class="ports" id="ports"></div>
-    </section>
+      <div class="pane" id="pane-devices" role="tabpanel" aria-labelledby="tab-devices" data-pane="devices" hidden>
+        <section class="card devices">
+          <h3>局域网 <small id="devices-sub">正在读取…</small></h3>
+          <div id="pairing"></div>
+          <div class="device-list" id="device-list"></div>
+        </section>
+      </div>
 
-    <section class="card devices">
-      <h3>设备 <small id="devices-sub">局域网</small></h3>
-      <div id="pairing"></div>
-      <div class="device-list" id="device-list"></div>
-    </section>
+      <div class="pane" id="pane-local" role="tabpanel" aria-labelledby="tab-local" data-pane="local" hidden>
+        <section class="card prefs">
+          <label class="pref">
+            <span>名称</span>
+            <input id="pref-name" type="text" spellcheck="false" autocomplete="off">
+          </label>
+          <label class="pref">
+            <span>交棒热键</span>
+            <button type="button" class="hotkey" id="pref-hotkey"></button>
+          </label>
+          <label class="pref">
+            <span>开机自启</span>
+            <input id="pref-autostart" type="checkbox">
+          </label>
+          <label class="pref">
+            <span>通知</span>
+            <input id="pref-notify" type="checkbox">
+          </label>
+        </section>
+      </div>
 
-    <section class="card prefs">
-      <h3>本机</h3>
-      <label class="pref">
-        <span>名称</span>
-        <input id="pref-name" type="text" spellcheck="false" autocomplete="off">
-      </label>
-      <label class="pref">
-        <span>交棒热键</span>
-        <button type="button" class="hotkey" id="pref-hotkey"></button>
-      </label>
-      <label class="pref">
-        <span>开机自启</span>
-        <input id="pref-autostart" type="checkbox">
-      </label>
-      <label class="pref">
-        <span>通知</span>
-        <input id="pref-notify" type="checkbox">
-      </label>
-    </section>
+      <div class="pane" id="pane-clipboard" role="tabpanel" aria-labelledby="tab-clipboard" data-pane="clipboard" hidden>
+        <section class="card soon">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="8" y="6" width="16" height="22" rx="2.5"/>
+            <rect x="11" y="3.5" width="10" height="5" rx="1.5"/>
+            <path d="M12 14h8M12 18h8M12 22h5"/>
+          </svg>
+          <b>交棒时带走</b>
+          <p>文本和图片会在交棒时同步到接棒方。开关和上限稍后放在这一页。</p>
+        </section>
+      </div>
+    </div>
 
     <footer class="foot">
       <span class="status" id="status" data-tone="idle">正在读取…</span>

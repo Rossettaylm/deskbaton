@@ -69,8 +69,6 @@ button { font: inherit; color: inherit; }
 .panel.reveal > :nth-child(2) { animation-delay: 0.06s; }
 .panel.reveal > :nth-child(3) { animation-delay: 0.12s; }
 .panel.reveal > :nth-child(4) { animation-delay: 0.18s; }
-.panel.reveal > :nth-child(5) { animation-delay: 0.24s; }
-.panel.reveal > :nth-child(6) { animation-delay: 0.30s; }
 
 /* ---------- 标题栏 ---------- */
 
@@ -78,7 +76,7 @@ button { font: inherit; color: inherit; }
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
   z-index: 2;
 }
 
@@ -159,6 +157,58 @@ button { font: inherit; color: inherit; }
 .menu button small { margin-left: auto; font-family: var(--mono); font-size: 9.5px; color: var(--mute); }
 .menu button .check { width: 10px; color: var(--signal); }
 .menu hr { border: 0; height: 1px; margin: 5px 4px; background: var(--line); }
+
+/* ---------- 分页 ---------- */
+
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs button {
+  position: relative;
+  padding: 7px 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--mute);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.tabs button:hover { color: var(--ink); }
+
+.tabs button[aria-selected="true"] { color: var(--ink); }
+
+.tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 18%;
+  right: 18%;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--signal);
+  box-shadow: 0 0 8px var(--signal);
+}
+
+.tabs button.mark::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--signal);
+  box-shadow: 0 0 6px var(--signal);
+  vertical-align: 1px;
+}
+
+.pane[hidden] { display: none; }
+.pane > .card:first-child { margin-top: 0; }
 
 /* ---------- 预览 ---------- */
 
@@ -475,7 +525,34 @@ button { font: inherit; color: inherit; }
 /* ---------- 本机 ---------- */
 
 .prefs { display: flex; flex-direction: column; gap: 8px; }
-.prefs h3 { margin-bottom: 2px; }
+
+.soon {
+  padding: 22px 16px 18px;
+  text-align: center;
+}
+
+.soon svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--mute);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.soon b {
+  display: block;
+  margin-top: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.soon p {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--mute);
+  line-height: 1.45;
+}
 
 .pref {
   display: flex;
