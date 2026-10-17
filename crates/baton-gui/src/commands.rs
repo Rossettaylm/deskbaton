@@ -1,23 +1,32 @@
 //! 前端可调用的 Tauri 命令。DDC 调用会阻塞，统一放到阻塞线程池里执行。
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Duration;
 
 use baton_core::config::{Config, DisplayConfig, default_config_path};
 use baton_core::ids::{DisplayId, InputCode};
 use baton_core::ports::{DisplayControl, DisplayInfo};
 use baton_core::{Error, Result};
+use baton_display::ScreenMode;
 use serde::Serialize;
-use tauri::{AppHandle, LogicalSize, Manager, State};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 
 use crate::agent::AgentSlot;
 use crate::view::{self, DisplayView, Machines, PeerMachine};
 use crate::{PANEL, PANEL_WIDTH, place_panel};
+
+/// 接棒后 CoreGraphics 往往晚于 IOKit，过一会儿再读一次屏幕模式。
+const SCREEN_RETRY_AFTER: Duration = Duration::from_millis(800);
 
 pub struct Panel {
     /// 同一时间只允许一个 I2C 事务。
     ddc: Mutex<Box<dyn DisplayControl>>,
     display: DisplayConfig,
     config_error: Option<String>,
+    screens: Mutex<HashMap<String, ScreenMode>>,
+    retrying: AtomicBool,
 }
 
 impl Panel {
@@ -33,37 +42,50 @@ impl Panel {
             ddc: Mutex::new(baton_display::platform_display()),
             display,
             config_error,
+            screens: Mutex::new(HashMap::new()),
+            retrying: AtomicBool::new(false),
         })
     }
 
-    fn snapshot(&self, mut machines: Machines) -> Result<Snapshot> {
+    fn snapshot(&self, mut machines: Machines) -> Result<(Snapshot, bool)> {
         machines.my_code = machines.my_code.or(self.display.input_code);
         let ddc = self.ddc.lock().unwrap_or_else(PoisonError::into_inner);
         let infos = ddc.list()?;
         let preferred = DisplayInfo::select(infos.clone(), &self.display.matcher)
             .ok()
             .map(|d| d.id);
-        let displays = infos
-            .iter()
-            .map(|info| {
-                let current = ddc.get_input(&info.id).ok();
-                let screen = baton_display::screen_mode(&info.id)
-                    .inspect_err(|e| log::info!("{} 的显示模式未知：{e}", info.id.0))
-                    .ok();
-                view::display_view(
-                    info,
-                    screen,
-                    current,
-                    &self.display.inputs,
-                    preferred.as_ref() == Some(&info.id),
-                    &machines,
-                )
-            })
-            .collect();
-        Ok(Snapshot {
-            displays,
-            config_error: self.config_error.clone(),
-        })
+        let mut screens = self.screens.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut retry = false;
+        let mut displays = Vec::with_capacity(infos.len());
+        for info in &infos {
+            let current = ddc.get_input(&info.id).ok();
+            let fresh = match baton_display::screen_mode(&info.id) {
+                Ok(mode) => Some(mode),
+                Err(e) => {
+                    if !screens.contains_key(&info.id.0) {
+                        log::info!("{} 的显示模式未知：{e}", info.id.0);
+                    }
+                    retry = true;
+                    None
+                }
+            };
+            let screen = view::cached_mode(&mut screens, &info.id.0, fresh);
+            displays.push(view::display_view(
+                info,
+                screen,
+                current,
+                &self.display.inputs,
+                preferred.as_ref() == Some(&info.id),
+                &machines,
+            ));
+        }
+        Ok((
+            Snapshot {
+                displays,
+                config_error: self.config_error.clone(),
+            },
+            retry,
+        ))
     }
 
     fn switch(&self, id: &DisplayId, code: InputCode) -> Result<SwitchOutcome> {
@@ -154,7 +176,25 @@ pub async fn list_displays(
 ) -> std::result::Result<Snapshot, String> {
     let panel = Arc::clone(&panel);
     let machines = machines(&app);
-    blocking(move || panel.snapshot(machines)).await
+    let retry_panel = Arc::clone(&panel);
+    let (snapshot, retry) = blocking(move || panel.snapshot(machines)).await?;
+    if retry {
+        schedule_screen_retry(app, retry_panel);
+    }
+    Ok(snapshot)
+}
+
+fn schedule_screen_retry(app: AppHandle, panel: Arc<Panel>) {
+    if panel.retrying.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = std::thread::Builder::new()
+        .name("deskbaton-screen-retry".into())
+        .spawn(move || {
+            std::thread::sleep(SCREEN_RETRY_AFTER);
+            panel.retrying.store(false, Ordering::SeqCst);
+            let _ = app.emit_to(PANEL, "devices-changed", ());
+        });
 }
 
 #[tauri::command]

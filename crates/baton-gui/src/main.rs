@@ -188,12 +188,16 @@ fn hide_panel(app: &AppHandle) {
 }
 
 pub(crate) fn place_panel(window: &WebviewWindow) {
-    let rect = *window
+    let live = window
+        .app_handle()
+        .tray_by_id("main")
+        .and_then(|tray| tray.rect().ok().flatten());
+    let stored = *window
         .state::<TrayRect>()
         .0
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    let Some(rect) = rect else {
+    let Some(rect) = live.or(stored) else {
         return;
     };
     if let Err(e) = try_place(window, rect) {
@@ -203,20 +207,45 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
 
 /// 托盘矩形和显示器位置都是「各屏逻辑坐标 × 该屏缩放比例」，不能跨屏直接比较；
 /// 先按各屏比例换回逻辑坐标找出图标所在的屏幕，再在该屏的逻辑坐标里计算。
+/// 对不上时退到主屏，没有主屏则退到第一块。
 fn try_place(window: &WebviewWindow, rect: Rect) -> tauri::Result<()> {
     let window_scale = window.scale_factor()?;
     let position = rect.position.to_physical::<f64>(window_scale);
     let size = rect.size.to_physical::<f64>(window_scale);
-    let found = window.available_monitors()?.into_iter().find_map(|m| {
+    let monitors = window.available_monitors()?;
+    if monitors.is_empty() {
+        return Ok(());
+    }
+    let found = monitors.iter().find_map(|m| {
         let scale = m.scale_factor();
-        let screen = logical_bounds(&m);
+        let screen = logical_bounds(m);
         screen
             .contains(position.x / scale, position.y / scale)
             .then_some((screen, scale))
     });
-    let Some((screen, scale)) = found else {
-        log::warn!("找不到托盘图标所在的屏幕");
-        return Ok(());
+    let (screen, scale) = match found {
+        Some(hit) => hit,
+        None => {
+            let screens: Vec<Bounds> = monitors.iter().map(logical_bounds).collect();
+            let screen = window
+                .primary_monitor()?
+                .map(|m| logical_bounds(&m))
+                .or_else(|| {
+                    placement::screen_for_point(
+                        position.x / window_scale,
+                        position.y / window_scale,
+                        &screens,
+                    )
+                });
+            let Some(screen) = screen else {
+                return Ok(());
+            };
+            let scale = monitors
+                .iter()
+                .find(|m| logical_bounds(m) == screen)
+                .map_or(window_scale, tauri::Monitor::scale_factor);
+            (screen, scale)
+        }
     };
     let tray = Bounds {
         x: position.x / scale,

@@ -1,5 +1,7 @@
 //! 面板展示用的数据组装，不依赖 Tauri，便于以后并入 agent 的托盘。
 
+use std::collections::HashMap;
+
 use baton_core::config::InputPreset;
 use baton_core::ids::{InputCode, Platform};
 use baton_core::ports::DisplayInfo;
@@ -199,6 +201,21 @@ impl PortKind {
         } else {
             Self::Other
         }
+    }
+}
+
+/// 读到新模式就记下；读失败则沿用该显示器上次成功的值。
+pub fn cached_mode(
+    cache: &mut HashMap<String, ScreenMode>,
+    id: &str,
+    fresh: Option<ScreenMode>,
+) -> Option<ScreenMode> {
+    match fresh {
+        Some(mode) => {
+            cache.insert(id.to_owned(), mode);
+            Some(mode)
+        }
+        None => cache.get(id).copied(),
     }
 }
 
@@ -623,5 +640,26 @@ mod tests {
         let screen = view.screen.unwrap();
         assert!(!screen.hidpi);
         assert_eq!(screen.scale_percent, Some(175));
+    }
+
+    #[test]
+    fn cached_mode_keeps_last_when_fresh_missing() {
+        let mut cache = HashMap::new();
+        let mode = mode();
+        assert_eq!(cached_mode(&mut cache, "A", Some(mode)), Some(mode));
+        assert_eq!(cached_mode(&mut cache, "A", None), Some(mode));
+        assert_eq!(cached_mode(&mut cache, "B", None), None);
+    }
+
+    #[test]
+    fn cached_mode_updates_when_fresh() {
+        let mut cache = HashMap::new();
+        let first = mode();
+        let next = ScreenMode {
+            width: 1920,
+            ..mode()
+        };
+        cached_mode(&mut cache, "A", Some(first));
+        assert_eq!(cached_mode(&mut cache, "A", Some(next)), Some(next));
     }
 }

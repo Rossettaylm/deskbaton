@@ -38,6 +38,7 @@
 
 - [x] `baton-clipboard`：`ClipboardAccess`（clipboard-rs）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过；本机开关写入 `state.toml`（[设计](docs/superpowers/specs/2026-10-17-clipboard-design.md)）
 - [ ] 🔧 剪贴板设计验收清单第 1–5 项
+- [ ] 剪贴板历史：面板列表、上限可配（默认 10）、交棒时同步最近 N 条（待改设计文档）
 - 配对与设备档案（[设计](docs/superpowers/specs/2026-10-17-pairing-design.md)），按顺序推进：
   - [x] 持久化 TLS 身份、`peers.toml` 设备档案、握手 v3（承诺式配对码、信任判定、令牌自动配对），`PROTOCOL_VERSION` 升到 3
   - [x] 档案驱动唤醒：启动时把档案设备交给协调器，`wol_mac` 档案优先，`WakeTarget.last_ip`；`hello.wol_mac` 上报承载连接的网卡当前 MAC；`WolWaker` 同时发往 `255.255.255.255`、子网广播和最后已知 IP

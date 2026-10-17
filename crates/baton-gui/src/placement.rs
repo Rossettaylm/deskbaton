@@ -22,6 +22,15 @@ impl Bounds {
     }
 }
 
+/// 托盘点落在哪块屏上；都不包含时退到第一块。没有屏幕则 `None`。
+pub fn screen_for_point(x: f64, y: f64, screens: &[Bounds]) -> Option<Bounds> {
+    screens
+        .iter()
+        .copied()
+        .find(|screen| screen.contains(x, y))
+        .or_else(|| screens.first().copied())
+}
+
 /// 面板水平居中对准托盘图标并限制在屏幕内；图标下方放得下就放下方（macOS 菜单栏、顶部任务栏），
 /// 否则放上方（Windows 底部任务栏）。返回面板左上角。
 pub fn panel_origin(tray: Bounds, panel: (f64, f64), screen: Bounds, gap: f64) -> (f64, f64) {
@@ -100,5 +109,35 @@ mod tests {
             panel_origin(tray(1925.0, -515.0), (360.0, 440.0), screen, 6.0),
             (1926.0, -485.0)
         );
+    }
+
+    fn secondary() -> Bounds {
+        Bounds {
+            x: 1920.0,
+            y: -515.0,
+            width: 1080.0,
+            height: 1920.0,
+        }
+    }
+
+    #[test]
+    fn tray_point_picks_the_screen_that_contains_it() {
+        let screens = [SCREEN, secondary()];
+        assert_eq!(screen_for_point(100.0, 10.0, &screens), Some(SCREEN));
+        assert_eq!(
+            screen_for_point(1925.0, -515.0, &screens),
+            Some(secondary())
+        );
+    }
+
+    #[test]
+    fn tray_point_outside_all_screens_falls_back_to_first() {
+        let screens = [SCREEN, secondary()];
+        assert_eq!(screen_for_point(-80.0, -80.0, &screens), Some(SCREEN));
+    }
+
+    #[test]
+    fn tray_point_with_no_screens_is_none() {
+        assert_eq!(screen_for_point(0.0, 0.0, &[]), None);
     }
 }
