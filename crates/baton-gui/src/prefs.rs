@@ -1,4 +1,4 @@
-//! 面板「本机」卡片：名称、热键、开机自启、通知、剪贴板。只写 `state.toml`。
+//! 面板「设置」：名称、热键、开机自启、通知、剪贴板。只写 `state.toml`。
 
 use std::path::PathBuf;
 use std::sync::mpsc;

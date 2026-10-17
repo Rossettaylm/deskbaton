@@ -165,7 +165,8 @@ mod imp {
         let bytes =
             unsafe { std::slice::from_raw_parts(value.as_ptr().cast::<u8>(), value.len() * 2) };
         // SAFETY: `key` 已打开；`name` / `value` 以 NUL 结尾，字节长度与 UTF-16 缓冲一致。
-        let status = unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(bytes)) };
+        let status =
+            unsafe { RegSetValueExW(key, PCWSTR(name.as_ptr()), Some(0), REG_SZ, Some(bytes)) };
         close(key);
         if status != ERROR_SUCCESS {
             return Err(Error::Config("无法写入开机启动项".into()));
@@ -211,7 +212,8 @@ mod imp {
     ) -> Result<windows::Win32::System::Registry::HKEY> {
         let mut key = windows::Win32::System::Registry::HKEY::default();
         // SAFETY: `RUN_PATH` 是静态宽字符串；`key` 由 API 写入。
-        let status = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_PATH, 0, access, &mut key) };
+        let status =
+            unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, RUN_PATH, Some(0), access, &mut key) };
         if status != ERROR_SUCCESS {
             return Err(Error::Config("无法打开开机启动注册表项".into()));
         }

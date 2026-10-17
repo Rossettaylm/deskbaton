@@ -3,7 +3,7 @@
 # Windows：%APPDATA%\DeskBaton\config.toml
 
 # 本机名称，显示在对端面板上；对端配置了 [[peers]] 时须与其 name 一致。不填时取主机名。
-# 面板「本机」卡片改过名称或热键后，以数据目录 state.toml 为准，不再回写本文件。
+# 面板「设置」改过名称或热键后，以数据目录 state.toml 为准，不再回写本文件。
 name = "macbook"
 hotkey = "Ctrl+Alt+Space"
 

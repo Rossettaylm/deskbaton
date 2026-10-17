@@ -23,8 +23,8 @@
     <nav class="tabs" id="tabs" role="tablist" aria-label="面板分页">
       <button type="button" role="tab" id="tab-handoff" aria-controls="pane-handoff" aria-selected="true" data-tab="handoff">显示器</button>
       <button type="button" role="tab" id="tab-devices" aria-controls="pane-devices" aria-selected="false" data-tab="devices">设备</button>
-      <button type="button" role="tab" id="tab-local" aria-controls="pane-local" aria-selected="false" data-tab="local">本机</button>
       <button type="button" role="tab" id="tab-clipboard" aria-controls="pane-clipboard" aria-selected="false" data-tab="clipboard">剪贴板</button>
+      <button type="button" role="tab" id="tab-local" aria-controls="pane-local" aria-selected="false" data-tab="local">设置</button>
     </nav>
 
     <div class="panes">
@@ -54,6 +54,18 @@
         </section>
       </div>
 
+      <div class="pane" id="pane-clipboard" role="tabpanel" aria-labelledby="tab-clipboard" data-pane="clipboard" hidden>
+        <section class="card soon">
+          <svg viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="8" y="6" width="16" height="22" rx="2.5"/>
+            <rect x="11" y="3.5" width="10" height="5" rx="1.5"/>
+            <path d="M12 14h8M12 18h8M12 22h5"/>
+          </svg>
+          <b>切换时同步</b>
+          <p>文本和图片会在切换电脑时同步到另一台电脑的系统剪贴板。可在「设置」关闭。</p>
+        </section>
+      </div>
+
       <div class="pane" id="pane-local" role="tabpanel" aria-labelledby="tab-local" data-pane="local" hidden>
         <section class="card prefs">
           <label class="pref">
@@ -76,18 +88,6 @@
             <span>剪贴板</span>
             <input id="pref-clipboard" type="checkbox">
           </label>
-        </section>
-      </div>
-
-      <div class="pane" id="pane-clipboard" role="tabpanel" aria-labelledby="tab-clipboard" data-pane="clipboard" hidden>
-        <section class="card soon">
-          <svg viewBox="0 0 32 32" aria-hidden="true">
-            <rect x="8" y="6" width="16" height="22" rx="2.5"/>
-            <rect x="11" y="3.5" width="10" height="5" rx="1.5"/>
-            <path d="M12 14h8M12 18h8M12 22h5"/>
-          </svg>
-          <b>切换时同步</b>
-          <p>文本和图片会在切换电脑时同步到另一台电脑的系统剪贴板。可在「本机」关闭。</p>
         </section>
       </div>
     </div>

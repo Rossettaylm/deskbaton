@@ -36,7 +36,7 @@ const SELECTED_KEY = "deskbaton.display";
 /** @typedef {"handoff" | "devices" | "local" | "clipboard"} TabId */
 
 /** @type {TabId[]} */
-const TABS = ["handoff", "devices", "local", "clipboard"];
+const TABS = ["handoff", "devices", "clipboard", "local"];
 
 const PORT_PATHS = {
   dp: '<path d="M2 2h26v7l-4 3H2z"/>',

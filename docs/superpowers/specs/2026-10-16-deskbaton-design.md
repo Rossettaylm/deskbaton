@@ -303,7 +303,7 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 - **防回传**：记录最近一次收到或发出的内容哈希，剪贴板内容没变就不再发送；
 - **敏感内容**：带约定标记的内容不同步（macOS `org.nspasteboard.ConcealedType`，Windows `ExcludeClipboardContentFromMonitorProcessing`）；
 - **上限**：超过 32 MiB 就跳过，并经 `Notifier` 提示；
-- **开关**：面板「本机」卡片，写入 `state.toml` 的 `clipboard_sync`，默认开。
+- **开关**：面板「设置」，写入 `state.toml` 的 `clipboard_sync`，默认开。
 
 ## 6. 交棒流程
 

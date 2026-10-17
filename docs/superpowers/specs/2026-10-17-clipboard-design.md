@@ -17,7 +17,7 @@
 - 用 `clipboard-rs` 读写系统剪贴板（文本、PNG 图片）
 - 只在交棒时同步（`HandoffParticipant`，通道 `1`）
 - 防回传、超过 32 MiB 跳过、敏感约定标记跳过
-- 面板「本机」卡片一个「剪贴板」开关；开关写入 `state.toml`
+- 面板「设置」一个「剪贴板」开关；开关写入 `state.toml`
 - 失败不阻断、不拖慢交棒
 
 **不做**
@@ -45,7 +45,7 @@ clipboard-rs 读系统剪贴板            clipboard-rs 写系统剪贴板
 | `baton-core` | `ClipboardAccess`、`ClipboardContent`、`ClipboardRead`；`LocalState.clipboard_sync` |
 | `baton-clipboard` | `clipboard-rs` 实现访问；`ClipboardSync` 实现 `HandoffParticipant` |
 | `baton-agent` | 始终注入 `ClipboardSync`；开关为进程内 `AtomicBool` |
-| `baton-gui` | 「本机」卡片开关；只写 `state.toml` |
+| `baton-gui` | 「设置」里的开关；只写 `state.toml` |
 
 `baton-core` 不依赖 `clipboard-rs` 或系统 API。
 
@@ -81,7 +81,7 @@ Payload { format: "text/plain" | "image/png", data: 原始字节 }
 
 ## 5. 设置
 
-用户只在面板「本机」里改。`state.toml` 是程序自己的持久化，用户不用看见、不用手改。不往 `Config` / `config.toml` 加字段。
+用户只在面板「设置」里改。`state.toml` 是程序自己的持久化，用户不用看见、不用手改。不往 `Config` / `config.toml` 加字段。
 
 | 项 | 真相 | 默认 |
 |---|---|---|

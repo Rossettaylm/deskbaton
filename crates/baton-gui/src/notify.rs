@@ -43,13 +43,15 @@ mod imp {
 
     const CALLBACK: u32 = WM_USER + 1;
 
-    static HWND: OnceLock<HWND> = OnceLock::new();
+    static WINDOW: OnceLock<isize> = OnceLock::new();
 
     pub fn show(message: &str) -> Result<()> {
-        let hwnd = *HWND.get_or_init(message_window);
-        if hwnd.0.is_null() {
+        let raw = *WINDOW.get_or_init(message_window);
+        if raw == 0 {
             return Err(Error::Config("无法创建通知窗口".into()));
         }
+        // SAFETY: `raw` 来自本进程 `CreateWindowExW` 返回的窗口句柄。
+        let hwnd = HWND(raw as *mut _);
         let mut data = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: hwnd,
@@ -72,15 +74,13 @@ mod imp {
 
     fn copy_wide(dest: &mut [u16], text: &str) {
         dest.fill(0);
-        for (slot, unit) in dest
-            .iter_mut()
-            .zip(text.encode_utf16().take(dest.len().saturating_sub(1)))
-        {
+        let limit = dest.len().saturating_sub(1);
+        for (slot, unit) in dest.iter_mut().zip(text.encode_utf16().take(limit)) {
             *slot = unit;
         }
     }
 
-    fn message_window() -> HWND {
+    fn message_window() -> isize {
         let class = w!("DeskBatonNotify");
         let wc = WNDCLASSW {
             lpfnWndProc: Some(wndproc),
@@ -104,7 +104,8 @@ mod imp {
                 None,
                 None,
             )
-            .unwrap_or_default()
+            .map(|hwnd| hwnd.0 as isize)
+            .unwrap_or(0)
         }
     }
 
