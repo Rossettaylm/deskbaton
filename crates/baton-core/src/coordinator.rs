@@ -157,7 +157,11 @@ impl Coordinator {
     /// 处理事件直到收到 [`Event::Shutdown`] 或事件源关闭。
     pub fn run(mut self, events: Receiver<Event>) {
         if let Err(e) = self.refresh_state() {
-            self.notify(&format!("无法判定持棒状态：{e}"));
+            if self.my_code.is_none() && self.config.display.mode == DisplayMode::Ddc {
+                log::info!("本机接口尚未识别，在本机操作一次键鼠后自动识别");
+            } else {
+                self.notify(&format!("无法判定持棒状态：{e}"));
+            }
         }
         log::info!("{} 启动，状态 {:?}", self.me.0, self.state);
         loop {
