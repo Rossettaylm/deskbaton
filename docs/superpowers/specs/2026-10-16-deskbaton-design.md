@@ -13,6 +13,8 @@
 > 修订（2026-10-17）：零配置（`2026-10-17-zero-config-design.md`）。`display.input_code` 变为可选，不写时由程序在本机有键鼠操作时自动学习；协议升到 v5，新增 `input_code` 消息。冲突时以零配置设计为准。
 >
 > 修订（2026-10-17）：配对、设备档案、mDNS 发现与面板配对改按 `2026-10-17-pairing-design.md`；agent 并入面板进程；协议升到 v3。
+>
+> 修订（2026-10-17）：剪贴板同步改按 `2026-10-17-clipboard-design.md`：`clipboard-rs` 读写系统剪贴板，只在交棒时带走文本 / PNG；开关在面板「本机」卡片，写入 `state.toml`，不进 `config.toml`。冲突时以剪贴板设计为准。
 
 ## 1. 目标
 
@@ -106,7 +108,7 @@ crates/
   baton-input/      InputRouter：MonitorKvmRouter；software/ 下为 SoftwareRouter + InputShareBackend（deskflow、native）
   baton-net/        identity（持久化 TLS 身份）、pairing（配对码与信任判定）、store（设备档案 peers.toml）、
                     discovery（mDNS）、iface（网卡 MAC）、frame（带通道号的分帧）、mux（控制优先的发送调度）、TcpPeerLink
-  baton-clipboard/  ClipboardAccess（基于 arboard）+ ClipboardSync 参与者
+  baton-clipboard/  ClipboardAccess（基于 clipboard-rs）+ ClipboardSync 参与者
   baton-macos-sys/  ObjC 胶水（native/*.m）+ FFI 声明，只在 macOS 编译
   baton-agent/      库 `Agent::start`：恢复睡眠设置、加载身份与档案、启动链路，协调器跑在独立线程。
                     无界面程序 deskbaton：主线程运行系统事件循环（macOS 为 native 中的 NSApplication，
@@ -296,11 +298,12 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 
 **ClipboardSync**（`baton-clipboard`，第一个参与者）：
 
-- **读写**：用 `arboard`（1Password 维护，Apache-2.0）读写文本和图片，图片统一转成 PNG 传输；
-- **同步时机**：`clipboard.sync = "on_handoff"`（首版唯一实现），只在交棒时带走当前剪贴板；
-- **防回传**：记录"最近一次收到或发出的内容哈希"，剪贴板内容没变就不再发送；
-- **敏感内容**：带"敏感、勿记录"约定标记的内容不同步（macOS 如 `org.nspasteboard.ConcealedType`，Windows 如剪贴板历史排除标记；具体类型实现时逐一核对）。`arboard` 读不到这些标记，需要在各平台补一层很薄的检测；
-- **上限**：超过 `clipboard.max_bytes`（默认 32 MiB）就跳过，并在托盘提示。
+- **读写**：用 `clipboard-rs`（MIT）读写系统剪贴板的文本和图片，图片统一为 PNG；见 `2026-10-17-clipboard-design.md`；
+- **同步时机**：只在交棒时带走当前剪贴板；
+- **防回传**：记录最近一次收到或发出的内容哈希，剪贴板内容没变就不再发送；
+- **敏感内容**：带约定标记的内容不同步（macOS `org.nspasteboard.ConcealedType`，Windows `ExcludeClipboardContentFromMonitorProcessing`）；
+- **上限**：超过 32 MiB 就跳过，并经 `Notifier` 提示；
+- **开关**：面板「本机」卡片，写入 `state.toml` 的 `clipboard_sync`，默认开。
 
 ## 6. 交棒流程
 
@@ -367,10 +370,6 @@ mode = "monitor_kvm"    # monitor_kvm | software（需再写 backend = "deskflow
 stay_awake_until = "peer_offline"   # peer_offline | duration
 stay_awake_secs = 300               # 仅 duration 模式使用
 wake_chain = ["wol", "hid_dongle", "prompt"]
-
-[clipboard]
-sync = "on_handoff"     # on_handoff | off（realtime 预留）
-max_bytes = 33554432
 
 [[peers]]
 name = "windows-desktop"

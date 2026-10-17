@@ -1,4 +1,4 @@
-//! 面板「本机」卡片：名称、热键、开机自启、通知。只写 `state.toml`。
+//! 面板「本机」卡片：名称、热键、开机自启、通知、剪贴板。只写 `state.toml`。
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -21,6 +21,7 @@ pub struct PrefsView {
     pub hostname: String,
     pub hotkey: String,
     pub notify: bool,
+    pub clipboard_sync: bool,
     pub autostart: bool,
 }
 
@@ -80,6 +81,9 @@ fn read_prefs(slot: &AgentSlot) -> Result<PrefsView> {
             .hotkey()
             .unwrap_or_else(|| local.hotkey(&config.hotkey).to_owned()),
         notify: slot.notify(),
+        clipboard_sync: slot
+            .with_agent(Agent::clipboard_sync)
+            .unwrap_or(local.clipboard_sync),
         autostart: startup::is_enabled().unwrap_or(false),
     })
 }
@@ -103,6 +107,19 @@ pub fn set_notify(slot: State<'_, AgentSlot>, notify: bool) -> std::result::Resu
     })
     .map_err(|e| e.to_string())?;
     slot.set_notify(notify);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_clipboard_sync(
+    slot: State<'_, AgentSlot>,
+    clipboard_sync: bool,
+) -> std::result::Result<(), String> {
+    LocalState::update(&state_path().map_err(|e| e.to_string())?, |s| {
+        s.clipboard_sync = clipboard_sync;
+    })
+    .map_err(|e| e.to_string())?;
+    slot.set_clipboard_sync(clipboard_sync);
     Ok(())
 }
 

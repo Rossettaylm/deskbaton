@@ -88,6 +88,10 @@ impl AgentSlot {
         self.notify.store(on, Ordering::SeqCst);
     }
 
+    pub(crate) fn set_clipboard_sync(&self, on: bool) {
+        self.with_agent(|a| a.set_clipboard_sync(on));
+    }
+
     pub(crate) fn register_hotkey(&self, text: &str) -> Result<hotkey::Registration> {
         let parsed = hotkey::parse(text)?;
         let events = self

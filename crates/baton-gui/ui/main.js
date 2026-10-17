@@ -253,7 +253,7 @@ function render() {
 }
 
 /**
- * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, autostart: boolean }} PrefsView
+ * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, clipboard_sync: boolean, autostart: boolean }} PrefsView
  */
 
 let recordingHotkey = false;
@@ -268,6 +268,7 @@ async function refreshPrefs() {
     const hotkey = $("pref-hotkey");
     const autostart = /** @type {HTMLInputElement} */ ($("pref-autostart"));
     const notify = /** @type {HTMLInputElement} */ ($("pref-notify"));
+    const clipboard = /** @type {HTMLInputElement} */ ($("pref-clipboard"));
     name.placeholder = prefs.hostname;
     if (document.activeElement !== name) name.value = prefs.name;
     lastHotkey = prefs.hotkey;
@@ -277,6 +278,7 @@ async function refreshPrefs() {
     }
     autostart.checked = prefs.autostart;
     notify.checked = prefs.notify;
+    clipboard.checked = prefs.clipboard_sync;
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -299,6 +301,17 @@ async function saveNotify() {
   const on = /** @type {HTMLInputElement} */ ($("pref-notify")).checked;
   try {
     await invoke("set_notify", { notify: on });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+async function saveClipboard() {
+  const on = /** @type {HTMLInputElement} */ ($("pref-clipboard")).checked;
+  try {
+    await invoke("set_clipboard_sync", { clipboardSync: on });
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -799,6 +812,7 @@ $("pref-name").addEventListener("keydown", (e) => {
 });
 $("pref-hotkey").addEventListener("click", startHotkeyRecord);
 $("pref-notify").addEventListener("change", saveNotify);
+$("pref-clipboard").addEventListener("change", saveClipboard);
 $("pref-autostart").addEventListener("change", saveAutostart);
 window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();

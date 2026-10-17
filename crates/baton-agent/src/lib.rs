@@ -4,17 +4,19 @@ pub mod hotkey;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use baton_clipboard::{ClipboardSync, SystemClipboard};
 use baton_core::config::{Config, DisplayMode};
 use baton_core::coordinator::{Coordinator, Ports};
 use baton_core::event::{Event, PeerInfo};
 use baton_core::ids::{DeviceId, InputCode, Platform};
 use baton_core::learn::InputCodeLearner;
-use baton_core::ports::{DisplayInfo, Notifier};
+use baton_core::ports::{ClipboardAccess, DisplayInfo, Notifier};
 use baton_core::state_file::LocalState;
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
@@ -44,6 +46,7 @@ pub struct Agent {
     /// 丢弃即通知学习线程退出。
     stop_learning: Option<Sender<()>>,
     learning: Option<JoinHandle<()>>,
+    clipboard_sync: Arc<AtomicBool>,
 }
 
 impl Agent {
@@ -106,14 +109,21 @@ impl Agent {
         } else {
             (None, None)
         };
+        let clipboard_sync = Arc::new(AtomicBool::new(local.clipboard_sync));
+        let notifier: Arc<dyn Notifier> = Arc::from(notifier);
+        let clipboard = Arc::new(ClipboardSync::new(
+            Arc::new(SystemClipboard::new()) as Arc<dyn ClipboardAccess>,
+            Arc::clone(&clipboard_sync),
+            Arc::clone(&notifier),
+        ));
         let ports = Ports {
             display: baton_display::platform_display(),
             power,
             input: baton_input::router_for(&config.input),
             wake: WakeChain::from_config(&config.power.wake_chain, baton_power::available_wakers()),
             link: Arc::clone(&link) as Arc<dyn baton_core::ports::PeerLink>,
-            participants: Vec::new(),
-            notifier,
+            participants: vec![clipboard],
+            notifier: Box::new(SharedNotifier(notifier)),
         };
         let coordinator = Coordinator::new(me.clone(), config, ports)
             .with_known_peers(known)
@@ -136,6 +146,7 @@ impl Agent {
             coordinator: Some(coordinator),
             stop_learning,
             learning,
+            clipboard_sync,
         })
     }
 
@@ -172,6 +183,14 @@ impl Agent {
 
     pub fn set_hotkey_label(&mut self, hotkey: String) {
         self.hotkey = hotkey;
+    }
+
+    pub fn clipboard_sync(&self) -> bool {
+        self.clipboard_sync.load(Ordering::SeqCst)
+    }
+
+    pub fn set_clipboard_sync(&self, on: bool) {
+        self.clipboard_sync.store(on, Ordering::SeqCst);
     }
 
     /// 本机名称立刻用于展示、mDNS 和之后的握手；不断开已有连接。
@@ -308,4 +327,12 @@ pub fn data_dir_of(config_path: &Path) -> PathBuf {
 pub fn hostname() -> String {
     let name = gethostname::gethostname().to_string_lossy().into_owned();
     name.trim_end_matches(".local").to_owned()
+}
+
+struct SharedNotifier(Arc<dyn Notifier>);
+
+impl Notifier for SharedNotifier {
+    fn notify(&self, message: &str) {
+        self.0.notify(message);
+    }
 }

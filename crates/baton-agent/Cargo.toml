@@ -17,6 +17,7 @@ baton-display.workspace = true
 baton-power.workspace = true
 baton-input.workspace = true
 baton-net.workspace = true
+baton-clipboard.workspace = true
 clap.workspace = true
 log.workspace = true
 env_logger.workspace = true

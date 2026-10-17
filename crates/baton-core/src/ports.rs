@@ -140,3 +140,40 @@ pub trait PeerLink: Send + Sync {
 pub trait Notifier: Send + Sync {
     fn notify(&self, message: &str);
 }
+
+/// 系统剪贴板上的一份内容；交棒时只带其中一种。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardContent {
+    Text(String),
+    ImagePng(Vec<u8>),
+}
+
+impl ClipboardContent {
+    pub fn format(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text/plain",
+            Self::ImagePng(_) => "image/png",
+        }
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Text(text) => text.as_bytes(),
+            Self::ImagePng(bytes) => bytes,
+        }
+    }
+}
+
+/// 一次系统剪贴板读取的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardRead {
+    Empty,
+    Sensitive,
+    Content(ClipboardContent),
+}
+
+/// 本机系统剪贴板。
+pub trait ClipboardAccess: Send + Sync {
+    fn read(&self) -> Result<ClipboardRead>;
+    fn write(&self, content: &ClipboardContent) -> Result<()>;
+}

@@ -60,6 +60,7 @@ fn main() -> ExitCode {
             prefs::set_name,
             prefs::set_hotkey,
             prefs::set_notify,
+            prefs::set_clipboard_sync,
             prefs::set_autostart,
             prefs::suspend_hotkey,
             prefs::resume_hotkey,

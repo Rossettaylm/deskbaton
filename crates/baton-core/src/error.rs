@@ -14,6 +14,8 @@ pub enum Error {
     Net(String),
     #[error("配置错误：{0}")]
     Config(String),
+    #[error("剪贴板失败：{0}")]
+    Clipboard(String),
     #[error("交棒超时")]
     Timeout,
 }

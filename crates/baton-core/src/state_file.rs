@@ -24,6 +24,9 @@ pub struct LocalState {
     /// 是否弹出系统通知。
     #[serde(default = "default_notify")]
     pub notify: bool,
+    /// 交棒时是否同步系统剪贴板。
+    #[serde(default = "default_clipboard_sync")]
+    pub clipboard_sync: bool,
     /// 面板已经成功种过一次登录项；之后不再擅自打开开机自启。
     #[serde(default)]
     pub autostart_seeded: bool,
@@ -36,12 +39,17 @@ impl Default for LocalState {
             name: None,
             hotkey: None,
             notify: default_notify(),
+            clipboard_sync: default_clipboard_sync(),
             autostart_seeded: false,
         }
     }
 }
 
 fn default_notify() -> bool {
+    true
+}
+
+fn default_clipboard_sync() -> bool {
     true
 }
 
@@ -135,6 +143,7 @@ mod tests {
         assert_eq!(state.name, None);
         assert_eq!(state.hotkey, None);
         assert!(state.notify);
+        assert!(state.clipboard_sync);
         assert!(!state.autostart_seeded);
     }
 
@@ -180,6 +189,7 @@ mod tests {
             name: Some("macbook".into()),
             hotkey: Some("Ctrl+Alt+B".into()),
             notify: false,
+            clipboard_sync: false,
             autostart_seeded: true,
         }
         .save(&path)
@@ -192,6 +202,7 @@ mod tests {
         assert_eq!(loaded.name.as_deref(), Some("macbook"));
         assert_eq!(loaded.hotkey.as_deref(), Some("Ctrl+Alt+B"));
         assert!(!loaded.notify);
+        assert!(!loaded.clipboard_sync);
         assert!(loaded.autostart_seeded);
     }
 }
