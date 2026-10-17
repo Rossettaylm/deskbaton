@@ -352,11 +352,11 @@ fn rejected_pairing_leaves_both_stores_untouched() {
     assert!(mac_dev.store.list().is_empty());
     assert!(win_dev.store.list().is_empty());
 
-    // 被拒绝过的设备再连进来时不再弹出配对请求。
+    // 被拒绝过的设备再连进来时不再弹出配对请求。win 直接断开，mac 的会话可能一闪而过，只等结果提示。
     a.pair_with(b.local_addr().to_string(), None);
-    wait_session(&a, &mac_notes);
-    std::thread::sleep(Duration::from_millis(300));
+    wait_notice(&mac_notes, "未完成");
     assert!(b.snapshot().sessions.is_empty());
+    assert!(win_dev.store.list().is_empty());
 }
 
 #[test]
@@ -382,12 +382,15 @@ fn unpair_disconnects_and_forgets() {
     ));
     expect(&a_rx, "win 上线", is_online("win"));
     a.unpair(&win_dev.identity.fingerprint).unwrap();
-    expect(
-        &a_rx,
-        "win 被移除",
-        |e| matches!(e, Event::PeerRemoved(p) if p.0 == "win"),
-    );
-    expect(&a_rx, "win 离线", is_offline("win"));
+    // 断开与移除分别在网络线程和调用方线程上报告，先后不定。
+    let (mut removed, mut offline) = (false, false);
+    while !(removed && offline) {
+        let event = expect(&a_rx, "win 被移除并离线", |e| {
+            matches!(e, Event::PeerRemoved(p) if p.0 == "win") || is_offline("win")(e)
+        });
+        removed |= matches!(event, Event::PeerRemoved(_));
+        offline |= matches!(event, Event::PeerOffline(_));
+    }
     assert!(mac_dev.store.list().is_empty());
 }
 

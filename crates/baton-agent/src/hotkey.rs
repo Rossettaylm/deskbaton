@@ -15,9 +15,8 @@ pub fn register(hotkey: Hotkey, events: Sender<Event>) -> Result<Registration> {
 
 /// 注册热键并在当前（主）线程运行事件循环。
 pub fn run_main_loop(hotkey: Hotkey, events: Sender<Event>) -> Result<()> {
-    let registration = register(hotkey, events)?;
+    let _registration = register(hotkey, events)?;
     imp::platform_loop();
-    drop(registration);
     Ok(())
 }
 
