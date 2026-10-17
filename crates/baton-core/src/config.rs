@@ -48,7 +48,7 @@ pub struct NetworkConfig {
     /// 本机监听端口。
     #[serde(default = "default_port")]
     pub port: u16,
-    /// 预共享令牌，两端必须一致；配对功能完成前用它认证对端。
+    /// 可选的预共享令牌：两端相同时首次连接自动配对，不需要在面板上确认。
     #[serde(default)]
     pub token: Option<String>,
 }
@@ -74,19 +74,24 @@ impl Config {
 
 /// agent 与显示器面板共用的配置文件路径。
 pub fn default_config_path() -> Result<PathBuf> {
+    Ok(data_dir()?.join("config.toml"))
+}
+
+/// 配置文件、本机身份、设备档案所在的目录。
+pub fn data_dir() -> Result<PathBuf> {
     let env = |key: &str| {
         std::env::var_os(key).map(PathBuf::from).ok_or_else(|| {
             Error::Config(format!("环境变量 {key} 未设置，请用 --config 指定配置文件"))
         })
     };
     #[cfg(target_os = "macos")]
-    return Ok(env("HOME")?.join("Library/Application Support/DeskBaton/config.toml"));
+    return Ok(env("HOME")?.join("Library/Application Support/DeskBaton"));
     #[cfg(target_os = "windows")]
-    return Ok(env("APPDATA")?.join("DeskBaton").join("config.toml"));
+    return Ok(env("APPDATA")?.join("DeskBaton"));
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     return Ok(env("XDG_CONFIG_HOME")
         .or_else(|_| env("HOME").map(|home| home.join(".config")))?
-        .join("deskbaton/config.toml"));
+        .join("deskbaton"));
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

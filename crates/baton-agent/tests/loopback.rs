@@ -1,4 +1,4 @@
-//! 两个 agent 在本机回环地址上经真实 TLS 链路完成双向交棒；显示器、电源为假实现。
+//! 两个已配对的 agent 在本机回环地址上经真实 TLS 链路完成双向交棒；显示器、电源为假实现。
 
 use std::net::{SocketAddr, TcpListener};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,7 +21,7 @@ use baton_core::state::AgentState;
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
 use baton_input::MonitorKvmRouter;
-use baton_net::{LinkConfig, PeerAddr, TcpPeerLink};
+use baton_net::{LinkConfig, PairedPeer, PeerAddr, PeerStore, TcpPeerLink, TlsIdentity};
 
 const MAC: InputCode = InputCode(0x1B);
 const WIN: InputCode = InputCode(0x0F);
@@ -137,9 +137,12 @@ struct Agent {
 }
 
 impl Agent {
+    #[allow(clippy::too_many_arguments)]
     fn start(
         name: &str,
         code: InputCode,
+        identity: Arc<TlsIdentity>,
+        store: Arc<PeerStore>,
         peer: &str,
         listen: SocketAddr,
         dial: Option<SocketAddr>,
@@ -152,9 +155,11 @@ impl Agent {
                 device_id: me.clone(),
                 input_code: Some(code),
                 wol_mac: None,
+                ip: None,
             },
             listen,
-            "loopback-token".into(),
+            identity,
+            store,
         );
         link_config.heartbeat_interval = Duration::from_millis(200);
         link_config.missed_heartbeats = 5;
@@ -232,6 +237,19 @@ fn free_addr() -> SocketAddr {
         .unwrap()
 }
 
+fn identity() -> Arc<TlsIdentity> {
+    Arc::new(TlsIdentity::generate().unwrap())
+}
+
+/// 已与 `peer` 配对的档案。
+fn pinned(peer: &str, identity: &TlsIdentity) -> Arc<PeerStore> {
+    let store = PeerStore::in_memory();
+    store
+        .upsert(PairedPeer::new(peer, &identity.fingerprint))
+        .unwrap();
+    Arc::new(store)
+}
+
 fn wait_until(what: &str, cond: impl Fn() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(10);
     while Instant::now() < deadline {
@@ -247,8 +265,22 @@ fn wait_until(what: &str, cond: impl Fn() -> bool) {
 fn two_agents_hand_off_both_ways_over_tls() {
     let monitor: Monitor = Arc::new(Mutex::new(MAC));
     let win_addr = free_addr();
-    let mut win = Agent::start("win", WIN, "mac", win_addr, None, &monitor);
-    let mut mac = Agent::start("mac", MAC, "win", free_addr(), Some(win_addr), &monitor);
+    let (mac_id, win_id) = (identity(), identity());
+    let mac_store = pinned("win", &win_id);
+    let win_store = pinned("mac", &mac_id);
+    let mut win = Agent::start(
+        "win", WIN, win_id, win_store, "mac", win_addr, None, &monitor,
+    );
+    let mut mac = Agent::start(
+        "mac",
+        MAC,
+        mac_id,
+        mac_store,
+        "win",
+        free_addr(),
+        Some(win_addr),
+        &monitor,
+    );
 
     wait_until("初始状态", || {
         mac.state() == AgentState::Holding && win.state() == AgentState::Idle

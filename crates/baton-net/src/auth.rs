@@ -1,21 +1,10 @@
-//! TLS 身份与对端认证。
-//!
-//! 每次启动生成自签证书，TLS 层只验证对端持有所出示证书的私钥；对端身份由 Hello 中的
-//! `auth` 证明：预共享令牌对「角色、发送方名称、双方证书指纹」的 HMAC-SHA256。
-//! 中间人终止 TLS 时两端看到的指纹不同，证明无法通过。
-
-use std::sync::Arc;
+//! 预共享令牌认证：Hello 中的 `auth` 为令牌对「角色、发送方名称、双方证书指纹」的
+//! HMAC-SHA256。中间人终止 TLS 时两端看到的指纹不同，证明无法通过。
 
 use baton_core::ids::DeviceId;
 use baton_core::{Error, Result};
 use hmac::{Hmac, KeyInit, Mac};
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::crypto::WebPkiSupportedAlgorithms;
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime};
-use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
-use rustls::{
-    ClientConfig, DigitallySignedStruct, DistinguishedName, ServerConfig, SignatureScheme,
-};
+use rustls::pki_types::CertificateDer;
 use sha2::{Digest, Sha256};
 
 pub type Fingerprint = [u8; 32];
@@ -44,45 +33,6 @@ impl Role {
             Role::Client => Role::Server,
             Role::Server => Role::Client,
         }
-    }
-}
-
-pub struct TlsIdentity {
-    pub client: Arc<ClientConfig>,
-    pub server: Arc<ServerConfig>,
-    pub fingerprint: Fingerprint,
-}
-
-impl TlsIdentity {
-    pub fn generate() -> Result<Self> {
-        let certified = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_owned()])
-            .map_err(|e| Error::Net(format!("生成证书失败：{e}")))?;
-        let cert = certified.cert.der().clone();
-        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
-            certified.signing_key.serialize_der(),
-        ));
-        let provider = Arc::new(rustls::crypto::ring::default_provider());
-        let verifier = Arc::new(PossessionOnly(provider.signature_verification_algorithms));
-        let tls = |e: rustls::Error| Error::Net(format!("TLS 配置失败：{e}"));
-
-        let client = ClientConfig::builder_with_provider(Arc::clone(&provider))
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .map_err(tls)?
-            .dangerous()
-            .with_custom_certificate_verifier(verifier.clone())
-            .with_client_auth_cert(vec![cert.clone()], key.clone_key())
-            .map_err(tls)?;
-        let server = ServerConfig::builder_with_provider(provider)
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .map_err(tls)?
-            .with_client_cert_verifier(verifier)
-            .with_single_cert(vec![cert.clone()], key)
-            .map_err(tls)?;
-        Ok(Self {
-            client: Arc::new(client),
-            server: Arc::new(server),
-            fingerprint: fingerprint(&cert),
-        })
     }
 }
 
@@ -143,6 +93,10 @@ pub fn to_hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+pub fn parse_fingerprint(s: &str) -> Option<Fingerprint> {
+    from_hex(s).and_then(|bytes| Fingerprint::try_from(bytes).ok())
+}
+
 pub fn from_hex(s: &str) -> Option<Vec<u8>> {
     if !s.len().is_multiple_of(2) {
         return None;
@@ -151,82 +105,6 @@ pub fn from_hex(s: &str) -> Option<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok())
         .collect()
-}
-
-/// 接受任意证书，但要求对端证明持有证书私钥；身份由 Hello 的 `auth` 认证。
-#[derive(Debug)]
-struct PossessionOnly(WebPkiSupportedAlgorithms);
-
-impl ServerCertVerifier for PossessionOnly {
-    fn verify_server_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: &ServerName<'_>,
-        _: &[u8],
-        _: UnixTime,
-    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
-        Ok(ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
-        Err(rustls::Error::General("只支持 TLS 1.3".into()))
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.0.supported_schemes()
-    }
-}
-
-impl ClientCertVerifier for PossessionOnly {
-    fn root_hint_subjects(&self) -> &[DistinguishedName] {
-        &[]
-    }
-
-    fn verify_client_cert(
-        &self,
-        _: &CertificateDer<'_>,
-        _: &[CertificateDer<'_>],
-        _: UnixTime,
-    ) -> std::result::Result<ClientCertVerified, rustls::Error> {
-        Ok(ClientCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _: &[u8],
-        _: &CertificateDer<'_>,
-        _: &DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
-        Err(rustls::Error::General("只支持 TLS 1.3".into()))
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &CertificateDer<'_>,
-        dss: &DigitallySignedStruct,
-    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.0)
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.0.supported_schemes()
-    }
 }
 
 #[cfg(test)]
@@ -262,12 +140,5 @@ mod tests {
         );
         assert_eq!(from_hex("abc"), None);
         assert_eq!(from_hex("zz"), None);
-    }
-
-    #[test]
-    fn generates_identity() {
-        let a = TlsIdentity::generate().unwrap();
-        let b = TlsIdentity::generate().unwrap();
-        assert_ne!(a.fingerprint, b.fingerprint);
     }
 }

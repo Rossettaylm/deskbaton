@@ -172,6 +172,10 @@ impl Coordinator {
             Event::Hotkey => self.on_hotkey(now),
             Event::PeerOnline(info) => self.on_peer_online(info, now),
             Event::PeerOffline(peer) => self.on_peer_offline(&peer),
+            Event::PeerRemoved(peer) => {
+                self.on_peer_offline(&peer);
+                self.known.remove(&peer);
+            }
             Event::Message { from, message } => self.on_message(from, message, now),
             Event::Data {
                 from,
@@ -336,7 +340,13 @@ impl Coordinator {
             Message::Ready { handoff_id } => self.on_ready(from, handoff_id, now),
             Message::Taken { handoff_id } => self.on_taken(&from, handoff_id),
             Message::Abort { handoff_id, reason } => self.on_abort(&from, handoff_id, &reason),
-            Message::Hello { .. } | Message::Heartbeat { .. } => {}
+            Message::Hello { .. }
+            | Message::PairCommit { .. }
+            | Message::PairNonce { .. }
+            | Message::PairReveal { .. }
+            | Message::PairPending
+            | Message::PairAccept
+            | Message::Heartbeat { .. } => {}
         }
     }
 

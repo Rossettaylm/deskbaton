@@ -2,7 +2,7 @@
 # macOS：~/Library/Application Support/DeskBaton/config.toml
 # Windows：%APPDATA%\DeskBaton\config.toml
 
-# 本机名称，必须与对端配置里 [[peers]] 的 name 一致；不填时取主机名。
+# 本机名称，显示在对端面板上；对端配置了 [[peers]] 时须与其 name 一致。不填时取主机名。
 name = "macbook"
 hotkey = "Ctrl+Alt+Space"
 
@@ -17,13 +17,14 @@ input_code = 0x1B
 
 [network]
 port = 47800
-# 两端必须相同的随机字符串。
-token = "change-me"
+# 可选：两端相同时首次连接自动配对；不写则在 DeskBaton 面板里核对 6 位数字配对。
+# token = "change-me"
 
 [power]
 # peer_offline：交出控制权后一直保持唤醒，直到对端离线；duration：保持 stay_awake_secs 秒。
 stay_awake_until = "peer_offline"
 
+# 可选的兜底：配对后档案会记下对端的地址和 MAC，这里可以不写。
 [[peers]]
 name = "windows-desktop"
 address = "192.168.1.20:47800"

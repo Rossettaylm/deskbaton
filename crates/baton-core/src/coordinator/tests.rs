@@ -252,6 +252,7 @@ fn online(m: &mut Machine, peer: &Machine, now: Instant) {
             device_id: peer.id.clone(),
             input_code: Some(peer.code),
             wol_mac: None,
+            ip: None,
         }),
         now,
     );
@@ -288,7 +289,12 @@ fn kinds(messages: &[Message]) -> Vec<&'static str> {
     messages
         .iter()
         .map(|m| match m {
-            Message::Hello { .. } => "hello",
+            Message::Hello { .. }
+            | Message::PairCommit { .. }
+            | Message::PairNonce { .. }
+            | Message::PairReveal { .. }
+            | Message::PairPending
+            | Message::PairAccept => "handshake",
             Message::Heartbeat { .. } => "heartbeat",
             Message::Prepare { .. } => "prepare",
             Message::Ready { .. } => "ready",

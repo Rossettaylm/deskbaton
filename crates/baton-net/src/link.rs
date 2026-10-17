@@ -1,6 +1,9 @@
-//! TCP + TLS 链路：每对 agent 一条连接，控制帧优先；握手、心跳与离线判定都在这里维护。
+//! TCP + TLS 链路：每对 agent 一条连接，控制帧优先；握手、配对、心跳与离线判定都在这里维护。
 
-use std::collections::HashMap;
+mod dial;
+mod handshake;
+
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
@@ -11,27 +14,34 @@ use baton_core::event::{Event, PeerInfo};
 use baton_core::ids::{DeviceId, HandoffId};
 use baton_core::participant::Payload;
 use baton_core::ports::PeerLink;
-use baton_core::protocol::{Message, PROTOCOL_VERSION};
+use baton_core::protocol::Message;
 use baton_core::state::AgentState;
 use baton_core::{Error, Result};
-use rustls::pki_types::{CertificateDer, ServerName};
+use rustls::pki_types::CertificateDer;
+use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::runtime::Runtime;
-use tokio::sync::{Notify, watch};
+use tokio::net::TcpListener;
+use tokio::runtime::{Handle, Runtime};
+use tokio::sync::{Notify, oneshot, watch};
 use tokio::time::{MissedTickBehavior, timeout};
-use tokio_rustls::{TlsAcceptor, TlsConnector};
+use tokio_rustls::TlsAcceptor;
 
-use crate::auth::{self, Fingerprint, Role, TlsIdentity};
+use crate::auth::{self, Fingerprint, Role};
 use crate::frame::{self, Frame};
+use crate::identity::TlsIdentity;
 use crate::mux::SendQueue;
+use crate::store::{PairedPeer, PeerStore};
 use crate::transfer::{OutgoingTransfer, Reassembler};
 
+use handshake::Intent;
+
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+/// 等待用户核对配对码的时长。
+const PAIRING_TIMEOUT: Duration = Duration::from_secs(120);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const REDIAL_INTERVAL: Duration = Duration::from_secs(2);
 
-/// 主动拨号的对端：名称必须与对端配置的本机名称一致。
+/// 配置里写了地址的对端：对端声明的名称必须与 `device_id` 一致。
 #[derive(Debug, Clone)]
 pub struct PeerAddr {
     pub device_id: DeviceId,
@@ -39,43 +49,91 @@ pub struct PeerAddr {
     pub address: String,
 }
 
-#[derive(Debug, Clone)]
+/// 配对界面。提供它的链路才会弹出配对请求；没有时未配对的设备一律拒绝。
+pub trait LinkObserver: Send + Sync {
+    /// 设备、配对会话或连接状态变了，调用 [`TcpPeerLink::snapshot`] 取最新状态。
+    fn changed(&self);
+    /// 一次性提示，如「已与 X 配对」。
+    fn notice(&self, message: &str);
+}
+
+#[derive(Clone)]
 pub struct LinkConfig {
     pub me: PeerInfo,
     pub listen: SocketAddr,
+    pub identity: Arc<TlsIdentity>,
+    pub store: Arc<PeerStore>,
+    /// 配置文件里的对端：其地址作为兜底；有令牌时也会主动拨号未配对的这些对端。
     pub peers: Vec<PeerAddr>,
-    pub token: String,
+    pub token: Option<String>,
+    pub observer: Option<Arc<dyn LinkObserver>>,
     pub heartbeat_interval: Duration,
     /// 连续这么多个心跳周期收不到任何帧即判定离线。
     pub missed_heartbeats: u32,
 }
 
 impl LinkConfig {
-    pub fn new(me: PeerInfo, listen: SocketAddr, token: String) -> Self {
+    pub fn new(
+        me: PeerInfo,
+        listen: SocketAddr,
+        identity: Arc<TlsIdentity>,
+        store: Arc<PeerStore>,
+    ) -> Self {
         Self {
             me,
             listen,
+            identity,
+            store,
             peers: Vec::new(),
-            token,
+            token: None,
+            observer: None,
             heartbeat_interval: Duration::from_secs(2),
             missed_heartbeats: 3,
         }
     }
 }
 
+/// 给配对界面的状态快照。
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkSnapshot {
+    pub me: DeviceId,
+    pub fingerprint: String,
+    pub paired: Vec<PairedStatus>,
+    pub sessions: Vec<PairingSession>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PairedStatus {
+    pub peer: PairedPeer,
+    pub online: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PairingSession {
+    pub id: u64,
+    pub peer: DeviceId,
+    pub fingerprint: String,
+    pub code: String,
+    /// 需要本机用户同意；为 false 时本机已信任对方，只显示配对码供对方核对。
+    pub awaiting_me: bool,
+}
+
 pub struct TcpPeerLink {
     shared: Arc<Shared>,
     local_addr: SocketAddr,
+    handle: Handle,
     runtime: Option<Runtime>,
 }
 
 impl TcpPeerLink {
-    /// 开始监听并拨号配置的对端；收到的一切以 [`Event`] 发往 `events`。
+    /// 开始监听并拨号已知的对端；收到的一切以 [`Event`] 发往 `events`。
     pub fn start(config: LinkConfig, events: mpsc::Sender<Event>) -> Result<Self> {
-        if config.token.is_empty() {
-            return Err(Error::Config("network.token 不能为空".into()));
-        }
-        let identity = TlsIdentity::generate()?;
+        let token = match config.token {
+            Some(token) if token.is_empty() => {
+                return Err(Error::Config("network.token 不能为空字符串".into()));
+            }
+            token => token.map(String::into_bytes),
+        };
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
             .thread_name("deskbaton-net")
@@ -89,29 +147,111 @@ impl TcpPeerLink {
         let interval = config.heartbeat_interval;
         let shared = Arc::new(Shared {
             me: config.me,
-            token: config.token.into_bytes(),
+            listen_port: local_addr.port(),
+            token,
             heartbeat: interval,
             offline_after: interval * config.missed_heartbeats.max(1),
-            identity,
+            identity: config.identity,
+            store: config.store,
+            config_peers: config.peers,
+            observer: config.observer,
             events,
             state: Mutex::new(AgentState::Idle),
             conns: Mutex::new(HashMap::new()),
+            sessions: Mutex::new(HashMap::new()),
+            rejected: Mutex::new(HashSet::new()),
+            dialing: Mutex::new(HashSet::new()),
             next_generation: AtomicU64::new(0),
             next_transfer: AtomicU64::new(0),
+            next_session: AtomicU64::new(1),
         });
         runtime.spawn(accept_loop(Arc::clone(&shared), listener));
-        for peer in config.peers {
-            runtime.spawn(dial_loop(Arc::clone(&shared), peer));
-        }
+        runtime.spawn(dial::supervise(Arc::clone(&shared)));
         Ok(Self {
             shared,
             local_addr,
+            handle: runtime.handle().clone(),
             runtime: Some(runtime),
         })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
+    }
+
+    pub fn snapshot(&self) -> LinkSnapshot {
+        let conns = lock(&self.shared.conns);
+        let paired = self
+            .shared
+            .store
+            .list()
+            .into_iter()
+            .map(|peer| PairedStatus {
+                online: conns
+                    .get(&peer.device_id())
+                    .is_some_and(|c| peer.matches(&c.fingerprint)),
+                peer,
+            })
+            .collect();
+        drop(conns);
+        let mut sessions: Vec<PairingSession> = lock(&self.shared.sessions)
+            .values()
+            .map(|s| s.view.clone())
+            .collect();
+        sessions.sort_by_key(|s| s.id);
+        LinkSnapshot {
+            me: self.shared.me.device_id.clone(),
+            fingerprint: auth::to_hex(&self.shared.identity.fingerprint),
+            paired,
+            sessions,
+        }
+    }
+
+    /// 用户对配对请求的决定。
+    pub fn confirm_pairing(&self, session: u64, accept: bool) -> Result<()> {
+        let decide = lock(&self.shared.sessions)
+            .get_mut(&session)
+            .filter(|s| s.view.awaiting_me)
+            .and_then(|s| s.decide.take())
+            .ok_or_else(|| Error::Net("配对请求已结束".into()))?;
+        let _ = decide.send(accept);
+        Ok(())
+    }
+
+    /// 用户主动向 `address` 发起配对；`fingerprint` 为 mDNS 发现到的指纹，对不上时断开。
+    pub fn pair_with(&self, address: String, fingerprint: Option<Fingerprint>) {
+        let shared = Arc::clone(&self.shared);
+        let intent = Intent {
+            expect_name: None,
+            expect_fp: fingerprint,
+            initiated_by_user: true,
+        };
+        self.handle.spawn(async move {
+            if let Err(e) = dial::dial_once(&shared, &address, intent).await {
+                log::info!("向 {address} 发起配对失败：{e}");
+                shared.notice(&format!("配对未完成：{e}"));
+            }
+        });
+    }
+
+    /// 取消配对：删除档案、断开连接，之后它再连进来也不弹配对请求（本次运行内）。
+    pub fn unpair(&self, fingerprint: &Fingerprint) -> Result<()> {
+        let removed = self.shared.store.remove(fingerprint)?;
+        lock(&self.shared.rejected).insert(*fingerprint);
+        let closing: Vec<Arc<Outbox>> = lock(&self.shared.conns)
+            .values()
+            .filter(|c| c.fingerprint == *fingerprint)
+            .map(|c| Arc::clone(&c.outbox))
+            .collect();
+        for outbox in closing {
+            outbox.close();
+        }
+        if let Some(peer) = removed {
+            log::info!("已取消与 {} 的配对", peer.name);
+            self.shared.emit(Event::PeerRemoved(peer.device_id()));
+        }
+        self.shared.changed();
+        Ok(())
     }
 }
 
@@ -149,21 +289,40 @@ impl PeerLink for TcpPeerLink {
 
 struct Shared {
     me: PeerInfo,
-    token: Vec<u8>,
+    listen_port: u16,
+    token: Option<Vec<u8>>,
     heartbeat: Duration,
     offline_after: Duration,
-    identity: TlsIdentity,
+    identity: Arc<TlsIdentity>,
+    store: Arc<PeerStore>,
+    config_peers: Vec<PeerAddr>,
+    observer: Option<Arc<dyn LinkObserver>>,
     events: mpsc::Sender<Event>,
     state: Mutex<AgentState>,
     conns: Mutex<HashMap<DeviceId, Conn>>,
+    sessions: Mutex<HashMap<u64, Session>>,
+    /// 本次运行中被用户拒绝或取消配对的指纹。
+    rejected: Mutex<HashSet<Fingerprint>>,
+    /// 正在拨号（含已经连上、连接仍在进行）的对端。
+    dialing: Mutex<HashSet<DeviceId>>,
     next_generation: AtomicU64,
     next_transfer: AtomicU64,
+    next_session: AtomicU64,
 }
 
 struct Conn {
     generation: u64,
     dialer: DeviceId,
+    fingerprint: Fingerprint,
     outbox: Arc<Outbox>,
+}
+
+/// 进行中的配对会话。`decide` 被丢弃（会话被移除）时等待方视为取消。
+struct Session {
+    view: PairingSession,
+    fingerprint: Fingerprint,
+    dialer: DeviceId,
+    decide: Option<oneshot::Sender<bool>>,
 }
 
 impl Shared {
@@ -179,9 +338,15 @@ impl Shared {
     }
 
     /// 两端同时互拨时各自保留由名称较小一方拨出的连接，结果一致。
-    fn register(&self, peer: &DeviceId, dialer: DeviceId, outbox: Arc<Outbox>) -> Option<u64> {
+    fn register(
+        &self,
+        peer: &DeviceId,
+        dialer: DeviceId,
+        fingerprint: Fingerprint,
+        outbox: Arc<Outbox>,
+    ) -> Option<u64> {
         let mut conns = lock(&self.conns);
-        let preferred = self.me.device_id.clone().min(peer.clone());
+        let preferred = self.preferred_dialer(peer);
         if let Some(existing) = conns.get(peer) {
             if dialer != preferred || existing.dialer == preferred {
                 return None;
@@ -194,6 +359,7 @@ impl Shared {
             Conn {
                 generation,
                 dialer,
+                fingerprint,
                 outbox,
             },
         );
@@ -210,66 +376,24 @@ impl Shared {
         false
     }
 
+    fn preferred_dialer(&self, peer: &DeviceId) -> DeviceId {
+        self.me.device_id.clone().min(peer.clone())
+    }
+
     fn emit(&self, event: Event) {
         let _ = self.events.send(event);
     }
 
-    fn hello(&self, role: Role, client_fp: &Fingerprint, server_fp: &Fingerprint) -> Result<Frame> {
-        let proof = auth::proof(&self.token, role, &self.me.device_id, client_fp, server_fp)?;
-        Frame::message(&Message::Hello {
-            device_id: self.me.device_id.clone(),
-            protocol_version: PROTOCOL_VERSION,
-            input_code: self.me.input_code,
-            wol_mac: self.me.wol_mac,
-            auth: auth::to_hex(&proof),
-        })
+    fn changed(&self) {
+        if let Some(observer) = &self.observer {
+            observer.changed();
+        }
     }
 
-    fn check_hello(
-        &self,
-        frame: Frame,
-        peer_role: Role,
-        client_fp: &Fingerprint,
-        server_fp: &Fingerprint,
-    ) -> Result<PeerInfo> {
-        let Message::Hello {
-            device_id,
-            protocol_version,
-            input_code,
-            wol_mac,
-            auth,
-        } = frame.to_message()?
-        else {
-            return Err(Error::Net("对端没有先发送 hello".into()));
-        };
-        if protocol_version != PROTOCOL_VERSION {
-            return Err(Error::Net(format!(
-                "协议版本不一致：本机 {PROTOCOL_VERSION}，{} 为 {protocol_version}",
-                device_id.0
-            )));
+    fn notice(&self, message: &str) {
+        if let Some(observer) = &self.observer {
+            observer.notice(message);
         }
-        let claimed = auth::from_hex(&auth).unwrap_or_default();
-        if !auth::verify(
-            &self.token,
-            peer_role,
-            &device_id,
-            client_fp,
-            server_fp,
-            &claimed,
-        ) {
-            return Err(Error::Net(format!(
-                "{} 认证失败，请检查两端 network.token 是否一致",
-                device_id.0
-            )));
-        }
-        if device_id == self.me.device_id {
-            return Err(Error::Net("对端名称与本机相同".into()));
-        }
-        Ok(PeerInfo {
-            device_id,
-            input_code,
-            wol_mac,
-        })
     }
 }
 
@@ -334,7 +458,7 @@ async fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
                     .map_err(|_| Error::Net("TLS 握手超时".into()))?
                     .map_err(io)?;
                 let peer_fp = peer_fingerprint(tls.get_ref().1.peer_certificates())?;
-                serve(shared, tls, Role::Server, peer_fp, None).await
+                serve(shared, tls, Role::Server, peer_fp, addr, Intent::default()).await
             }
             .await;
             if let Err(e) = result {
@@ -344,115 +468,58 @@ async fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
     }
 }
 
-async fn dial_loop(shared: Arc<Shared>, peer: PeerAddr) {
-    let connector = TlsConnector::from(Arc::clone(&shared.identity.client));
-    if shared.me.device_id > peer.device_id {
-        // 名称较大的一方晚一点拨号，减少两端同时互拨。
-        tokio::time::sleep(REDIAL_INTERVAL / 2).await;
-    }
-    loop {
-        if !shared.is_connected(&peer.device_id)
-            && let Err(e) = dial_once(&shared, &connector, &peer).await
-        {
-            log::debug!("连接 {}（{}）失败：{e}", peer.device_id.0, peer.address);
-        }
-        tokio::time::sleep(REDIAL_INTERVAL).await;
-    }
-}
-
-async fn dial_once(shared: &Arc<Shared>, connector: &TlsConnector, peer: &PeerAddr) -> Result<()> {
-    let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect(&peer.address))
-        .await
-        .map_err(|_| Error::Net("连接超时".into()))?
-        .map_err(io)?;
-    let _ = tcp.set_nodelay(true);
-    let name = ServerName::try_from(auth::SERVER_NAME).map_err(|e| Error::Net(e.to_string()))?;
-    let tls = timeout(HANDSHAKE_TIMEOUT, connector.connect(name, tcp))
-        .await
-        .map_err(|_| Error::Net("TLS 握手超时".into()))?
-        .map_err(io)?;
-    let peer_fp = peer_fingerprint(tls.get_ref().1.peer_certificates())?;
-    serve(
-        Arc::clone(shared),
-        tls,
-        Role::Client,
-        peer_fp,
-        Some(&peer.device_id),
-    )
-    .await
-}
-
-/// 握手、登记，然后收发直到连接结束。
+/// 握手、登记，然后收发直到连接结束。握手失败返回错误；连接建立后的断开返回 `Ok`。
 async fn serve<S>(
     shared: Arc<Shared>,
     stream: S,
     role: Role,
     peer_fp: Fingerprint,
-    expected: Option<&DeviceId>,
+    peer_addr: SocketAddr,
+    intent: Intent,
 ) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let own_fp = shared.identity.fingerprint;
-    let (client_fp, server_fp) = match role {
-        Role::Client => (own_fp, peer_fp),
-        Role::Server => (peer_fp, own_fp),
-    };
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let hello = shared.hello(role, &client_fp, &server_fp)?.encode()?;
-    writer.write_all(&hello).await.map_err(io)?;
-    writer.flush().await.map_err(io)?;
-
     let mut buf = Vec::new();
-    let first = timeout(HANDSHAKE_TIMEOUT, read_frame(&mut reader, &mut buf))
-        .await
-        .map_err(|_| Error::Net("等待 hello 超时".into()))??;
-    let peer = shared.check_hello(first, role.peer(), &client_fp, &server_fp)?;
-    if let Some(expected) = expected.filter(|e| **e != peer.device_id) {
-        return Err(Error::Net(format!(
-            "对端名称为 {}，与配置的 {} 不符",
-            peer.device_id.0, expected.0
-        )));
-    }
-    // 拨号方还要校验对端名称；接受方等到拨号方发来第一帧（登记后立即发出的心跳）才算连接建立，
-    // 否则拨号方拒绝后这里会误报一次上线和离线。
-    let confirmation = match role {
-        Role::Client => None,
-        Role::Server => Some(
-            timeout(HANDSHAKE_TIMEOUT, read_frame(&mut reader, &mut buf))
-                .await
-                .map_err(|_| Error::Net("等待对端确认超时".into()))??,
-        ),
-    };
+    let peer = handshake::run(
+        &shared,
+        &mut reader,
+        &mut writer,
+        &mut buf,
+        role,
+        peer_fp,
+        peer_addr,
+        intent,
+    )
+    .await?;
+
     let dialer = match role {
         Role::Client => shared.me.device_id.clone(),
         Role::Server => peer.device_id.clone(),
     };
     let outbox = Arc::new(Outbox::new());
-    let Some(generation) = shared.register(&peer.device_id, dialer, Arc::clone(&outbox)) else {
+    let Some(generation) = shared.register(&peer.device_id, dialer, peer_fp, Arc::clone(&outbox))
+    else {
         return Ok(());
     };
     let peer_id = peer.device_id.clone();
     log::info!("已连接 {}", peer_id.0);
     shared.emit(Event::PeerOnline(peer));
+    shared.changed();
 
     let writer_task = tokio::spawn(write_loop(Arc::clone(&shared), writer, Arc::clone(&outbox)));
-    let result = read_loop(
-        &shared,
-        &mut reader,
-        &mut buf,
-        &peer_id,
-        &outbox,
-        confirmation,
-    )
-    .await;
+    if let Err(e) = read_loop(&shared, &mut reader, &mut buf, &peer_id, &outbox).await {
+        log::info!("与 {} 的连接中断：{e}", peer_id.0);
+    }
     outbox.close();
     let _ = writer_task.await;
     if shared.unregister(&peer_id, generation) {
         log::info!("与 {} 的连接断开", peer_id.0);
         shared.emit(Event::PeerOffline(peer_id));
+        shared.changed();
     }
-    result
+    Ok(())
 }
 
 async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut Vec<u8>) -> Result<Frame> {
@@ -467,18 +534,22 @@ async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut Vec<u8>) -> 
     }
 }
 
+async fn write_frame<W: AsyncWrite + Unpin>(writer: &mut W, message: &Message) -> Result<()> {
+    writer
+        .write_all(&Frame::message(message)?.encode()?)
+        .await
+        .map_err(io)?;
+    writer.flush().await.map_err(io)
+}
+
 async fn read_loop<R: AsyncRead + Unpin>(
     shared: &Shared,
     reader: &mut R,
     buf: &mut Vec<u8>,
     peer: &DeviceId,
     outbox: &Outbox,
-    first: Option<Frame>,
 ) -> Result<()> {
     let mut reassembler = Reassembler::default();
-    if let Some(frame) = first {
-        dispatch(shared, &mut reassembler, peer, frame);
-    }
     let closed = outbox.closed.subscribe();
     tokio::pin! {
         let closed = wait_closed(closed);
@@ -498,7 +569,15 @@ async fn read_loop<R: AsyncRead + Unpin>(
 fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, frame: Frame) {
     if frame.channel == ChannelId::CONTROL {
         match frame.to_message() {
-            Ok(Message::Heartbeat { .. } | Message::Hello { .. }) => {}
+            Ok(
+                Message::Heartbeat { .. }
+                | Message::Hello { .. }
+                | Message::PairCommit { .. }
+                | Message::PairNonce { .. }
+                | Message::PairReveal { .. }
+                | Message::PairPending
+                | Message::PairAccept,
+            ) => {}
             Ok(message) => shared.emit(Event::Message {
                 from: peer.clone(),
                 message,

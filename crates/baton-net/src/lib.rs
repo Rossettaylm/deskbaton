@@ -1,12 +1,19 @@
 //! 局域网互联：mDNS 发现、配对、TLS 传输、带通道号的分帧与发送调度。
 
+pub mod auth;
 pub mod discovery;
 pub mod frame;
+pub mod identity;
 pub mod mux;
 pub mod pairing;
+pub mod store;
 pub mod transfer;
 
-mod auth;
 mod link;
 
-pub use link::{LinkConfig, PeerAddr, TcpPeerLink};
+pub use auth::Fingerprint;
+pub use identity::TlsIdentity;
+pub use link::{
+    LinkConfig, LinkObserver, LinkSnapshot, PairedStatus, PairingSession, PeerAddr, TcpPeerLink,
+};
+pub use store::{PairedPeer, PeerStore};

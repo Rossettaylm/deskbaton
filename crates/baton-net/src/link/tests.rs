@@ -12,6 +12,7 @@ fn info(name: &str, code: u16) -> PeerInfo {
         device_id: DeviceId(name.into()),
         input_code: Some(InputCode(code)),
         wol_mac: None,
+        ip: None,
     }
 }
 
@@ -22,28 +23,72 @@ fn free_addr() -> SocketAddr {
         .unwrap()
 }
 
-fn start(
-    name: &str,
-    listen: SocketAddr,
-    peers: &[(&str, SocketAddr)],
-    token: &str,
-) -> (TcpPeerLink, mpsc::Receiver<Event>) {
-    let mut config = LinkConfig::new(info(name, 0x1B), listen, token.into());
-    config.heartbeat_interval = Duration::from_millis(100);
-    config.missed_heartbeats = 5;
-    config.peers = peers
-        .iter()
-        .map(|(id, addr)| PeerAddr {
-            device_id: DeviceId((*id).into()),
-            address: addr.to_string(),
-        })
-        .collect();
+fn local() -> SocketAddr {
+    "127.0.0.1:0".parse().unwrap()
+}
+
+/// 一台测试设备的持久部分：身份与档案在重启之间保留。
+struct Device {
+    name: &'static str,
+    identity: Arc<TlsIdentity>,
+    store: Arc<PeerStore>,
+}
+
+impl Device {
+    fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            identity: Arc::new(TlsIdentity::generate().unwrap()),
+            store: Arc::new(PeerStore::in_memory()),
+        }
+    }
+
+    fn config(&self, listen: SocketAddr, peers: &[(&str, SocketAddr)]) -> LinkConfig {
+        let mut config = LinkConfig::new(
+            info(self.name, 0x1B),
+            listen,
+            Arc::clone(&self.identity),
+            Arc::clone(&self.store),
+        );
+        config.heartbeat_interval = Duration::from_millis(100);
+        config.missed_heartbeats = 5;
+        config.peers = peers
+            .iter()
+            .map(|(id, addr)| PeerAddr {
+                device_id: DeviceId((*id).into()),
+                address: addr.to_string(),
+            })
+            .collect();
+        config
+    }
+}
+
+fn start(config: LinkConfig) -> (TcpPeerLink, mpsc::Receiver<Event>) {
     let (tx, rx) = mpsc::channel();
     (TcpPeerLink::start(config, tx).unwrap(), rx)
 }
 
-fn local() -> SocketAddr {
-    "127.0.0.1:0".parse().unwrap()
+fn with_token(mut config: LinkConfig, token: &str) -> LinkConfig {
+    config.token = Some(token.into());
+    config
+}
+
+/// 把配对界面收到的通知转成可等待的消息。
+struct Probe(Mutex<mpsc::Sender<String>>);
+
+impl LinkObserver for Probe {
+    fn changed(&self) {
+        let _ = lock(&self.0).send(String::new());
+    }
+    fn notice(&self, message: &str) {
+        let _ = lock(&self.0).send(message.to_owned());
+    }
+}
+
+fn with_probe(mut config: LinkConfig) -> (LinkConfig, mpsc::Receiver<String>) {
+    let (tx, rx) = mpsc::channel();
+    config.observer = Some(Arc::new(Probe(Mutex::new(tx))));
+    (config, rx)
 }
 
 fn expect(rx: &mpsc::Receiver<Event>, what: &str, pred: impl Fn(&Event) -> bool) -> Event {
@@ -67,6 +112,31 @@ fn none_within(rx: &mpsc::Receiver<Event>, window: Duration, pred: impl Fn(&Even
     }
 }
 
+fn wait_session(link: &TcpPeerLink, notes: &mpsc::Receiver<String>) -> PairingSession {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        if let Some(s) = link.snapshot().sessions.into_iter().find(|s| s.awaiting_me) {
+            return s;
+        }
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .expect("等待配对请求超时");
+        let _ = notes.recv_timeout(left.min(Duration::from_millis(50)));
+    }
+}
+
+fn wait_notice(notes: &mpsc::Receiver<String>, needle: &str) -> String {
+    let deadline = Instant::now() + WAIT;
+    while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+        match notes.recv_timeout(left) {
+            Ok(note) if note.contains(needle) => return note,
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    panic!("等待提示「{needle}」超时");
+}
+
 fn is_online(name: &str) -> impl Fn(&Event) -> bool + '_ {
     move |e| matches!(e, Event::PeerOnline(p) if p.device_id.0 == name)
 }
@@ -77,8 +147,12 @@ fn is_offline(name: &str) -> impl Fn(&Event) -> bool + '_ {
 
 #[test]
 fn handshakes_and_exchanges_messages_and_data() {
-    let (b, b_rx) = start("win", local(), &[], "token");
-    let (a, a_rx) = start("mac", local(), &[("win", b.local_addr())], "token");
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let (a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
 
     let online = expect(&a_rx, "win 上线", is_online("win"));
     assert_eq!(online, Event::PeerOnline(info("win", 0x1B)));
@@ -137,17 +211,150 @@ fn handshakes_and_exchanges_messages_and_data() {
 }
 
 #[test]
+fn token_pairs_once_and_later_connects_without_it() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let win_addr = free_addr();
+    {
+        let (_b, b_rx) = start(with_token(win_dev.config(win_addr, &[]), "token"));
+        let (_a, a_rx) = start(with_token(
+            mac_dev.config(local(), &[("win", win_addr)]),
+            "token",
+        ));
+        expect(&a_rx, "win 上线", is_online("win"));
+        expect(&b_rx, "mac 上线", is_online("mac"));
+    }
+    assert!(mac_dev.store.find(&win_dev.identity.fingerprint).is_some());
+    let pinned = win_dev.store.find(&mac_dev.identity.fingerprint).unwrap();
+    assert_eq!(pinned.name, "mac");
+    assert_eq!(pinned.input_code, Some(InputCode(0x1B)));
+
+    let (_b, b_rx) = start(win_dev.config(win_addr, &[]));
+    let (a, a_rx) = start(mac_dev.config(local(), &[("win", win_addr)]));
+    expect(&a_rx, "win 无令牌上线", is_online("win"));
+    expect(&b_rx, "mac 无令牌上线", is_online("mac"));
+    let snapshot = a.snapshot();
+    assert_eq!(snapshot.paired.len(), 1);
+    assert!(snapshot.paired[0].online);
+}
+
+#[test]
 fn rejects_wrong_token() {
-    let (b, b_rx) = start("win", local(), &[], "right");
-    let (_a, a_rx) = start("mac", local(), &[("win", b.local_addr())], "wrong");
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "right"));
+    let (_a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "wrong",
+    ));
+    none_within(&a_rx, Duration::from_millis(800), is_online("win"));
+    none_within(&b_rx, Duration::from_millis(100), is_online("mac"));
+    assert!(win_dev.store.list().is_empty());
+}
+
+#[test]
+fn unpaired_peer_is_rejected_without_ui() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, b_rx) = start(win_dev.config(local(), &[]));
+    let (a, a_rx) = start(mac_dev.config(local(), &[]));
+    a.pair_with(b.local_addr().to_string(), None);
     none_within(&a_rx, Duration::from_millis(800), is_online("win"));
     none_within(&b_rx, Duration::from_millis(100), is_online("mac"));
 }
 
 #[test]
+fn interactive_pairing_shows_the_same_code_on_both_ends() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (win_config, win_notes) = with_probe(win_dev.config(local(), &[]));
+    let (mac_config, mac_notes) = with_probe(mac_dev.config(local(), &[]));
+    let (b, b_rx) = start(win_config);
+    let (a, a_rx) = start(mac_config);
+
+    a.pair_with(
+        b.local_addr().to_string(),
+        Some(win_dev.identity.fingerprint),
+    );
+    let on_mac = wait_session(&a, &mac_notes);
+    let on_win = wait_session(&b, &win_notes);
+    assert_eq!(on_mac.code, on_win.code);
+    assert_eq!(on_mac.peer.0, "win");
+    assert_eq!(on_win.peer.0, "mac");
+
+    a.confirm_pairing(on_mac.id, true).unwrap();
+    none_within(&a_rx, Duration::from_millis(300), is_online("win"));
+    b.confirm_pairing(on_win.id, true).unwrap();
+    expect(&a_rx, "win 上线", is_online("win"));
+    expect(&b_rx, "mac 上线", is_online("mac"));
+    wait_notice(&mac_notes, "已与 win 配对");
+    assert!(a.snapshot().sessions.is_empty());
+    assert!(mac_dev.store.find(&win_dev.identity.fingerprint).is_some());
+    assert!(win_dev.store.find(&mac_dev.identity.fingerprint).is_some());
+}
+
+#[test]
+fn rejected_pairing_leaves_both_stores_untouched() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (win_config, win_notes) = with_probe(win_dev.config(local(), &[]));
+    let (mac_config, mac_notes) = with_probe(mac_dev.config(local(), &[]));
+    let (b, b_rx) = start(win_config);
+    let (a, a_rx) = start(mac_config);
+
+    a.pair_with(b.local_addr().to_string(), None);
+    let on_mac = wait_session(&a, &mac_notes);
+    let on_win = wait_session(&b, &win_notes);
+    a.confirm_pairing(on_mac.id, true).unwrap();
+    b.confirm_pairing(on_win.id, false).unwrap();
+    wait_notice(&mac_notes, "未完成");
+    none_within(&a_rx, Duration::from_millis(300), is_online("win"));
+    none_within(&b_rx, Duration::from_millis(100), is_online("mac"));
+    assert!(mac_dev.store.list().is_empty());
+    assert!(win_dev.store.list().is_empty());
+
+    // 被拒绝过的设备再连进来时不再弹出配对请求。
+    a.pair_with(b.local_addr().to_string(), None);
+    wait_session(&a, &mac_notes);
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(b.snapshot().sessions.is_empty());
+}
+
+#[test]
+fn pinned_name_with_another_certificate_is_not_trusted() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    mac_dev
+        .store
+        .upsert(PairedPeer::new("win", &[7; 32]))
+        .unwrap();
+    let (b, b_rx) = start(win_dev.config(local(), &[]));
+    let (_a, a_rx) = start(mac_dev.config(local(), &[("win", b.local_addr())]));
+    none_within(&a_rx, Duration::from_millis(800), is_online("win"));
+    none_within(&b_rx, Duration::from_millis(100), is_online("mac"));
+}
+
+#[test]
+fn unpair_disconnects_and_forgets() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, _b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let (a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
+    expect(&a_rx, "win 上线", is_online("win"));
+    a.unpair(&win_dev.identity.fingerprint).unwrap();
+    expect(
+        &a_rx,
+        "win 被移除",
+        |e| matches!(e, Event::PeerRemoved(p) if p.0 == "win"),
+    );
+    expect(&a_rx, "win 离线", is_offline("win"));
+    assert!(mac_dev.store.list().is_empty());
+}
+
+#[test]
 fn rejects_peer_with_unexpected_name() {
-    let (b, b_rx) = start("win", local(), &[], "token");
-    let (_a, a_rx) = start("mac", local(), &[("desktop", b.local_addr())], "token");
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let (_a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("desktop", b.local_addr())]),
+        "token",
+    ));
     none_within(&a_rx, Duration::from_millis(800), |e| {
         matches!(e, Event::PeerOnline(_))
     });
@@ -156,8 +363,12 @@ fn rejects_peer_with_unexpected_name() {
 
 #[test]
 fn reports_offline_when_peer_goes_away() {
-    let (b, _b_rx) = start("win", local(), &[], "token");
-    let (_a, a_rx) = start("mac", local(), &[("win", b.local_addr())], "token");
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, _b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let (_a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
     expect(&a_rx, "win 上线", is_online("win"));
     drop(b);
     expect(&a_rx, "win 离线", is_offline("win"));
@@ -165,17 +376,28 @@ fn reports_offline_when_peer_goes_away() {
 
 #[test]
 fn heartbeats_keep_idle_connection_alive() {
-    let (b, _b_rx) = start("win", local(), &[], "token");
-    let (_a, a_rx) = start("mac", local(), &[("win", b.local_addr())], "token");
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, _b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let (_a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
     expect(&a_rx, "win 上线", is_online("win"));
     none_within(&a_rx, Duration::from_millis(1500), is_offline("win"));
 }
 
 #[test]
 fn simultaneous_dials_settle_on_one_connection() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
     let (a_addr, b_addr) = (free_addr(), free_addr());
-    let (a, a_rx) = start("mac", a_addr, &[("win", b_addr)], "token");
-    let (b, b_rx) = start("win", b_addr, &[("mac", a_addr)], "token");
+    let (a, a_rx) = start(with_token(
+        mac_dev.config(a_addr, &[("win", b_addr)]),
+        "token",
+    ));
+    let (b, b_rx) = start(with_token(
+        win_dev.config(b_addr, &[("mac", a_addr)]),
+        "token",
+    ));
     expect(&a_rx, "win 上线", is_online("win"));
     expect(&b_rx, "mac 上线", is_online("mac"));
     none_within(&a_rx, Duration::from_millis(2500), is_offline("win"));
@@ -201,7 +423,7 @@ fn simultaneous_dials_settle_on_one_connection() {
 
 #[test]
 fn sending_to_offline_peer_fails() {
-    let (a, _rx) = start("mac", local(), &[], "token");
+    let (a, _rx) = start(Device::new("mac").config(local(), &[]));
     assert!(
         a.send(
             &DeviceId("win".into()),
@@ -216,7 +438,7 @@ fn sending_to_offline_peer_fails() {
 #[test]
 fn empty_token_is_rejected() {
     let (tx, _rx) = mpsc::channel();
-    let config = LinkConfig::new(info("mac", 0x1B), local(), String::new());
+    let config = with_token(Device::new("mac").config(local(), &[]), "");
     assert!(matches!(
         TcpPeerLink::start(config, tx),
         Err(Error::Config(_))
