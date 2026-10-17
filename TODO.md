@@ -18,6 +18,7 @@
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
 - [x] Windows 端 DDC 读写（Dxva2，型号和序列号取自注册表 EDID）+ `wake_display`
+- [x] CI 手动触发的 Windows 构建（`windows-build.yml`），产出 `deskbaton-cli.exe`、`deskbaton.exe`、`deskbaton-gui.exe` 供实测
 - [ ] 🔧 到 Windows 机器上跑 `deskbaton-cli displays / get-input / set-input` 验证
 - [x] 🔧 实测免配件唤醒：Windows 发 Wi-Fi 魔术包可唤醒合盖睡眠的 Mac，睡 45 秒、约 30 分钟均通过，不需要睡眠代理和 Bonjour 服务（2026-10-17 用户实测，[记录](docs/research/2026-10-17-mac-wifi-wol-probe.md)）；KVM 键盘、蓝牙路径不再必测
 - [x] 把 HP D27k 实测记录到 `docs/research/2026-10-16-hp-d27k-ddc-probe.md`（切走后是否自动切回待用户确认）
