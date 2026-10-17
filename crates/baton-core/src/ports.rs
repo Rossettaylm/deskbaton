@@ -1,5 +1,6 @@
 //! 端口接口：核心层依赖的外部能力。各平台 crate 实现这些 trait，由 agent 组装后注入 [`crate::coordinator::Coordinator`]。
 
+use std::net::IpAddr;
 use std::time::Duration;
 
 use crate::channel::ChannelId;
@@ -87,6 +88,8 @@ impl Drop for AwakeGuard {
 pub struct WakeTarget {
     pub device_id: DeviceId,
     pub wol_mac: Option<MacAddr>,
+    /// 对端最后已知的 IP，用于单播魔术包。
+    pub last_ip: Option<IpAddr>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

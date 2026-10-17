@@ -684,3 +684,157 @@ fn data_of_aborted_handoff_is_discarded() {
     thread::sleep(Duration::from_millis(20));
     assert!(b.probe.unpacked.lock().unwrap().is_empty());
 }
+
+struct RecordingWaker(Arc<Mutex<Vec<WakeTarget>>>);
+
+impl Waker for RecordingWaker {
+    fn method(&self) -> WakeMethod {
+        WakeMethod::Wol
+    }
+    fn wake(&self, target: &WakeTarget) -> Result<WakeOutcome> {
+        self.0.lock().unwrap().push(target.clone());
+        Ok(WakeOutcome::Sent)
+    }
+}
+
+/// 持棒的 Mac，配置里的对端为 `configured`，档案里的设备为 `known`；返回它唤醒过的目标。
+fn waking_mac(
+    configured: Vec<PeerConfig>,
+    known: Vec<PeerInfo>,
+) -> (Coordinator, Arc<Mutex<Vec<WakeTarget>>>) {
+    let monitor = Monitor::new(MAC, false);
+    let probe = Arc::new(Probe::default());
+    let woken = Arc::new(Mutex::new(Vec::new()));
+    let mut config = Config::default();
+    config.display.input_code = Some(MAC);
+    config.peers = configured;
+    let ports = Ports {
+        display: Box::new(FakeDisplay { monitor, mine: MAC }),
+        power: Box::new(FakePower(Arc::clone(&probe))),
+        input: Box::new(FakeInput(Arc::clone(&probe))),
+        wake: WakeChain::from_config(
+            &[WakeMethod::Wol],
+            vec![Box::new(RecordingWaker(Arc::clone(&woken)))],
+        ),
+        link: Arc::new(FakeLink(Arc::clone(&probe))),
+        participants: Vec::new(),
+        notifier: Box::new(FakeNotifier(Arc::clone(&probe))),
+    };
+    let mut c = Coordinator::new(DeviceId("mac".into()), config, ports).with_known_peers(known);
+    c.refresh_state().unwrap();
+    (c, woken)
+}
+
+fn stored(name: &str, mac: &str, ip: &str) -> PeerInfo {
+    PeerInfo {
+        device_id: DeviceId(name.into()),
+        input_code: Some(WIN),
+        wol_mac: Some(mac.parse().unwrap()),
+        ip: Some(ip.parse().unwrap()),
+    }
+}
+
+#[test]
+fn wakes_paired_peer_that_never_came_online() {
+    let (mut c, woken) = waking_mac(
+        Vec::new(),
+        vec![stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20")],
+    );
+    c.handle(Event::Hotkey, Instant::now());
+    assert_eq!(
+        woken.lock().unwrap().as_slice(),
+        [WakeTarget {
+            device_id: DeviceId("win".into()),
+            wol_mac: Some("aa:bb:cc:dd:ee:ff".parse().unwrap()),
+            last_ip: Some("192.168.1.20".parse().unwrap()),
+        }]
+    );
+}
+
+#[test]
+fn reported_mac_takes_precedence_over_config() {
+    let (mut c, woken) = waking_mac(
+        vec![PeerConfig {
+            name: "win".into(),
+            address: None,
+            wol_mac: Some("11:11:11:11:11:11".parse().unwrap()),
+        }],
+        vec![stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20")],
+    );
+    c.handle(Event::Hotkey, Instant::now());
+    assert_eq!(
+        woken.lock().unwrap()[0].wol_mac,
+        Some("aa:bb:cc:dd:ee:ff".parse().unwrap())
+    );
+}
+
+#[test]
+fn config_mac_is_the_fallback() {
+    let (mut c, woken) = waking_mac(
+        vec![PeerConfig {
+            name: "win".into(),
+            address: None,
+            wol_mac: Some("11:11:11:11:11:11".parse().unwrap()),
+        }],
+        Vec::new(),
+    );
+    c.handle(Event::Hotkey, Instant::now());
+    assert_eq!(
+        woken.lock().unwrap()[0].wol_mac,
+        Some("11:11:11:11:11:11".parse().unwrap())
+    );
+}
+
+#[test]
+fn handshake_without_mac_keeps_the_stored_one() {
+    let (mut c, woken) = waking_mac(
+        Vec::new(),
+        vec![stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20")],
+    );
+    let now = Instant::now();
+    c.handle(
+        Event::PeerOnline(PeerInfo {
+            device_id: DeviceId("win".into()),
+            input_code: Some(WIN),
+            wol_mac: None,
+            ip: None,
+        }),
+        now,
+    );
+    c.handle(Event::PeerOffline(DeviceId("win".into())), now);
+    c.handle(Event::Hotkey, now);
+    let target = &woken.lock().unwrap()[0];
+    assert_eq!(target.wol_mac, Some("aa:bb:cc:dd:ee:ff".parse().unwrap()));
+    assert_eq!(target.last_ip, Some("192.168.1.20".parse().unwrap()));
+}
+
+#[test]
+fn removed_peer_is_no_longer_a_target() {
+    let (mut c, woken) = waking_mac(
+        Vec::new(),
+        vec![stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20")],
+    );
+    let now = Instant::now();
+    c.handle(Event::PeerRemoved(DeviceId("win".into())), now);
+    c.handle(Event::Hotkey, now);
+    assert!(woken.lock().unwrap().is_empty());
+}
+
+#[test]
+fn online_known_peer_is_preferred_over_offline_ones() {
+    let (mut c, woken) = waking_mac(
+        Vec::new(),
+        vec![
+            stored("alpha", "aa:aa:aa:aa:aa:aa", "192.168.1.21"),
+            stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20"),
+        ],
+    );
+    let now = Instant::now();
+    c.handle(
+        Event::PeerOnline(stored("win", "aa:bb:cc:dd:ee:ff", "192.168.1.20")),
+        now,
+    );
+    c.handle(Event::Hotkey, now);
+    assert!(woken.lock().unwrap().is_empty(), "在线的对端不需要唤醒");
+    assert!(matches!(c.state(), AgentState::HandingOff(_)));
+}

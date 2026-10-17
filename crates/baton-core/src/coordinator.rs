@@ -117,6 +117,14 @@ impl Coordinator {
         self
     }
 
+    /// 设备档案里的已配对设备：从未上线也能据此选为交棒目标并唤醒。
+    pub fn with_known_peers(mut self, peers: impl IntoIterator<Item = PeerInfo>) -> Self {
+        for peer in peers {
+            self.known.insert(peer.device_id.clone(), peer);
+        }
+        self
+    }
+
     pub fn config(&self) -> &Config {
         &self.config
     }
@@ -275,7 +283,7 @@ impl Coordinator {
             }
         }
         let Some(target) = self.pick_target() else {
-            self.notify("没有可交棒的对端，请在配置中添加 [[peers]]");
+            self.notify("没有可交棒的对端，请先在 DeskBaton 面板中配对设备");
             return;
         };
         if self.online.contains(&target) {
@@ -284,6 +292,7 @@ impl Coordinator {
         }
         let wake_target = WakeTarget {
             wol_mac: self.wol_mac(&target),
+            last_ip: self.known.get(&target).and_then(|p| p.ip),
             device_id: target.clone(),
         };
         match self.ports.wake.wake(&wake_target) {
@@ -303,7 +312,16 @@ impl Coordinator {
         let peer = info.device_id.clone();
         log::info!("{} 上线", peer.0);
         self.online.insert(peer.clone());
-        self.known.insert(peer.clone(), info);
+        let merged = match self.known.remove(&peer) {
+            Some(old) => PeerInfo {
+                input_code: info.input_code.or(old.input_code),
+                wol_mac: info.wol_mac.or(old.wol_mac),
+                ip: info.ip.or(old.ip),
+                ..info
+            },
+            None => info,
+        };
+        self.known.insert(peer.clone(), merged);
         if matches!(&self.pending, Some(Pending::Waking { target, .. }) if *target == peer) {
             self.pending = None;
             self.start_prepare(peer, now);
@@ -576,31 +594,40 @@ impl Coordinator {
         }
     }
 
+    /// 配置里的对端优先（按配置顺序），其次档案与握手得知的设备（按名称）；在线的先。
     fn pick_target(&self) -> Option<DeviceId> {
-        let configured: Vec<DeviceId> = self
+        let mut candidates: Vec<DeviceId> = self
             .config
             .peers
             .iter()
             .map(|p| DeviceId(p.name.clone()))
             .collect();
-        if let Some(online) = configured.iter().find(|p| self.online.contains(*p)) {
-            return Some(online.clone());
-        }
-        if let Some(first) = configured.into_iter().next() {
-            return Some(first);
-        }
-        let mut online: Vec<&DeviceId> = self.online.iter().collect();
-        online.sort_by(|a, b| a.0.cmp(&b.0));
-        online.first().map(|p| (*p).clone())
+        let mut others: Vec<DeviceId> = self
+            .known
+            .keys()
+            .chain(&self.online)
+            .filter(|p| !candidates.contains(p))
+            .cloned()
+            .collect();
+        others.sort();
+        others.dedup();
+        candidates.extend(others);
+        candidates
+            .iter()
+            .find(|p| self.online.contains(*p))
+            .or_else(|| candidates.first())
+            .cloned()
     }
 
+    /// 握手上报或档案记下的 MAC 优先，配置只作兜底。
     fn wol_mac(&self, peer: &DeviceId) -> Option<MacAddr> {
-        self.config
-            .peers
-            .iter()
-            .find(|p| p.name == peer.0)
-            .and_then(|p| p.wol_mac)
-            .or_else(|| self.known.get(peer).and_then(|p| p.wol_mac))
+        self.known.get(peer).and_then(|p| p.wol_mac).or_else(|| {
+            self.config
+                .peers
+                .iter()
+                .find(|p| p.name == peer.0)
+                .and_then(|p| p.wol_mac)
+        })
     }
 
     fn shows_my_input(&self) -> bool {

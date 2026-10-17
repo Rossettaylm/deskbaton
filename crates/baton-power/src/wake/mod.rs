@@ -6,4 +6,4 @@ mod wol;
 
 pub use hid_dongle::HidDongleWaker;
 pub use prompt::PromptWaker;
-pub use wol::{WOL_PORT, WolWaker, magic_packet};
+pub use wol::{WOL_PORT, WolWaker, destinations, magic_packet};

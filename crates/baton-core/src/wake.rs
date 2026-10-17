@@ -63,6 +63,7 @@ mod tests {
         WakeTarget {
             device_id: DeviceId("mac".into()),
             wol_mac: None,
+            last_ip: None,
         }
     }
 

@@ -17,7 +17,7 @@ use baton_core::ids::DeviceId;
 use baton_core::ports::Notifier;
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
-use baton_net::{LinkConfig, PeerAddr, PeerStore, TcpPeerLink, TlsIdentity};
+use baton_net::{LinkConfig, PairedPeer, PeerAddr, PeerStore, TcpPeerLink, TlsIdentity};
 use clap::Parser;
 
 #[derive(Parser)]
@@ -71,9 +71,11 @@ fn run(args: Args) -> Result<()> {
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(|| PathBuf::from("."));
+    let store = Arc::new(PeerStore::open(&dir.join("peers.toml"))?);
+    let known: Vec<PeerInfo> = store.list().iter().map(PairedPeer::info).collect();
     let (events_tx, events_rx) = mpsc::channel();
     let link = Arc::new(TcpPeerLink::start(
-        link_config(&me, &config, &dir)?,
+        link_config(&me, &config, &dir, store)?,
         events_tx.clone(),
     )?);
     log::info!(
@@ -93,7 +95,7 @@ fn run(args: Args) -> Result<()> {
         participants: Vec::new(),
         notifier: Box::new(ConsoleNotifier),
     };
-    let coordinator = Coordinator::new(me, config, ports);
+    let coordinator = Coordinator::new(me, config, ports).with_known_peers(known);
 
     let shutdown = events_tx.clone();
     ctrlc::set_handler(move || {
@@ -115,7 +117,12 @@ fn run(args: Args) -> Result<()> {
     hotkey::run_main_loop(hotkey, events_tx)
 }
 
-fn link_config(me: &DeviceId, config: &Config, dir: &Path) -> Result<LinkConfig> {
+fn link_config(
+    me: &DeviceId,
+    config: &Config,
+    dir: &Path,
+    store: Arc<PeerStore>,
+) -> Result<LinkConfig> {
     let info = PeerInfo {
         device_id: me.clone(),
         input_code: config.display.input_code,
@@ -124,7 +131,6 @@ fn link_config(me: &DeviceId, config: &Config, dir: &Path) -> Result<LinkConfig>
     };
     let listen = SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.network.port));
     let identity = Arc::new(TlsIdentity::load_or_create(&dir.join("identity"))?);
-    let store = Arc::new(PeerStore::open(&dir.join("peers.toml"))?);
     let mut link = LinkConfig::new(info, listen, identity, store);
     link.token.clone_from(&config.network.token);
     link.peers = config

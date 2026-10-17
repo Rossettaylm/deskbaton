@@ -24,7 +24,7 @@ pub fn platform_power() -> Box<dyn PowerControl> {
 /// 当前平台可用的全部唤醒方式，由 [`baton_core::wake::WakeChain`] 按配置挑选排序。
 pub fn available_wakers() -> Vec<Box<dyn Waker>> {
     vec![
-        Box::new(wake::WolWaker::default()),
+        Box::new(wake::WolWaker),
         Box::new(wake::HidDongleWaker),
         Box::new(wake::PromptWaker),
     ]

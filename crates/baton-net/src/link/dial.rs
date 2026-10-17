@@ -132,7 +132,7 @@ pub(super) async fn dial_once(shared: &Arc<Shared>, address: &str, intent: Inten
         .map_err(|_| Error::Net("连接超时".into()))?
         .map_err(io)?;
     let _ = tcp.set_nodelay(true);
-    let peer_addr = tcp.peer_addr().map_err(io)?;
+    let addrs = (tcp.local_addr().map_err(io)?, tcp.peer_addr().map_err(io)?);
     let connector = TlsConnector::from(Arc::clone(&shared.identity.client));
     let name = ServerName::try_from(auth::SERVER_NAME).map_err(|e| Error::Net(e.to_string()))?;
     let tls = timeout(HANDSHAKE_TIMEOUT, connector.connect(name, tcp))
@@ -145,7 +145,7 @@ pub(super) async fn dial_once(shared: &Arc<Shared>, address: &str, intent: Inten
         tls,
         Role::Client,
         peer_fp,
-        peer_addr,
+        addrs,
         intent,
     )
     .await

@@ -18,6 +18,7 @@ use super::{
     write_frame,
 };
 use crate::auth::{self, Fingerprint, Role};
+use crate::iface;
 use crate::pairing::{self, Trust, TrustInput};
 use crate::store::PairedPeer;
 
@@ -44,13 +45,14 @@ pub(super) async fn run<R, W>(
     buf: &mut Vec<u8>,
     role: Role,
     peer_fp: Fingerprint,
-    peer_addr: SocketAddr,
+    addrs: (SocketAddr, SocketAddr),
     intent: Intent,
 ) -> Result<PeerInfo>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
+    let (local_addr, peer_addr) = addrs;
     let own_fp = shared.identity.fingerprint;
     let (client_fp, server_fp) = match role {
         Role::Client => (own_fp, peer_fp),
@@ -59,7 +61,11 @@ where
     let nonce = pairing::new_nonce()?;
     let (hello, code) = match role {
         Role::Client => {
-            write_frame(writer, &hello(shared, role, &client_fp, &server_fp)?).await?;
+            write_frame(
+                writer,
+                &hello(shared, role, &client_fp, &server_fp, local_addr)?,
+            )
+            .await?;
             write_frame(
                 writer,
                 &Message::PairCommit {
@@ -90,7 +96,11 @@ where
             let Message::PairCommit { commit } = read_message(reader, buf).await? else {
                 return Err(Error::Net("对端没有发送配对承诺".into()));
             };
-            write_frame(writer, &self::hello(shared, role, &client_fp, &server_fp)?).await?;
+            write_frame(
+                writer,
+                &self::hello(shared, role, &client_fp, &server_fp, local_addr)?,
+            )
+            .await?;
             write_frame(
                 writer,
                 &Message::PairNonce {
@@ -270,6 +280,7 @@ fn hello(
     role: Role,
     client_fp: &Fingerprint,
     server_fp: &Fingerprint,
+    local_addr: SocketAddr,
 ) -> Result<Message> {
     let auth = shared
         .token
@@ -281,7 +292,10 @@ fn hello(
         device_id: shared.me.device_id.clone(),
         protocol_version: PROTOCOL_VERSION,
         input_code: shared.me.input_code,
-        wol_mac: shared.me.wol_mac,
+        wol_mac: shared
+            .me
+            .wol_mac
+            .or_else(|| iface::mac_for_local_ip(local_addr.ip())),
         listen_port: shared.listen_port,
         auth,
     })

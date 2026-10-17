@@ -31,8 +31,12 @@ enum Command {
         #[arg(long, default_value = "auto")]
         display: String,
     },
-    /// 发送 Wake-on-LAN 魔术包
-    Wol { mac: MacAddr },
+    /// 发送 Wake-on-LAN 魔术包（受限广播 + 本机各子网广播，可选再单播到 --ip）
+    Wol {
+        mac: MacAddr,
+        #[arg(long)]
+        ip: Option<std::net::IpAddr>,
+    },
     /// 在指定秒数内阻止本机睡眠（含合盖睡眠）
     StayAwake { secs: u64 },
     /// 恢复上次异常退出残留的睡眠设置
@@ -95,11 +99,11 @@ fn run(command: Command) -> Result<()> {
             ddc.set_input(&id, code)?;
             println!("已切换到 {code}");
         }
-        Command::Wol { mac } => {
-            baton_power::wake::WolWaker::default()
-                .send(mac)
-                .map_err(|e| baton_core::Error::Wake(e.to_string()))?;
-            println!("已向 {mac} 发送魔术包");
+        Command::Wol { mac, ip } => {
+            let sent = baton_power::wake::WolWaker
+                .send(mac, ip)
+                .map_err(|e| Error::Wake(e.to_string()))?;
+            println!("已向 {mac} 发送魔术包（{sent} 个目的地址）");
         }
         Command::StayAwake { secs } => {
             if cfg!(target_os = "macos") && !sleep_helper::installed() {

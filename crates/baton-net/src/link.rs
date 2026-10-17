@@ -453,16 +453,25 @@ async fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
         tokio::spawn(async move {
             let _ = tcp.set_nodelay(true);
             let result = async {
+                let local = tcp.local_addr().map_err(io)?;
                 let tls = timeout(HANDSHAKE_TIMEOUT, acceptor.accept(tcp))
                     .await
                     .map_err(|_| Error::Net("TLS 握手超时".into()))?
                     .map_err(io)?;
                 let peer_fp = peer_fingerprint(tls.get_ref().1.peer_certificates())?;
-                serve(shared, tls, Role::Server, peer_fp, addr, Intent::default()).await
+                serve(
+                    shared,
+                    tls,
+                    Role::Server,
+                    peer_fp,
+                    (local, addr),
+                    Intent::default(),
+                )
+                .await
             }
             .await;
             if let Err(e) = result {
-                log::info!("来自 {addr} 的连接结束：{e}");
+                log::debug!("来自 {addr} 的连接结束：{e}");
             }
         });
     }
@@ -474,7 +483,7 @@ async fn serve<S>(
     stream: S,
     role: Role,
     peer_fp: Fingerprint,
-    peer_addr: SocketAddr,
+    addrs: (SocketAddr, SocketAddr),
     intent: Intent,
 ) -> Result<()>
 where
@@ -489,7 +498,7 @@ where
         &mut buf,
         role,
         peer_fp,
-        peer_addr,
+        addrs,
         intent,
     )
     .await?;

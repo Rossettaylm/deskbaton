@@ -4,6 +4,7 @@ pub mod auth;
 pub mod discovery;
 pub mod frame;
 pub mod identity;
+pub mod iface;
 pub mod mux;
 pub mod pairing;
 pub mod store;
