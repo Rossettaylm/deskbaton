@@ -29,6 +29,7 @@ pub struct ScreenView {
     pub pixel_height: u32,
     pub refresh_hz: Option<u32>,
     pub hidpi: bool,
+    pub scale_percent: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -189,6 +190,7 @@ fn screen_view(mode: ScreenMode) -> ScreenView {
         pixel_height: mode.pixel_height,
         refresh_hz: mode.refresh_hz.map(|hz| hz.round() as u32),
         hidpi: mode.is_hidpi(),
+        scale_percent: mode.scale_percent,
     }
 }
 
@@ -224,6 +226,7 @@ mod tests {
             pixel_width: 5120,
             pixel_height: 2880,
             refresh_hz: Some(59.94),
+            scale_percent: None,
         }
     }
 
@@ -415,5 +418,23 @@ mod tests {
         let view = display_view(&info(), Some(no_refresh), None, &presets(), false, &none);
         assert_eq!(view.subtitle, "外接显示器 · 2560×1440");
         assert!(!view.screen.unwrap().hidpi);
+    }
+
+    #[test]
+    fn windows_mode_shows_physical_resolution_with_scale() {
+        let none = Machines::default();
+        let windows = ScreenMode {
+            width: 3840,
+            height: 2160,
+            pixel_width: 3840,
+            pixel_height: 2160,
+            refresh_hz: Some(144.0),
+            scale_percent: Some(175),
+        };
+        let view = display_view(&info(), Some(windows), None, &presets(), false, &none);
+        assert_eq!(view.subtitle, "外接显示器 · 3840×2160 · 144Hz");
+        let screen = view.screen.unwrap();
+        assert!(!screen.hidpi);
+        assert_eq!(screen.scale_percent, Some(175));
     }
 }

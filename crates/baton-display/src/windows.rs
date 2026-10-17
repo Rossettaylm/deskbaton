@@ -15,7 +15,10 @@ use windows::Win32::Graphics::Gdi::{
     MONITORINFOEXW,
 };
 use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_BINARY, RegGetValueW};
-use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::HiDpi::{
+    DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, GetDpiForMonitor, MDT_EFFECTIVE_DPI,
+    SetThreadDpiAwarenessContext,
+};
 use windows::core::{BOOL, HSTRING, w};
 
 use crate::{ScreenMode, edid, retry};
@@ -75,7 +78,7 @@ impl DisplayControl for WinDdc {
     }
 }
 
-/// 渲染分辨率取当前显示设置；逻辑分辨率按显示器的有效 DPI 换算，进程未声明 DPI 感知时两者相同。
+/// 与「设置 → 显示」一致：物理分辨率加系统缩放比例。
 pub(crate) fn screen_mode(display: &DisplayId) -> Result<ScreenMode> {
     let device = display.0.split('#').next().unwrap_or_default();
     let mut mode = DEVMODEW {
@@ -88,16 +91,15 @@ pub(crate) fn screen_mode(display: &DisplayId) -> Result<ScreenMode> {
     if !found.as_bool() {
         return Err(Error::Ddc(format!("读取 {device} 的显示设置失败")));
     }
-    let scale = monitor_dpi(device).map_or(1.0, |dpi| f64::from(dpi) / 96.0);
-    let logical = |pixels: u32| (f64::from(pixels) / scale).round() as u32;
     // 0 和 1 表示使用硬件默认刷新率，具体值未知。
     let refresh = mode.dmDisplayFrequency;
     Ok(ScreenMode {
-        width: logical(mode.dmPelsWidth),
-        height: logical(mode.dmPelsHeight),
+        width: mode.dmPelsWidth,
+        height: mode.dmPelsHeight,
         pixel_width: mode.dmPelsWidth,
         pixel_height: mode.dmPelsHeight,
         refresh_hz: (refresh > 1).then_some(f64::from(refresh)),
+        scale_percent: monitor_dpi(device).map(|dpi| (dpi * 100 + 48) / 96),
     })
 }
 
@@ -118,8 +120,18 @@ fn monitor_dpi(device: &str) -> Option<u32> {
         .into_iter()
         .find(|&h| device_name(h).is_ok_and(|name| name == device))?;
     let (mut x, mut y) = (0u32, 0u32);
+    // 未声明 DPI 感知的线程只能读到 96，读之前临时切换，读完恢复，不影响调用方。
+    // SAFETY: 参数是系统预定义的上下文常量；返回值为切换前的上下文。
+    let previous =
+        unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
     // SAFETY: 两个输出指针指向本函数的局部变量。
-    unsafe { GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut x, &mut y) }.ok()?;
+    let read = unsafe { GetDpiForMonitor(hmonitor, MDT_EFFECTIVE_DPI, &mut x, &mut y) };
+    // 失败时返回空指针；不能用 `is_invalid`，它把 -1（即 UNAWARE）也当作无效。
+    if !previous.0.is_null() {
+        // SAFETY: `previous` 是上一次调用返回的有效上下文。
+        let _ = unsafe { SetThreadDpiAwarenessContext(previous) };
+    }
+    read.ok()?;
     (x > 0).then_some(x)
 }
 

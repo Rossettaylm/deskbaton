@@ -4,13 +4,15 @@ use baton_core::ids::DisplayId;
 /// 显示器当前的显示模式。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ScreenMode {
-    /// 逻辑分辨率。
+    /// macOS 为逻辑分辨率，Windows 为物理分辨率。
     pub width: u32,
     pub height: u32,
-    /// 渲染分辨率；大于逻辑分辨率即为 HiDPI。
+    /// 渲染分辨率；大于 `width` 即为 HiDPI。
     pub pixel_width: u32,
     pub pixel_height: u32,
     pub refresh_hz: Option<f64>,
+    /// Windows 的系统缩放比例；macOS 用逻辑分辨率表达缩放，为 `None`。
+    pub scale_percent: Option<u32>,
 }
 
 impl ScreenMode {
@@ -44,6 +46,7 @@ mod tests {
             pixel_width,
             pixel_height: 1440,
             refresh_hz: Some(60.0),
+            scale_percent: None,
         };
         assert!(mode(5120).is_hidpi());
         assert!(!mode(2560).is_hidpi());

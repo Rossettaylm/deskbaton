@@ -11,7 +11,7 @@
 **首期做**
 
 - 列出支持 DDC/CI 的外接显示器，标题栏「⋯」菜单里切换当前控制的显示器
-- 显示器信息：厂商 + 型号、序列号、当前输入源、分辨率、渲染分辨率、刷新率、是否 HiDPI
+- 显示器信息：厂商 + 型号、序列号、当前输入源、分辨率、刷新率；macOS 另有渲染分辨率与是否 HiDPI，Windows 另有系统缩放比例
 - 输入源按钮：按配置列出，高亮当前输入源，点击后经 DDC 切换
 - macOS 与 Windows 同一套代码
 
@@ -107,13 +107,14 @@ enum SwitchOutcome {
 
 ```rust
 pub struct ScreenMode {
-    pub width: u32,          // 逻辑分辨率
+    pub width: u32,          // macOS 为逻辑分辨率，Windows 为物理分辨率
     pub height: u32,
     pub pixel_width: u32,    // 渲染分辨率
     pub pixel_height: u32,
     pub refresh_hz: f64,
+    pub scale_percent: Option<u32>, // Windows 的系统缩放比例；macOS 用逻辑分辨率表达缩放，为 None
 }
-// HiDPI = pixel_width > width
+// HiDPI = pixel_width > width，只在 macOS 上成立
 
 pub fn screen_mode(display: &DisplayId) -> Result<ScreenMode>;
 ```
@@ -121,7 +122,7 @@ pub fn screen_mode(display: &DisplayId) -> Result<ScreenMode>;
 | 平台 | 实现 |
 |---|---|
 | macOS | `native/screen.m` 用 `CGGetActiveDisplayList` + `CGDisplayCopyDisplayMode` 读模式。CoreGraphics 显示器与 DDC 枚举到的 framebuffer 按厂商号、产品号、序列号（`CGDisplayVendorNumber` / `ModelNumber` / `SerialNumber` 对应 framebuffer 的 `ProductAttributes`）配对 |
-| Windows | `DisplayId` 前缀即 `\\.\DISPLAYn`，用 `EnumDisplaySettingsW` 取模式，`GetDpiForMonitor` 取缩放比例换算逻辑分辨率 |
+| Windows | `DisplayId` 前缀即 `\\.\DISPLAYn`，用 `EnumDisplaySettingsW` 取物理分辨率，`GetDpiForMonitor` 取缩放比例，与「设置 → 显示」的写法一致。读 DPI 时把当前线程临时切到按显示器感知 DPI，否则未声明 DPI 感知的进程（如 CLI）只能读到 96 |
 | 其它 | `Error::Unsupported` |
 
 读不到屏幕模式时预览卡片显示「未知」，不影响输入源切换。配对不唯一（同型号且序列号相同）时按遍历顺序取，并记日志。
@@ -152,7 +153,7 @@ code = 0x11
 │ 外接显示器 · DP · 2560×1440 · 60Hz│
 ├──────────────────────────────────┤
 │        2560 × 1440               │
-│  HiDPI · 渲染 5120×2880 · 60 Hz  │
+│  HiDPI · 渲染 5120×2880 · 60 Hz  │  Windows：缩放 175% · 144 Hz（100% 时省略）
 │ ● 当前画面                  DP   │
 ├──────────────────────────────────┤
 │ 输入源                           │

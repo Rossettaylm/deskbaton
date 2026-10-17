@@ -5,7 +5,7 @@
 ## P0 · M0 原型：验证设计前提
 
 - [x] Mac 端 DDC 读写
-- [ ] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源。结果写进 `docs/research/`，不符合时先改设计文档（[记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：KVM 跟随已证实；USB-C 读到 `0x0F`，DP 口编码待在 Windows 上读，可能撞码）
+- [x] 🔧 实测 P275MV：USB-C / DP 的输入源编码，KVM 是否跟随输入源（[记录](docs/research/2026-10-16-p275mv-ddc-probe.md)：KVM 跟随已证实；USB-C `0x0F`、DP `0x10`，不撞码，2026-10-17 用户在 Windows 上实测）
 - [x] Mac DDC 请求连发两次：P275MV 只收到一次请求时回 Null Message
 - [ ] 🔧 用新 DDC 实现在 HP D27k 上复测 `get-input` / `set-input`
 - [x] 合盖 Mac 切回时外接屏短暂消失触发合盖睡眠，IOKit `kPMSetClamshellSleepState` 会被 powerd 覆盖而失效：设计文档改为以 `pmset -a disablesleep 1` 为 `stay_awake` 主路径
@@ -56,6 +56,7 @@
 - [x] `display.inputs` 配置项 + `baton-display` 屏幕模式（macOS CoreGraphics、Windows EnumDisplaySettings）
 - [x] `baton-gui`：Tauri 托盘面板，显示器信息 + 输入源切换，CI Linux 排除
 - [x] 🔧 面板硬件验收清单第 1–3 项（Mac mini + 两台 HP D27k，2026-10-16 用户确认）
+- [x] Windows 面板与 `deskbaton-cli displays` 显示物理分辨率与系统缩放比例（原先按 DPI 换算成逻辑分辨率，且 CLI 读不到真实 DPI）
 - [ ] 🔧 面板硬件验收清单第 4 项（Windows）
 - [x] 输入源按钮标出占用的设备（本机 / 已配对设备的名称与系统）；`hello` 增 `platform`，`PROTOCOL_VERSION` 升到 4
 - [ ] 🔧 P275MV + 本机配置（USB-C `0x0F`）下面板显示「USB-C · 本机」；与 Windows 配对后，其输入口标出设备名和 Windows

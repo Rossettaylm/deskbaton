@@ -2,7 +2,7 @@
 
 /**
  * @typedef {{ width: number, height: number, pixel_width: number, pixel_height: number,
- *             refresh_hz: number | null, hidpi: boolean }} ScreenView
+ *             refresh_hz: number | null, hidpi: boolean, scale_percent: number | null }} ScreenView
  * @typedef {"macos" | "windows" | "linux" | "other"} Platform
  * @typedef {{ name: string, platform: Platform | null, local: boolean }} PortOwner
  * @typedef {{ label: string, code: number, kind: "dp" | "hdmi" | "usb_c" | "other",
@@ -321,6 +321,9 @@ function renderScreen(d) {
     res.append(String(screen.width), h("i", {}, "×"), String(screen.height));
     const parts = [];
     if (screen.hidpi) parts.push("HiDPI", `渲染 ${screen.pixel_width}×${screen.pixel_height}`);
+    if (screen.scale_percent != null && screen.scale_percent !== 100) {
+      parts.push(`缩放 ${screen.scale_percent}%`);
+    }
     if (screen.refresh_hz != null) parts.push(`${screen.refresh_hz} Hz`);
     sub.replaceChildren(...parts.map((p) => h("span", {}, p)));
   } else {

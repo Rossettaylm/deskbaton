@@ -52,6 +52,7 @@ pub(crate) fn screen_mode(display: &DisplayId) -> Result<ScreenMode> {
             pixel_width: raw.pixel_width,
             pixel_height: raw.pixel_height,
             refresh_hz: (raw.refresh_hz > 0.0).then_some(raw.refresh_hz),
+            scale_percent: None,
         }),
         sys::ERR_NOT_FOUND => Err(Error::Ddc(format!(
             "系统显示列表里找不到显示器 {}",

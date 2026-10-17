@@ -67,16 +67,17 @@ fn run(command: Command) -> Result<()> {
         Command::Displays => {
             for d in baton_display::platform_display().list()? {
                 let mode = match baton_display::screen_mode(&d.id) {
-                    Ok(m) => format!(
-                        "{}×{}（渲染 {}×{}）{}",
-                        m.width,
-                        m.height,
-                        m.pixel_width,
-                        m.pixel_height,
-                        m.refresh_hz
+                    Ok(m) => {
+                        let detail = match m.scale_percent {
+                            Some(scale) => format!("缩放 {scale}%"),
+                            None => format!("渲染 {}×{}", m.pixel_width, m.pixel_height),
+                        };
+                        let refresh = m
+                            .refresh_hz
                             .map(|hz| format!(" {hz:.0}Hz"))
-                            .unwrap_or_default()
-                    ),
+                            .unwrap_or_default();
+                        format!("{}×{}（{detail}）{refresh}", m.width, m.height)
+                    }
                     Err(e) => e.to_string(),
                 };
                 println!(
