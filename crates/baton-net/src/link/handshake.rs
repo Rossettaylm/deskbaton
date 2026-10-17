@@ -170,7 +170,7 @@ where
         }
         Trust::AskUser => {
             let dialer = dialer(shared, role, &name);
-            let (id, rx) = open_session(shared, &name, peer_fp, &code, dialer, true)?;
+            let (id, rx) = open_session(shared, &info, peer_fp, dialer, true)?;
             session = Some(id);
             decision = Some(rx);
             wait = PAIRING_TIMEOUT;
@@ -220,7 +220,7 @@ where
                             if session.is_none() {
                                 let dialer = dialer(shared, role, &name);
                                 let (id, rx) =
-                                    open_session(shared, &name, peer_fp, &code, dialer, false)?;
+                                    open_session(shared, &info, peer_fp, dialer, false)?;
                                 session = Some(id);
                                 decision = Some(rx);
                             }
@@ -402,12 +402,12 @@ async fn recv_decision(rx: &mut Option<oneshot::Receiver<bool>>) -> Option<bool>
 /// 同一对端同时有两个配对会话时，保留由名称较小一方拨出的那个，两端结果一致。
 fn open_session(
     shared: &Shared,
-    peer: &DeviceId,
+    info: &PeerInfo,
     fingerprint: Fingerprint,
-    code: &str,
     dialer: DeviceId,
     awaiting_me: bool,
 ) -> Result<(u64, oneshot::Receiver<bool>)> {
+    let peer = &info.device_id;
     let preferred = shared.preferred_dialer(peer);
     let mut sessions = lock(&shared.sessions);
     let clashing: Vec<u64> = sessions
@@ -432,7 +432,8 @@ fn open_session(
                 id,
                 peer: peer.clone(),
                 fingerprint: auth::to_hex(&fingerprint),
-                code: code.to_owned(),
+                platform: info.platform,
+                ip: info.ip,
                 awaiting_me,
             },
             fingerprint,

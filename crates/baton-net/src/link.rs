@@ -4,14 +4,14 @@ mod dial;
 mod handshake;
 
 use std::collections::{HashMap, HashSet};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::time::Duration;
 
 use baton_core::channel::ChannelId;
 use baton_core::event::{Event, PeerInfo};
-use baton_core::ids::{DeviceId, HandoffId, InputCode};
+use baton_core::ids::{DeviceId, HandoffId, InputCode, Platform};
 use baton_core::participant::Payload;
 use baton_core::ports::PeerLink;
 use baton_core::protocol::Message;
@@ -127,8 +127,10 @@ pub struct PairingSession {
     pub id: u64,
     pub peer: DeviceId,
     pub fingerprint: String,
-    pub code: String,
-    /// 需要本机用户同意；为 false 时本机已信任对方，只显示配对码供对方核对。
+    pub platform: Option<Platform>,
+    /// 对端 IP，回环地址时为空。
+    pub ip: Option<IpAddr>,
+    /// 需要本机用户同意；为 false 时本机已同意，等对方同意。
     pub awaiting_me: bool,
 }
 
@@ -195,6 +197,7 @@ impl TcpPeerLink {
             conns: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
             rejected: Mutex::new(HashSet::new()),
+            auto_paused: Mutex::new(HashSet::new()),
             dialing: Mutex::new(HashSet::new()),
             next_generation: AtomicU64::new(0),
             next_transfer: AtomicU64::new(0),
@@ -373,6 +376,8 @@ struct Shared {
     sessions: Mutex<HashMap<u64, Session>>,
     /// 本次运行中被用户拒绝或取消配对的指纹。
     rejected: Mutex<HashSet<Fingerprint>>,
+    /// 本次运行中自动发起过、但配对没完成的指纹，不再自动拨号；用户点「连接」仍可发起。
+    auto_paused: Mutex<HashSet<Fingerprint>>,
     /// 正在拨号（含已经连上、连接仍在进行）的对端。
     dialing: Mutex<HashSet<DeviceId>>,
     next_generation: AtomicU64,

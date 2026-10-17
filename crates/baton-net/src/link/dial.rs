@@ -1,7 +1,10 @@
-//! 主动拨号：每 2 秒检查一次档案里（有令牌时还有配置里）未连接的设备，依次尝试它的地址。
+//! 主动拨号：每 2 秒检查一次档案里（有令牌时还有配置里）未连接的设备，依次尝试它的地址；
+//! 有配对界面时，还拨 mDNS 发现的未配对设备，向双方弹出配对请求。
 
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use baton_core::ids::DeviceId;
 use baton_core::{Error, Result};
@@ -26,15 +29,28 @@ pub(super) struct DialTarget {
     pub fingerprint: Option<Fingerprint>,
     /// 按顺序尝试，第一个连上即止。
     pub addresses: Vec<String>,
+    /// 未配对、为发起配对而拨的设备。
+    pub unpaired: bool,
+}
+
+/// 除档案与配置外，还要不要拨 mDNS 发现的未配对设备。
+#[derive(Debug, Default)]
+pub(super) struct AutoPair<'a> {
+    pub enabled: bool,
+    pub me: Option<&'a DeviceId>,
+    /// 本次运行中被拒绝、配对未完成过的指纹。
+    pub skip: HashSet<Fingerprint>,
 }
 
 /// 档案里的设备：依次试 mDNS 按指纹解析到的地址、最后已知地址、配置地址。
-/// 有令牌时，配置里未配对的对端也拨。
+/// 有令牌时，配置里未配对的对端也拨。`auto` 开启时，名称比本机大的未配对设备也拨，
+/// 只由名称较小的一方发起，免得两边各开一个配对会话。
 pub(super) fn targets(
     paired: &[PairedPeer],
     discovered: &[Discovered],
     configured: &[PeerAddr],
     token: bool,
+    auto: &AutoPair<'_>,
 ) -> Vec<DialTarget> {
     let configured_address = |name: &str| -> Vec<String> {
         configured
@@ -65,6 +81,7 @@ pub(super) fn targets(
                 name: peer.device_id(),
                 fingerprint: Some(fingerprint),
                 addresses,
+                unpaired: false,
             });
         }
     }
@@ -75,8 +92,28 @@ pub(super) fn targets(
                     name: c.device_id.clone(),
                     fingerprint: None,
                     addresses: vec![c.address.clone()],
+                    unpaired: true,
                 });
             }
+        }
+    }
+    if let (true, Some(me)) = (auto.enabled, auto.me) {
+        for d in discovered {
+            let Some(fingerprint) = auth::parse_fingerprint(&d.fingerprint) else {
+                continue;
+            };
+            let known = paired.iter().any(|p| p.fingerprint == d.fingerprint)
+                || out.iter().any(|t| t.name == d.name);
+            if known || d.name <= *me || auto.skip.contains(&fingerprint) || d.addresses.is_empty()
+            {
+                continue;
+            }
+            out.push(DialTarget {
+                name: d.name.clone(),
+                fingerprint: Some(fingerprint),
+                addresses: d.addresses.iter().map(SocketAddr::to_string).collect(),
+                unpaired: true,
+            });
         }
     }
     out
@@ -93,11 +130,21 @@ fn dedup(addresses: &mut Vec<String>) {
 
 pub(super) async fn supervise(shared: Arc<Shared>) {
     loop {
+        let auto = AutoPair {
+            enabled: shared.observer.is_some(),
+            me: Some(&shared.me.device_id),
+            skip: lock(&shared.rejected)
+                .iter()
+                .chain(lock(&shared.auto_paused).iter())
+                .copied()
+                .collect(),
+        };
         let targets = targets(
             &shared.store.list(),
             &shared.discovered(),
             &shared.config_peers,
             shared.token.is_some(),
+            &auto,
         );
         for target in targets {
             if shared.is_connected(&target.name)
@@ -116,11 +163,12 @@ async fn dial_target(shared: Arc<Shared>, target: DialTarget) {
         // 名称较大的一方晚一点拨号，减少两端同时互拨。
         tokio::time::sleep(REDIAL_INTERVAL / 2).await;
     }
+    let paired_session = Arc::new(AtomicBool::new(false));
     let intent = Intent {
         expect_name: target.fingerprint.is_none().then(|| target.name.clone()),
         expect_fp: target.fingerprint,
         initiated_by_user: false,
-        reported: None,
+        reported: Some(Arc::clone(&paired_session)),
     };
     for address in &target.addresses {
         if shared.is_connected(&target.name) {
@@ -128,7 +176,16 @@ async fn dial_target(shared: Arc<Shared>, target: DialTarget) {
         }
         match dial_once(&shared, address, intent.clone()).await {
             Ok(()) => break,
-            Err(e) => log::debug!("连接 {}（{address}）失败：{e}", target.name.0),
+            Err(e) => {
+                log::debug!("连接 {}（{address}）失败：{e}", target.name.0);
+                // 弹过配对请求却没配成（拒绝、超时、对方拒绝）：本次运行不再自动拨号，免得反复弹窗。
+                if target.unpaired && paired_session.load(Ordering::SeqCst) {
+                    if let Some(fp) = target.fingerprint {
+                        lock(&shared.auto_paused).insert(fp);
+                    }
+                    break;
+                }
+            }
         }
     }
     lock(&shared.dialing).remove(&target.name);
@@ -183,11 +240,12 @@ mod tests {
             configured("win", "192.168.1.20:47800"),
         ];
         assert_eq!(
-            targets(&[peer], &[], &config, false),
+            targets(&[peer], &[], &config, false, &AutoPair::default()),
             [DialTarget {
                 name: DeviceId("win".into()),
                 fingerprint: Some(A),
                 addresses: vec!["192.168.1.20:47800".into(), "win.local:47800".into()],
+                unpaired: false,
             }]
         );
     }
@@ -195,13 +253,14 @@ mod tests {
     #[test]
     fn unpaired_config_peers_are_dialed_only_with_token() {
         let config = [configured("win", "192.168.1.20:47800")];
-        assert!(targets(&[], &[], &config, false).is_empty());
+        assert!(targets(&[], &[], &config, false, &AutoPair::default()).is_empty());
         assert_eq!(
-            targets(&[], &[], &config, true),
+            targets(&[], &[], &config, true, &AutoPair::default()),
             [DialTarget {
                 name: DeviceId("win".into()),
                 fingerprint: None,
                 addresses: vec!["192.168.1.20:47800".into()],
+                unpaired: true,
             }]
         );
     }
@@ -224,13 +283,69 @@ mod tests {
             },
         ];
         assert_eq!(
-            targets(&[peer], &discovered, &[], false)[0].addresses,
+            targets(&[peer], &discovered, &[], false, &AutoPair::default())[0].addresses,
             ["192.168.1.30:47800", "192.168.1.20:47800"]
         );
     }
 
     #[test]
     fn paired_peer_without_address_is_skipped() {
-        assert!(targets(&[PairedPeer::new("win", &A)], &[], &[], true).is_empty());
+        assert!(
+            targets(
+                &[PairedPeer::new("win", &A)],
+                &[],
+                &[],
+                true,
+                &AutoPair::default()
+            )
+            .is_empty()
+        );
+    }
+
+    fn found(name: &str, fp: &Fingerprint, address: &str) -> Discovered {
+        Discovered {
+            name: DeviceId(name.into()),
+            fingerprint: auth::to_hex(fp),
+            addresses: vec![address.parse().unwrap()],
+        }
+    }
+
+    #[test]
+    fn unpaired_discovered_devices_are_dialed_by_the_smaller_name_with_ui() {
+        const B: Fingerprint = [2; 32];
+        const C: Fingerprint = [3; 32];
+        let me = DeviceId("mac".into());
+        let discovered = [
+            found("win", &A, "192.168.1.20:47800"),
+            found("aaa", &B, "192.168.1.21:47800"),
+            found("zzz", &C, "192.168.1.22:47800"),
+        ];
+        let auto = AutoPair {
+            enabled: true,
+            me: Some(&me),
+            skip: HashSet::from([C]),
+        };
+        assert_eq!(
+            targets(&[], &discovered, &[], false, &auto),
+            [DialTarget {
+                name: DeviceId("win".into()),
+                fingerprint: Some(A),
+                addresses: vec!["192.168.1.20:47800".into()],
+                unpaired: true,
+            }],
+            "名称比本机小的由对方发起，跳过名单里的不拨"
+        );
+
+        let headless = AutoPair {
+            enabled: false,
+            me: Some(&me),
+            skip: HashSet::new(),
+        };
+        assert!(targets(&[], &discovered, &[], false, &headless).is_empty());
+
+        let paired = PairedPeer::new("win", &A);
+        let only_paired = targets(&[paired], &discovered, &[], false, &auto);
+        assert_eq!(only_paired.len(), 1);
+        assert!(!only_paired[0].unpaired);
     }
 }

@@ -16,7 +16,8 @@
  * @typedef {{ name: string, fingerprint: string, paired_at: number, platform: Platform | null,
  *             input_code: number | null,
  *             wol_mac: string | null, last_ip: string | null, port: number | null }} PairedPeer
- * @typedef {{ id: number, peer: string, fingerprint: string, code: string, awaiting_me: boolean }} PairingSession
+ * @typedef {{ id: number, peer: string, fingerprint: string, platform: Platform | null, ip: string | null,
+ *             awaiting_me: boolean }} PairingSession
  * @typedef {{ name: string, fingerprint: string | null, address: string }} Candidate
  * @typedef {{ me: string, fingerprint: string, paired: { peer: PairedPeer, online: boolean }[],
  *             sessions: PairingSession[], candidates: Candidate[] }} Devices
@@ -183,9 +184,6 @@ function scheduleDevices() {
   devicesTimer = setTimeout(refreshDevices, 80);
 }
 
-/** @param {string} code */
-const spaced = (code) => `${code.slice(0, 3)} ${code.slice(3)}`;
-
 /** @param {PairingSession} session @param {boolean} accept */
 async function decide(session, accept) {
   try {
@@ -244,16 +242,16 @@ function renderDevices() {
     return;
   }
   for (const s of devices.sessions) {
+    const about = [s.platform ? PLATFORM_NAMES[s.platform] : null, s.ip].filter(Boolean).join(" · ");
     box.append(
       h(
         "div",
         { class: "pair-request" },
-        h("div", { class: "pair-head" }, h("span", {}, "配对请求"), h("b", {}, s.peer)),
-        h("div", { class: "pair-code" }, spaced(s.code)),
+        h("div", { class: "pair-head" }, h("span", {}, "请求连接"), h("b", {}, s.peer)),
         h(
           "div",
           { class: "pair-foot" },
-          h("small", {}, s.awaiting_me ? "请确认两台设备显示相同数字" : "等待对方确认…"),
+          h("small", {}, s.awaiting_me ? about || "同意后两台电脑可以互相交棒" : "等待对方同意…"),
           s.awaiting_me ? h("button", { class: "btn", onclick: () => decide(s, false) }, "拒绝") : null,
           s.awaiting_me ? h("button", { class: "btn primary", onclick: () => decide(s, true) }, "同意") : null,
         ),
@@ -288,7 +286,7 @@ function renderDevices() {
         h("i", { class: "dot" }),
         h("div", { class: "who" }, h("b", {}, c.name), h("small", {}, c.address)),
         h("span", { class: "state" }, c.fingerprint ? "可配对" : "配置中的对端"),
-        h("button", { class: "btn", disabled: busy, onclick: () => pair(c) }, busy ? "连接中" : "配对"),
+        h("button", { class: "btn", disabled: busy, onclick: () => pair(c) }, busy ? "连接中" : "连接"),
       ),
     );
   }

@@ -46,7 +46,7 @@
   - [ ] 🔧 配对设计验收清单第 1–5 项
 - 零配置（[设计](docs/superpowers/specs/2026-10-17-zero-config-design.md)），按顺序推进：
   - [x] 本机输入源编码自动学习：`InputActivity` 端口与 macOS / Windows 实现、`InputCodeLearner`、`state.toml`、协议 v5 `input_code` 消息、协调器本机编码可变
-  - [ ] 自动拨号未配对设备，配对请求去掉配对码，「可配对」按钮改为「连接」
+  - [x] 自动拨号未配对设备，配对请求去掉配对码，「可配对」按钮改为「连接」
   - [ ] 面板「电脑」卡片：按电脑列出、点对端交棒（`Event::HandoffTo`）、「重新识别本机接口」
   - [ ] 🔧 零配置设计验收清单第 1–5 项
 - [ ] Windows 远程调试脚本：经 SSH 部署 CI 产物、写配置、在登录会话里启动面板 / agent、取日志

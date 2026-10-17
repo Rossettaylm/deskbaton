@@ -304,7 +304,7 @@ fn unpaired_peer_is_rejected_without_ui() {
 }
 
 #[test]
-fn interactive_pairing_shows_the_same_code_on_both_ends() {
+fn interactive_pairing_needs_both_ends_to_agree() {
     let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
     let (win_config, win_notes) = with_probe(win_dev.config(local(), &[]));
     let (mac_config, mac_notes) = with_probe(mac_dev.config(local(), &[]));
@@ -317,9 +317,10 @@ fn interactive_pairing_shows_the_same_code_on_both_ends() {
     );
     let on_mac = wait_session(&a, &mac_notes);
     let on_win = wait_session(&b, &win_notes);
-    assert_eq!(on_mac.code, on_win.code);
     assert_eq!(on_mac.peer.0, "win");
     assert_eq!(on_win.peer.0, "mac");
+    assert_eq!(on_mac.platform, Some(Platform::Windows));
+    assert_eq!(on_win.platform, Some(Platform::Macos));
 
     a.confirm_pairing(on_mac.id, true).unwrap();
     none_within(&a_rx, Duration::from_millis(300), is_online("win"));
