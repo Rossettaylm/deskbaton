@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use baton_core::ids::DeviceId;
+use baton_core::protocol::PROTOCOL_VERSION;
 use baton_core::{Error, Result};
 use rustls::pki_types::ServerName;
 use tokio::net::TcpStream;
@@ -104,7 +105,13 @@ pub(super) fn targets(
             };
             let known = paired.iter().any(|p| p.fingerprint == d.fingerprint)
                 || out.iter().any(|t| t.name == d.name);
-            if known || d.name <= *me || auto.skip.contains(&fingerprint) || d.addresses.is_empty()
+            // 协议版本不同的握手必然失败，自动拨只会反复报错；用户点「连接」时才提示版本不一致。
+            let incompatible = d.version != Some(PROTOCOL_VERSION);
+            if known
+                || incompatible
+                || d.name <= *me
+                || auto.skip.contains(&fingerprint)
+                || d.addresses.is_empty()
             {
                 continue;
             }
@@ -275,11 +282,13 @@ mod tests {
                 name: DeviceId("win".into()),
                 fingerprint: auth::to_hex(&A),
                 addresses: vec!["192.168.1.30:47800".parse().unwrap()],
+                version: Some(PROTOCOL_VERSION),
             },
             Discovered {
                 name: DeviceId("win".into()),
                 fingerprint: auth::to_hex(&[9; 32]),
                 addresses: vec!["192.168.1.40:47800".parse().unwrap()],
+                version: Some(PROTOCOL_VERSION),
             },
         ];
         assert_eq!(
@@ -307,6 +316,7 @@ mod tests {
             name: DeviceId(name.into()),
             fingerprint: auth::to_hex(fp),
             addresses: vec![address.parse().unwrap()],
+            version: Some(PROTOCOL_VERSION),
         }
     }
 
@@ -347,5 +357,14 @@ mod tests {
         let only_paired = targets(&[paired], &discovered, &[], false, &auto);
         assert_eq!(only_paired.len(), 1);
         assert!(!only_paired[0].unpaired);
+
+        let old = Discovered {
+            version: Some(PROTOCOL_VERSION - 1),
+            ..found("win", &A, "192.168.1.20:47800")
+        };
+        assert!(
+            targets(&[], &[old], &[], false, &auto).is_empty(),
+            "协议版本不同的设备不自动拨"
+        );
     }
 }

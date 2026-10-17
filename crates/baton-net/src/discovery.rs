@@ -23,6 +23,9 @@ pub struct Discovered {
     /// 证书指纹，十六进制。
     pub fingerprint: String,
     pub addresses: Vec<SocketAddr>,
+    /// 对端广播的协议版本；旧版本没有广播或无法解析时为 `None`。
+    #[serde(skip)]
+    pub version: Option<u32>,
 }
 
 impl Discovered {
@@ -72,6 +75,7 @@ impl Discovery {
                             let Some(device) = parse(
                                 service.get_property_val_str("name"),
                                 service.get_property_val_str("fp"),
+                                service.get_property_val_str("v"),
                                 service.get_addresses().iter().map(|ip| ip.to_ip_addr()),
                                 service.get_port(),
                             )
@@ -118,6 +122,7 @@ impl Drop for Discovery {
 fn parse(
     name: Option<&str>,
     fingerprint: Option<&str>,
+    version: Option<&str>,
     ips: impl Iterator<Item = IpAddr>,
     port: u16,
 ) -> Option<Discovered> {
@@ -135,6 +140,7 @@ fn parse(
         name: DeviceId(name.filter(|n| !n.is_empty())?.to_owned()),
         fingerprint: fingerprint.to_owned(),
         addresses,
+        version: version.and_then(|v| v.parse().ok()),
     })
 }
 
@@ -159,6 +165,7 @@ mod tests {
         let device = parse(
             Some("win"),
             Some(&fp),
+            Some("5"),
             ips(&["192.168.1.20", "fe80::1", "192.168.1.20"]),
             47800,
         )
@@ -166,13 +173,16 @@ mod tests {
         assert_eq!(device.name.0, "win");
         assert_eq!(device.addresses, ["192.168.1.20:47800".parse().unwrap()]);
         assert_eq!(device.fingerprint(), Some([1; 32]));
+        assert_eq!(device.version, Some(5));
     }
 
     #[test]
     fn ignores_incomplete_services() {
         let fp = auth::to_hex(&[1; 32]);
-        assert!(parse(None, Some(&fp), ips(&["192.168.1.20"]), 1).is_none());
-        assert!(parse(Some("win"), Some("zz"), ips(&["192.168.1.20"]), 1).is_none());
-        assert!(parse(Some("win"), Some(&fp), ips(&["fe80::1"]), 1).is_none());
+        assert!(parse(None, Some(&fp), None, ips(&["192.168.1.20"]), 1).is_none());
+        assert!(parse(Some("win"), Some("zz"), None, ips(&["192.168.1.20"]), 1).is_none());
+        assert!(parse(Some("win"), Some(&fp), None, ips(&["fe80::1"]), 1).is_none());
+        let unversioned = parse(Some("win"), Some(&fp), None, ips(&["192.168.1.20"]), 1);
+        assert_eq!(unversioned.unwrap().version, None);
     }
 }

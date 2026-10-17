@@ -2,6 +2,7 @@ use std::net::TcpListener as StdListener;
 use std::time::Instant;
 
 use baton_core::ids::{InputCode, Platform};
+use baton_core::protocol::PROTOCOL_VERSION;
 
 use super::*;
 use crate::discovery::Discovered;
@@ -500,11 +501,13 @@ fn candidates_skip_paired_and_duplicate_devices() {
             name: DeviceId("win".into()),
             fingerprint: auth::to_hex(&[1; 32]),
             addresses: vec!["192.168.1.20:47800".parse().unwrap()],
+            version: Some(PROTOCOL_VERSION),
         },
         Discovered {
             name: DeviceId("mini".into()),
             fingerprint: auth::to_hex(&[2; 32]),
             addresses: vec!["192.168.1.30:47800".parse().unwrap()],
+            version: Some(PROTOCOL_VERSION),
         },
     ];
     let configured = [
