@@ -10,6 +10,8 @@
 >
 > 修订（2026-10-17）：实测 Wi-Fi 魔术包能唤醒合盖睡眠的 Mac（`docs/research/2026-10-17-mac-wifi-wol-probe.md`），`Wol` 同时用于 Mac；HID 配件降为备选。
 >
+> 修订（2026-10-17）：零配置（`2026-10-17-zero-config-design.md`）。`display.input_code` 变为可选，不写时由程序在本机有键鼠操作时自动学习；协议升到 v5，新增 `input_code` 消息。冲突时以零配置设计为准。
+>
 > 修订（2026-10-17）：配对、设备档案、mDNS 发现与面板配对改按 `2026-10-17-pairing-design.md`；agent 并入面板进程；协议升到 v3。
 
 ## 1. 目标
@@ -352,7 +354,7 @@ port = 47800
 [display]
 mode = "ddc"            # ddc | none
 match = "auto"          # 或 EDID 型号子串
-input_code = 0x1B       # 本机在显示器上对应的输入源编码
+input_code = 0x1B       # 可选：本机在显示器上对应的输入源编码；不写时自动学习（见零配置设计）
 
 [[display.inputs]]      # 显示器面板的输入源按钮；默认 DP 0x0F / HDMI1 0x11 / HDMI2 0x12 / USB-C 0x1B
 label = "DP"
