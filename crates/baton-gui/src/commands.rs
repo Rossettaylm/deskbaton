@@ -134,6 +134,7 @@ fn machines(app: &AppHandle) -> Machines {
                 platform: status.peer.platform,
                 code: status.peer.input_code,
                 online: status.online,
+                holding: status.holding,
             })
             .collect()
     });

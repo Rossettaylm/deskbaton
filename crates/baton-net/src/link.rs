@@ -52,7 +52,7 @@ pub struct PeerAddr {
 
 /// 配对界面。提供它的链路才会弹出配对请求；没有时未配对的设备一律拒绝。
 pub trait LinkObserver: Send + Sync {
-    /// 设备、配对会话或连接状态变了，调用 [`TcpPeerLink::snapshot`] 取最新状态。
+    /// 设备、配对会话、连接状态，或本机、对端的持棒状态变了，调用 [`TcpPeerLink::snapshot`] 取最新状态。
     fn changed(&self);
     /// 一次性提示，如「已与 X 配对」。
     fn notice(&self, message: &str);
@@ -120,6 +120,8 @@ pub struct Candidate {
 pub struct PairedStatus {
     pub peer: PairedPeer,
     pub online: bool,
+    /// 对端最近一次心跳报告自己持棒。
+    pub holding: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -224,11 +226,15 @@ impl TcpPeerLink {
             .store
             .list()
             .into_iter()
-            .map(|peer| PairedStatus {
-                online: conns
+            .map(|peer| {
+                let conn = conns
                     .get(&peer.device_id())
-                    .is_some_and(|c| peer.matches(&c.fingerprint)),
-                peer,
+                    .filter(|c| peer.matches(&c.fingerprint));
+                PairedStatus {
+                    online: conn.is_some(),
+                    holding: conn.is_some_and(|c| c.state == AgentState::Holding),
+                    peer,
+                }
             })
             .collect();
         drop(conns);
@@ -353,8 +359,27 @@ impl PeerLink for TcpPeerLink {
         Ok(())
     }
 
+    /// 状态变了就立即发一次心跳，对端不必等下一个周期。
     fn set_local_state(&self, state: AgentState) {
-        *lock(&self.shared.state) = state;
+        let old = std::mem::replace(&mut *lock(&self.shared.state), state);
+        if old == state {
+            return;
+        }
+        match Frame::message(&Message::Heartbeat { state }) {
+            Ok(frame) => {
+                let outboxes: Vec<Arc<Outbox>> = lock(&self.shared.conns)
+                    .values()
+                    .map(|c| Arc::clone(&c.outbox))
+                    .collect();
+                for outbox in outboxes {
+                    outbox.push_control(frame.clone());
+                }
+            }
+            Err(e) => log::warn!("无法编码心跳：{e}"),
+        }
+        if settled(state) {
+            self.shared.changed();
+        }
     }
 }
 
@@ -391,6 +416,8 @@ struct Conn {
     dialer: DeviceId,
     fingerprint: Fingerprint,
     outbox: Arc<Outbox>,
+    /// 对端最近一次心跳里的状态。
+    state: AgentState,
 }
 
 /// 进行中的配对会话。`decide` 被丢弃（会话被移除）时等待方视为取消。
@@ -437,6 +464,7 @@ impl Shared {
                 dialer,
                 fingerprint,
                 outbox,
+                state: AgentState::Idle,
             },
         );
         Some(generation)
@@ -693,9 +721,9 @@ async fn read_loop<R: AsyncRead + Unpin>(
 fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, frame: Frame) {
     if frame.channel == ChannelId::CONTROL {
         match frame.to_message() {
+            Ok(Message::Heartbeat { state }) => peer_state(shared, peer, state),
             Ok(
-                Message::Heartbeat { .. }
-                | Message::Hello { .. }
+                Message::Hello { .. }
                 | Message::PairCommit { .. }
                 | Message::PairNonce { .. }
                 | Message::PairReveal { .. }
@@ -720,6 +748,20 @@ fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, fra
         }),
         Ok(None) => {}
         Err(e) => log::warn!("{} 的数据传输出错：{e}", peer.0),
+    }
+}
+
+/// 交棒的过渡状态不通知界面：接棒方正在轮询显示器，界面此时读 DDC 会与它抢总线。
+fn settled(state: AgentState) -> bool {
+    matches!(state, AgentState::Holding | AgentState::Idle)
+}
+
+fn peer_state(shared: &Shared, peer: &DeviceId, state: AgentState) {
+    let changed = lock(&shared.conns)
+        .get_mut(peer)
+        .is_some_and(|c| std::mem::replace(&mut c.state, state) != state);
+    if changed && settled(state) {
+        shared.changed();
     }
 }
 

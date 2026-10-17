@@ -281,6 +281,39 @@ fn learned_input_code_reaches_peer_and_its_profile() {
     assert_eq!(profile.input_code, None);
 }
 
+fn wait_for(what: &str, within: Duration, pred: impl Fn() -> bool) {
+    let deadline = Instant::now() + within;
+    while Instant::now() < deadline {
+        if pred() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    panic!("等待 {what} 超时");
+}
+
+#[test]
+fn peer_state_change_reaches_snapshot_without_waiting_for_heartbeat() {
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let slow = |mut config: LinkConfig| {
+        config.heartbeat_interval = Duration::from_secs(10);
+        config
+    };
+    let (b, _b_rx) = start(slow(with_token(win_dev.config(local(), &[]), "token")));
+    let (a, a_rx) = start(slow(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    )));
+    expect(&a_rx, "win 上线", is_online("win"));
+    let win_holding = || a.snapshot().paired.first().is_some_and(|s| s.holding);
+    assert!(!win_holding());
+
+    b.set_local_state(AgentState::Holding);
+    wait_for("win 持棒", Duration::from_secs(1), win_holding);
+    b.set_local_state(AgentState::Idle);
+    wait_for("win 交出", Duration::from_secs(1), || !win_holding());
+}
+
 #[test]
 fn rejects_wrong_token() {
     let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));

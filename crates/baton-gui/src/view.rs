@@ -71,6 +71,8 @@ pub struct PeerMachine {
     pub platform: Option<Platform>,
     pub code: Option<InputCode>,
     pub online: bool,
+    /// 心跳报告它持棒。
+    pub holding: bool,
 }
 
 /// 面板知道的电脑：本机与已配对设备。
@@ -85,29 +87,41 @@ pub struct Machines {
 
 impl Machines {
     /// 本机在前，其余按名称排序；交棒服务未启动时为 `None`。
+    /// 读得到显示器时按当前编码高亮；读不到（本机不持棒）时按对端心跳报告的持棒状态高亮。
     fn computers(
         &self,
         presets: &[InputPreset],
         current: Option<InputCode>,
     ) -> Option<Vec<ComputerView>> {
         let me = self.me.as_ref()?;
-        let view = |name: &str, platform, local, online, code: Option<InputCode>| ComputerView {
-            name: name.to_owned(),
-            platform,
-            local,
-            online,
-            port: code.map(|c| port_name(presets, c)),
-            active: code.is_some() && code == current,
-        };
+        let view =
+            |name: &str, platform, local, online, code: Option<InputCode>, holding| ComputerView {
+                name: name.to_owned(),
+                platform,
+                local,
+                online,
+                port: code.map(|c| port_name(presets, c)),
+                active: match current {
+                    Some(current) => code == Some(current),
+                    None => holding,
+                },
+            };
         let mut peers: Vec<&PeerMachine> = self.peers.iter().collect();
         peers.sort_by(|a, b| a.name.cmp(&b.name));
-        let local = view(me, Some(Platform::current()), true, true, self.my_code);
+        let local = view(
+            me,
+            Some(Platform::current()),
+            true,
+            true,
+            self.my_code,
+            false,
+        );
         Some(
             std::iter::once(local)
                 .chain(
                     peers
                         .into_iter()
-                        .map(|p| view(&p.name, p.platform, false, p.online, p.code)),
+                        .map(|p| view(&p.name, p.platform, false, p.online, p.code, p.holding)),
                 )
                 .collect(),
         )
@@ -367,6 +381,7 @@ mod tests {
             platform: Some(Platform::Windows),
             code: code.map(InputCode),
             online,
+            holding: false,
         }
     }
 
@@ -418,6 +433,29 @@ mod tests {
             ]
         );
         assert_eq!(computers[0].platform, Some(Platform::current()));
+    }
+
+    #[test]
+    fn holding_peer_is_highlighted_only_when_display_unreadable() {
+        let machines = Machines {
+            me: Some("mbp".into()),
+            my_code: Some(InputCode(0x0F)),
+            peers: vec![PeerMachine {
+                holding: true,
+                ..peer_machine("win", Some(0x10), true)
+            }],
+        };
+        let active = |current| {
+            display_view(&info(), None, current, &presets(), true, &machines)
+                .computers
+                .unwrap()
+                .into_iter()
+                .filter(|c| c.active)
+                .map(|c| c.name)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(active(None), ["win"]);
+        assert_eq!(active(Some(InputCode(0x0F))), ["mbp"]);
     }
 
     #[test]

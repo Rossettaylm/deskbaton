@@ -23,7 +23,7 @@
  * @typedef {{ id: number, peer: string, fingerprint: string, platform: Platform | null, ip: string | null,
  *             awaiting_me: boolean }} PairingSession
  * @typedef {{ name: string, fingerprint: string | null, address: string }} Candidate
- * @typedef {{ me: string, fingerprint: string, paired: { peer: PairedPeer, online: boolean }[],
+ * @typedef {{ me: string, fingerprint: string, paired: { peer: PairedPeer, online: boolean, holding: boolean }[],
  *             sessions: PairingSession[], candidates: Candidate[] }} Devices
  */
 
@@ -107,6 +107,15 @@ function h(tag, props = {}, ...children) {
 
 function selected() {
   return state.displays.find((d) => d.id === state.selectedId) ?? null;
+}
+
+/**
+ * 本机读不到显示器时，心跳报告持棒的对端。
+ * @param {DisplayView | null} d
+ */
+function remoteHolder(d) {
+  if (!d || d.current_input != null) return null;
+  return d.computers?.find((c) => c.active && !c.local) ?? null;
 }
 
 async function refresh() {
@@ -376,7 +385,15 @@ function renderScreen(d) {
   $("now").classList.toggle("away", !d || away);
   const owners = d?.inputs.find((i) => i.active)?.owners ?? [];
   const current = [d?.current_label ?? "—", ownerNames(owners)].filter(Boolean).join(" · ");
-  $("now-label").textContent = d && !away ? current : d ? "其它输入" : "—";
+  const holder = remoteHolder(d);
+  $("now-label").textContent =
+    d && !away
+      ? current
+      : holder
+        ? [holder.port, holder.name].filter(Boolean).join(" · ")
+        : d
+          ? "其它输入"
+          : "—";
 }
 
 /** @param {DisplayView | null} d */
@@ -452,6 +469,7 @@ function renderComputers(box, computers) {
 /** @param {DisplayView | null} d */
 function renderFoot(d) {
   const status = $("status");
+  const holder = remoteHolder(d);
   let tone = "idle";
   let text;
   if (state.notice) {
@@ -469,6 +487,8 @@ function renderFoot(d) {
   } else if (d.current_input != null) {
     tone = "ok";
     text = "DDC 正常";
+  } else if (holder) {
+    text = `画面在 ${holder.name}，本机读不到输入源`;
   } else {
     text = "本机不是当前输入，读不到输入源";
   }
@@ -565,13 +585,19 @@ tauri.event.listen("panel-shown", () => {
 });
 
 let displaysTimer = 0;
-tauri.event.listen("devices-changed", () => {
-  scheduleDevices();
-  // 设备上下线、对端或本机学到接口时，「电脑」卡片也要更新；合并短时间内的多次变化，少读 DDC。
+// 合并短时间内的多次变化，少读 DDC；正在读取或切换时顺延，不丢掉这次变化。
+function scheduleDisplays() {
   clearTimeout(displaysTimer);
   displaysTimer = setTimeout(() => {
-    if (state.pending == null && !state.loading) refresh();
+    if (state.pending != null || state.loading) scheduleDisplays();
+    else refresh();
   }, 600);
+}
+
+tauri.event.listen("devices-changed", () => {
+  scheduleDevices();
+  // 设备上下线、学到接口、本机或对端持棒状态变化时，显示器和「电脑」卡片都要更新。
+  scheduleDisplays();
 });
 
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {

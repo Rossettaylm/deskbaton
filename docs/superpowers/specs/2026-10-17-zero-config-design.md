@@ -133,7 +133,7 @@ pub trait InputActivity: Send + Sync {
 - 列出本机和已配对设备，本机在前，其余按名称排序。
 - 每格：系统图标、设备名、小字一行（本机写「本机」，对端写「在线 / 离线」，后接接口名）。
 - 接口名：配置 `display.inputs` 中有该编码时用配置的名称；否则按 MCCS 常见值命名（`0x01` VGA-1、`0x03` DVI-1、`0x04` DVI-2、`0x0F` DP-1、`0x10` DP-2、`0x11` HDMI-1、`0x12` HDMI-2、`0x1B` USB-C）；都不是时写编码。编码未知时写「未识别」。
-- 当前画面所在的电脑高亮（显示器当前编码等于该电脑的编码）。
+- 当前画面所在的电脑高亮（显示器当前编码等于该电脑的编码）。本机读不到当前编码（不持棒）时，高亮心跳报告自己持棒的在线对端，「当前画面」行写它的接口名和设备名。
 
 ### 5.2 点击
 
@@ -144,6 +144,14 @@ pub trait InputActivity: Send + Sync {
 ### 5.3 其它显示器
 
 不是交棒显示器的外接屏（如 Mac mini 接两台 HP D27k 时的另一台）保持原来的接口按钮和直接切换，行为不变。
+
+### 5.4 随交棒刷新
+
+不持棒的一方读不到显示器，只能靠对端告知画面在谁那里；交棒由热键或对端发起时，面板也要跟着变。
+
+- 链路记下每个连接最近一次心跳里的 `state`，经 `PairedStatus.holding` 交给面板。
+- 本机状态变化时立即向已连接的对端补发一次心跳，不等下一个 2 秒周期；不改线上格式。
+- 本机或对端的状态变为 `holding` / `idle` 时，链路调用 `LinkObserver::changed`，面板随之重读显示器；`handing_off` / `receiving` 是过渡状态，不触发刷新，避免与接棒方的 DDC 轮询抢总线。
 
 ## 6. 协调器
 
@@ -164,14 +172,14 @@ pub trait InputActivity: Send + Sync {
 | `baton-core/src/state_file.rs` | `state.toml` 读写 |
 | `baton-input` | `InputActivity` 的 macOS / Windows 实现 |
 | `baton-macos-sys` | `CGEventSourceSecondsSinceLastEventType` 的 FFI 声明 |
-| `baton-net/src/link.rs` | 自动拨号未配对设备、`set_local_input_code`、收发 `input_code` |
+| `baton-net/src/link.rs` | 自动拨号未配对设备、`set_local_input_code`、收发 `input_code`、记下对端心跳状态 |
 | `baton-agent/src/lib.rs` | 启动学习线程、加载 `state.toml` |
 | `baton-gui` | 「电脑」卡片、`handoff_to` 与 `relearn_input` 命令、配对请求去掉配对码、「可配对」按钮改名 |
 
 ## 8. 测试
 
 - **单测**：`InputCodeLearner` 四种情形（配置优先、已学到不读、空闲过久不学、读取失败不学）；`state.toml` 往返与未知字段报错；协议 v5 往返与格式稳定；协调器 `HandoffTo` 选中指定目标、对端编码未知时不发 `prepare`、`LocalInputCode` 后重新判定持棒；自动拨号对象的筛选（已拒绝、名称较大一方、无界面）；「电脑」卡片的排序、接口名、高亮。
-- **回环**：两个 agent 都不配置 `input_code`，其中一端经 `set_local_input_code` 学到后，另一端的 `PeerInfo` 与档案随之更新。
+- **回环**：两个 agent 都不配置 `input_code`，其中一端经 `set_local_input_code` 学到后，另一端的 `PeerInfo` 与档案随之更新；一端 `set_local_state(Holding)` 后，另一端的 `PairedStatus.holding` 随之变化。
 - **硬件验收清单**（手动）：
   1. 两台电脑删除配置文件后打开面板，各点一次「同意」即配对，之后重启自动连上；
   2. 在每台电脑上操作一次键鼠后，两边「电脑」卡片都显示正确的接口名；
