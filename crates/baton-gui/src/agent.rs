@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use baton_agent::{Agent, Options, data_dir_of, hotkey, load_config};
-use baton_core::Result;
 use baton_core::config::default_config_path;
+use baton_core::event::Event;
+use baton_core::ids::{DeviceId, InputCode};
 use baton_core::ports::Notifier;
+use baton_core::{Error, Result};
 use baton_net::{LinkObserver, TcpPeerLink};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -54,6 +56,38 @@ impl AgentSlot {
                 }
             }
         }
+    }
+
+    fn with_agent<T>(&self, f: impl FnOnce(&Agent) -> T) -> Option<T> {
+        self.agent
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .map(f)
+    }
+
+    pub fn local_input_code(&self) -> Option<InputCode> {
+        self.with_agent(Agent::local_input_code).flatten()
+    }
+
+    pub fn input_code_configured(&self) -> bool {
+        self.with_agent(Agent::input_code_configured)
+            .unwrap_or(false)
+    }
+
+    pub fn relearn_input(&self) -> Result<()> {
+        self.with_agent(Agent::relearn_input)
+            .unwrap_or_else(|| Err(Error::Config("交棒服务未启动".into())))
+    }
+
+    /// 与热键走同一流程，目标为 `peer`。
+    pub fn handoff_to(&self, peer: &str) -> Result<()> {
+        let events = self
+            .with_agent(Agent::events)
+            .ok_or_else(|| Error::Config("交棒服务未启动".into()))?;
+        events
+            .send(Event::HandoffTo(DeviceId(peer.to_owned())))
+            .map_err(|_| Error::Config("交棒服务已停止".into()))
     }
 
     /// 进程退出前调用：等协调器结束，保证保持唤醒已释放。

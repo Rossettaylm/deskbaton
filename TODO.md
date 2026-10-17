@@ -47,7 +47,7 @@
 - 零配置（[设计](docs/superpowers/specs/2026-10-17-zero-config-design.md)），按顺序推进：
   - [x] 本机输入源编码自动学习：`InputActivity` 端口与 macOS / Windows 实现、`InputCodeLearner`、`state.toml`、协议 v5 `input_code` 消息、协调器本机编码可变
   - [x] 自动拨号未配对设备，配对请求去掉配对码，「可配对」按钮改为「连接」
-  - [ ] 面板「电脑」卡片：按电脑列出、点对端交棒（`Event::HandoffTo`）、「重新识别本机接口」
+  - [x] 面板「电脑」卡片：按电脑列出、点对端交棒（`Event::HandoffTo`）、「重新识别本机接口」
   - [ ] 🔧 零配置设计验收清单第 1–5 项
 - [ ] Windows 远程调试脚本：经 SSH 部署 CI 产物、写配置、在登录会话里启动面板 / agent、取日志
 - [ ] 托盘通知、开机自启
@@ -65,7 +65,7 @@
 - [ ] 🔧 面板硬件验收清单第 4 项（Windows）
 - [x] 输入源按钮标出占用的设备（本机 / 已配对设备的名称与系统）；`hello` 增 `platform`，`PROTOCOL_VERSION` 升到 4
 - [ ] 🔧 P275MV + 本机配置（USB-C `0x0F`）下面板显示「USB-C · 本机」；与 Windows 配对后，其输入口标出设备名和 Windows
-- [ ] 设备上线、下线或档案变化时刷新输入源按钮上的设备（目前只在打开面板时刷新）
+- [x] 设备上线、下线或档案变化时刷新输入源按钮上的设备（随零配置「电脑」卡片一起完成：`devices-changed` 后合并刷新）
 - [ ] 读取 capabilities 字符串自动识别输入口
 
 ## P3 · M3 扩展（另立设计文档）

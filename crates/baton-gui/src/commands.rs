@@ -10,7 +10,7 @@ use serde::Serialize;
 use tauri::{AppHandle, LogicalSize, Manager, State};
 
 use crate::agent::AgentSlot;
-use crate::view::{self, DisplayView, Machines, PortOwner};
+use crate::view::{self, DisplayView, Machines, PeerMachine};
 use crate::{PANEL, PANEL_WIDTH, place_panel};
 
 pub struct Panel {
@@ -37,7 +37,7 @@ impl Panel {
     }
 
     fn snapshot(&self, mut machines: Machines) -> Result<Snapshot> {
-        machines.my_code = self.display.input_code;
+        machines.my_code = machines.my_code.or(self.display.input_code);
         let ddc = self.ddc.lock().unwrap_or_else(PoisonError::into_inner);
         let infos = ddc.list()?;
         let preferred = DisplayInfo::select(infos.clone(), &self.display.matcher)
@@ -129,20 +129,17 @@ fn machines(app: &AppHandle) -> Machines {
         link.snapshot()
             .paired
             .into_iter()
-            .filter_map(|status| {
-                let peer = status.peer;
-                let owner = PortOwner {
-                    name: peer.name,
-                    platform: peer.platform,
-                    local: false,
-                };
-                Some((peer.input_code?, owner))
+            .map(|status| PeerMachine {
+                name: status.peer.name,
+                platform: status.peer.platform,
+                code: status.peer.input_code,
+                online: status.online,
             })
             .collect()
     });
     Machines {
         me: slot.name.clone(),
-        my_code: None,
+        my_code: slot.local_input_code(),
         peers,
     }
 }

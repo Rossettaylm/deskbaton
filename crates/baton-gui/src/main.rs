@@ -51,6 +51,8 @@ fn main() -> ExitCode {
             devices::confirm_pairing,
             devices::pair_device,
             devices::unpair_device,
+            devices::handoff_to,
+            devices::relearn_input,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]

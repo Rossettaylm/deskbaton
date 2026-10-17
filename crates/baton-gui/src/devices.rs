@@ -14,6 +14,8 @@ pub struct AgentStatus {
     name: Option<String>,
     hotkey: Option<String>,
     error: Option<String>,
+    /// 配置文件写了 `display.input_code`，不能重新识别本机接口。
+    input_code_configured: bool,
 }
 
 #[tauri::command]
@@ -22,7 +24,19 @@ pub fn agent_status(slot: State<'_, AgentSlot>) -> AgentStatus {
         name: slot.name.clone(),
         hotkey: slot.hotkey.clone(),
         error: slot.error.clone(),
+        input_code_configured: slot.input_code_configured(),
     }
+}
+
+/// 面板上点了某台已配对的电脑。
+#[tauri::command]
+pub fn handoff_to(slot: State<'_, AgentSlot>, peer: String) -> Result<(), String> {
+    slot.handoff_to(&peer).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn relearn_input(slot: State<'_, AgentSlot>) -> Result<(), String> {
+    slot.relearn_input().map_err(|e| e.to_string())
 }
 
 fn link(slot: &AgentSlot) -> Result<&Arc<TcpPeerLink>, String> {

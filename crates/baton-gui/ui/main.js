@@ -7,12 +7,16 @@
  * @typedef {{ name: string, platform: Platform | null, local: boolean }} PortOwner
  * @typedef {{ label: string, code: number, kind: "dp" | "hdmi" | "usb_c" | "other",
  *             active: boolean, owners: PortOwner[] }} InputButton
+ * @typedef {{ name: string, platform: Platform | null, local: boolean, online: boolean,
+ *             port: string | null, active: boolean }} ComputerView
  * @typedef {{ id: string, name: string, serial: string | null, subtitle: string,
  *             screen: ScreenView | null, current_input: number | null,
- *             current_label: string | null, inputs: InputButton[], preferred: boolean }} DisplayView
+ *             current_label: string | null, inputs: InputButton[], computers: ComputerView[] | null,
+ *             preferred: boolean }} DisplayView
  * @typedef {{ displays: DisplayView[], config_error: string | null }} Snapshot
  * @typedef {{ kind: "confirmed", code: number, label: string } | { kind: "left_local", label: string }} SwitchOutcome
- * @typedef {{ name: string | null, hotkey: string | null, error: string | null }} AgentStatus
+ * @typedef {{ name: string | null, hotkey: string | null, error: string | null,
+ *             input_code_configured: boolean }} AgentStatus
  * @typedef {{ name: string, fingerprint: string, paired_at: number, platform: Platform | null,
  *             input_code: number | null,
  *             wol_mac: string | null, last_ip: string | null, port: number | null }} PairedPeer
@@ -35,6 +39,8 @@ const PORT_PATHS = {
   usb_c: '<rect x="4" y="2.5" width="22" height="9" rx="4.5"/>',
   other: '<rect x="3" y="2.5" width="24" height="9" rx="1.5"/>',
 };
+
+const COMPUTER_PATH = '<rect x="6" y="1.5" width="18" height="9" rx="1.2"/><path d="M3 12.5h24"/>';
 
 /** @type {Record<string, string>} */
 const PLATFORM_NAMES = { macos: "macOS", windows: "Windows", linux: "Linux" };
@@ -73,6 +79,8 @@ const state = {
   pairing: new Set(),
   /** @type {string | null} 点过一次「移除」、等待再次确认的设备指纹 */
   removing: null,
+  /** @type {string | null} 正在交棒的目标电脑 */
+  handingTo: null,
 };
 
 /** @param {string} id */
@@ -151,6 +159,40 @@ async function switchTo(display, input) {
     state.notice = { tone: "err", text: String(e) };
   }
   render();
+}
+
+/** @param {ComputerView} c */
+async function handOffTo(c) {
+  if (c.local) {
+    state.notice = { tone: "idle", text: c.active ? "画面已在本机" : "请在持有画面的电脑上操作" };
+    render();
+    return;
+  }
+  if (state.handingTo) return;
+  state.handingTo = c.name;
+  state.notice = { tone: "idle", text: `正在交棒给 ${c.name}…` };
+  render();
+  try {
+    await invoke("handoff_to", { peer: c.name });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  setTimeout(() => {
+    state.handingTo = null;
+    refresh();
+  }, 3000);
+  render();
+}
+
+async function relearnInput() {
+  closeMenu();
+  try {
+    await invoke("relearn_input");
+    state.notice = { tone: "idle", text: "已清除本机接口，在本机操作一次键鼠即可重新识别" };
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  refresh();
 }
 
 function render() {
@@ -341,8 +383,16 @@ function renderScreen(d) {
 function renderPorts(d) {
   const ports = $("ports");
   ports.replaceChildren();
+  const computers = d?.computers;
+  ports.classList.toggle("computers", !!computers);
+  $("ports-title").textContent = computers ? "电脑" : "输入源";
+  $("ports-sub").textContent = computers ? "点击即交棒" : "DDC/CI · VCP 0x60";
   if (!d) {
     ports.append(h("div", { class: "empty" }, state.loading ? "正在读取…" : "没有可切换的显示器"));
+    return;
+  }
+  if (computers) {
+    renderComputers(ports, computers);
     return;
   }
   const leftTo = state.leftTo.get(d.id);
@@ -371,6 +421,31 @@ function renderPorts(d) {
       );
     }
     ports.append(button);
+  }
+}
+
+/** @param {HTMLElement} box @param {ComputerView[]} computers */
+function renderComputers(box, computers) {
+  for (const c of computers) {
+    const status = c.local ? "本机" : c.online ? "在线" : "离线";
+    const platform = c.platform ? PLATFORM_NAMES[c.platform] ?? "其它系统" : null;
+    const pending = state.handingTo === c.name;
+    const button = h(
+      "button",
+      {
+        class: ["port", "computer", c.active ? "on" : "", pending ? "pending" : ""].join(" "),
+        disabled: state.handingTo != null,
+        title: [c.name, platform, c.port ?? "接口未识别"].filter(Boolean).join(" · "),
+        onclick: () => handOffTo(c),
+      },
+      h("i", { class: "led" }),
+    );
+    button.insertAdjacentHTML("beforeend", `<svg viewBox="0 0 30 14">${COMPUTER_PATH}</svg>`);
+    button.append(
+      h("span", { class: "name" }, c.name),
+      h("span", { class: "owner" }, h("b", {}, status), h("small", {}, c.port ?? "未识别")),
+    );
+    box.append(button);
   }
 }
 
@@ -430,6 +505,11 @@ function renderMenu() {
     }
     items.push(h("hr"));
   }
+  if (state.agent?.name && !state.agent.input_code_configured) {
+    items.push(
+      h("button", { role: "menuitem", onclick: relearnInput }, h("span", { class: "check" }), "重新识别本机接口"),
+    );
+  }
   items.push(
     h("button", { role: "menuitem", onclick: () => (closeMenu(), refresh()) }, h("span", { class: "check" }), "刷新"),
     h("button", { role: "menuitem", onclick: () => invoke("quit") }, h("span", { class: "check" }), "退出"),
@@ -484,7 +564,15 @@ tauri.event.listen("panel-shown", () => {
   refreshDevices();
 });
 
-tauri.event.listen("devices-changed", scheduleDevices);
+let displaysTimer = 0;
+tauri.event.listen("devices-changed", () => {
+  scheduleDevices();
+  // 设备上下线、对端或本机学到接口时，「电脑」卡片也要更新；合并短时间内的多次变化，少读 DDC。
+  clearTimeout(displaysTimer);
+  displaysTimer = setTimeout(() => {
+    if (state.pending == null && !state.loading) refresh();
+  }, 600);
+});
 
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
   state.notice = { tone: "idle", text: e.payload };

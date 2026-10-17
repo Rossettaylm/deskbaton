@@ -17,6 +17,8 @@ pub struct DisplayView {
     pub current_input: Option<u16>,
     pub current_label: Option<String>,
     pub inputs: Vec<InputButton>,
+    /// 交棒显示器上按电脑列出的交棒目标；其它显示器或交棒服务未启动时为 `None`，显示接口按钮。
+    pub computers: Option<Vec<ComputerView>>,
     /// `display.match` 命中的那台，作为默认选中。
     pub preferred: bool,
 }
@@ -49,17 +51,68 @@ pub struct PortOwner {
     pub local: bool,
 }
 
+/// 「电脑」卡片上的一格。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ComputerView {
+    pub name: String,
+    pub platform: Option<Platform>,
+    pub local: bool,
+    pub online: bool,
+    /// 接口名；还没识别时为 `None`。
+    pub port: Option<String>,
+    /// 显示器当前显示的就是它。
+    pub active: bool,
+}
+
+/// 已配对的设备。
+#[derive(Debug, Clone)]
+pub struct PeerMachine {
+    pub name: String,
+    pub platform: Option<Platform>,
+    pub code: Option<InputCode>,
+    pub online: bool,
+}
+
 /// 面板知道的电脑：本机与已配对设备。
 #[derive(Debug, Clone, Default)]
 pub struct Machines {
     /// 本机名称；交棒服务未启动时为空。
     pub me: Option<String>,
-    /// 配置的 `display.input_code`，只对 `display.match` 命中的显示器有效。
+    /// 本机输入源编码（配置值或自动学到的值），只对 `display.match` 命中的显示器有效。
     pub my_code: Option<InputCode>,
-    pub peers: Vec<(InputCode, PortOwner)>,
+    pub peers: Vec<PeerMachine>,
 }
 
 impl Machines {
+    /// 本机在前，其余按名称排序；交棒服务未启动时为 `None`。
+    fn computers(
+        &self,
+        presets: &[InputPreset],
+        current: Option<InputCode>,
+    ) -> Option<Vec<ComputerView>> {
+        let me = self.me.as_ref()?;
+        let view = |name: &str, platform, local, online, code: Option<InputCode>| ComputerView {
+            name: name.to_owned(),
+            platform,
+            local,
+            online,
+            port: code.map(|c| port_name(presets, c)),
+            active: code.is_some() && code == current,
+        };
+        let mut peers: Vec<&PeerMachine> = self.peers.iter().collect();
+        peers.sort_by(|a, b| a.name.cmp(&b.name));
+        let local = view(me, Some(Platform::current()), true, true, self.my_code);
+        Some(
+            std::iter::once(local)
+                .chain(
+                    peers
+                        .into_iter()
+                        .map(|p| view(&p.name, p.platform, false, p.online, p.code)),
+                )
+                .collect(),
+        )
+    }
+
     /// 显示器只对活跃输入口回读请求，所以读得到的编码就是本机在用的口。
     fn on_display(
         &self,
@@ -79,8 +132,35 @@ impl Machines {
             };
             (code, owner)
         });
-        me.into_iter().chain(self.peers.iter().cloned()).collect()
+        let peers = self.peers.iter().filter_map(|p| {
+            let owner = PortOwner {
+                name: p.name.clone(),
+                platform: p.platform,
+                local: false,
+            };
+            Some((p.code?, owner))
+        });
+        me.into_iter().chain(peers).collect()
     }
+}
+
+/// 配置里的接口名优先，其次 MCCS 常见值，都不是时写编码。
+pub fn port_name(presets: &[InputPreset], code: InputCode) -> String {
+    if let Some(preset) = presets.iter().find(|p| p.code == code) {
+        return preset.label.clone();
+    }
+    let common = match code.0 {
+        0x01 => "VGA-1",
+        0x03 => "DVI-1",
+        0x04 => "DVI-2",
+        0x0F => "DP-1",
+        0x10 => "DP-2",
+        0x11 => "HDMI-1",
+        0x12 => "HDMI-2",
+        0x1B => "USB-C",
+        _ => return hex(code),
+    };
+    common.to_owned()
 }
 
 /// 决定按钮上画哪种接口轮廓。
@@ -127,6 +207,9 @@ pub fn display_view(
         current_input: current.map(|c| c.0),
         current_label,
         inputs: input_buttons(presets, current, &machines.on_display(current, preferred)),
+        computers: preferred
+            .then(|| machines.computers(presets, current))
+            .flatten(),
         preferred,
     }
 }
@@ -278,12 +361,78 @@ mod tests {
         }
     }
 
+    fn peer_machine(name: &str, code: Option<u16>, online: bool) -> PeerMachine {
+        PeerMachine {
+            name: name.into(),
+            platform: Some(Platform::Windows),
+            code: code.map(InputCode),
+            online,
+        }
+    }
+
     fn machines(my_code: Option<u16>) -> Machines {
         Machines {
             me: Some("mbp".into()),
             my_code: my_code.map(InputCode),
-            peers: vec![(InputCode(0x11), peer("win", Platform::Windows))],
+            peers: vec![peer_machine("win", Some(0x11), true)],
         }
+    }
+
+    #[test]
+    fn computers_list_local_first_with_port_names_and_highlight() {
+        let machines = Machines {
+            me: Some("mbp".into()),
+            my_code: Some(InputCode(0x0F)),
+            peers: vec![
+                peer_machine("zz-pc", None, false),
+                peer_machine("ptking-pc", Some(0x10), true),
+            ],
+        };
+        let view = display_view(
+            &info(),
+            None,
+            Some(InputCode(0x10)),
+            &presets(),
+            true,
+            &machines,
+        );
+        let computers = view.computers.unwrap();
+        let rows: Vec<(&str, bool, bool, Option<&str>, bool)> = computers
+            .iter()
+            .map(|c| {
+                (
+                    c.name.as_str(),
+                    c.local,
+                    c.online,
+                    c.port.as_deref(),
+                    c.active,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("mbp", true, true, Some("DP"), false),
+                ("ptking-pc", false, true, Some("DP-2"), true),
+                ("zz-pc", false, false, None, false),
+            ]
+        );
+        assert_eq!(computers[0].platform, Some(Platform::current()));
+    }
+
+    #[test]
+    fn computers_only_on_preferred_display_with_agent() {
+        let other = display_view(&info(), None, None, &presets(), false, &machines(None));
+        assert!(other.computers.is_none());
+        let no_agent = display_view(&info(), None, None, &presets(), true, &Machines::default());
+        assert!(no_agent.computers.is_none());
+    }
+
+    #[test]
+    fn port_names_prefer_config_then_mccs_then_hex() {
+        assert_eq!(port_name(&presets(), InputCode(0x0F)), "DP");
+        assert_eq!(port_name(&presets(), InputCode(0x12)), "HDMI-2");
+        assert_eq!(port_name(&presets(), InputCode(0x55)), "0x55");
     }
 
     /// `(按钮名, 占用设备名)`，只列有设备的按钮。

@@ -299,6 +299,7 @@ impl TcpPeerLink {
         for outbox in outboxes {
             outbox.push_control(frame.clone());
         }
+        self.shared.changed();
     }
 
     /// 取消配对：删除档案、断开连接，之后它再连进来也不弹配对请求（本次运行内）。

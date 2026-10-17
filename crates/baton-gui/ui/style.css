@@ -351,6 +351,18 @@ button { font: inherit; color: inherit; }
 
 @keyframes blink { 50% { opacity: 0.15; } }
 
+.ports.computers { grid-template-columns: repeat(2, 1fr); }
+
+.port .name {
+  max-width: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .port.pending { color: var(--ink); border-color: rgba(255, 106, 26, 0.4); }
 .port.pending .led { background: var(--signal); box-shadow: 0 0 6px var(--signal); animation: blink 1s infinite; }
 
