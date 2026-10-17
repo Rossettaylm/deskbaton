@@ -9,6 +9,8 @@
 > - 新增设备互联：互联层改为"一条 TLS 连接 + 多条逻辑通道"；首个互联能力为剪贴板同步（交棒时随身带过去）。
 >
 > 修订（2026-10-17）：实测 Wi-Fi 魔术包能唤醒合盖睡眠的 Mac（`docs/research/2026-10-17-mac-wifi-wol-probe.md`），`Wol` 同时用于 Mac；HID 配件降为备选。
+>
+> 修订（2026-10-17）：配对、设备档案、mDNS 发现与面板配对改按 `2026-10-17-pairing-design.md`；agent 并入面板进程；协议升到 v3。
 
 ## 1. 目标
 
@@ -24,7 +26,7 @@
 - 键鼠由显示器内置 KVM 跟随输入源（`InputRouting::MonitorKvm`）
 - Mac 交棒后保持唤醒，释放条件可配置：`peer_offline`（默认，对端心跳消失即释放）/ `duration`（按 `stay_awake_secs` 计时）
 - 接棒方已经睡着时，按配置依次尝试唤醒方式：WoL（有线的 Windows、Wi-Fi 的 Mac）→ HID 唤醒配件（备选，第二期）→ 提示用户
-- 局域网配对 + 加密通信，一条连接上多条逻辑通道
+- 局域网发现 + 面板上核对 6 位数字配对 + 加密通信，一条连接上多条逻辑通道；设备档案记下对端的 MAC 和 IP，供唤醒使用
 - 剪贴板同步：交棒时把文本 / 图片带给接棒方
 
 **预留扩展点，首版不实现**
@@ -100,15 +102,17 @@ crates/
   baton-display/    DisplayControl：macos（经 baton-macos-sys）、windows（Dxva2）；quirks 厂商怪癖
   baton-power/      PowerControl：macos、windows；wake/ 下为 WolWaker、HidDongleWaker、PromptWaker
   baton-input/      InputRouter：MonitorKvmRouter；software/ 下为 SoftwareRouter + InputShareBackend（deskflow、native）
-  baton-net/        discovery（mDNS 常量）、frame（带通道号的分帧）、mux（控制优先的发送调度）、pairing、TcpPeerLink
+  baton-net/        identity（持久化 TLS 身份）、pairing（配对码与信任判定）、store（设备档案 peers.toml）、
+                    discovery（mDNS）、iface（网卡 MAC）、frame（带通道号的分帧）、mux（控制优先的发送调度）、TcpPeerLink
   baton-clipboard/  ClipboardAccess（基于 arboard）+ ClipboardSync 参与者
   baton-macos-sys/  ObjC 胶水（native/*.m）+ FFI 声明，只在 macOS 编译
-  baton-agent/      常驻程序 deskbaton：读配置、启动链路，协调器跑在独立线程；主线程运行系统事件循环
-                    （macOS 为 native 中的 NSApplication，Windows 为消息循环），全局热键依赖它分发；
-                    `--stdin` 可用回车代替热键调试；Ctrl+C 经 Shutdown 事件退出，退出前释放保持唤醒
+  baton-agent/      库 `Agent::start`：恢复睡眠设置、加载身份与档案、启动链路，协调器跑在独立线程。
+                    无界面程序 deskbaton：主线程运行系统事件循环（macOS 为 native 中的 NSApplication，
+                    Windows 为消息循环），全局热键依赖它分发；`--stdin` 可用回车代替热键调试；
+                    Ctrl+C 经 Shutdown 事件退出，退出前释放保持唤醒
   baton-cli/        调试工具 deskbaton-cli：displays / get-input / set-input / wol / stay-awake
-  baton-gui/        显示器面板 deskbaton-gui（Tauri 2）：查看显示器信息、切换输入源，
-                    设计见 `2026-10-16-display-panel-design.md`
+  baton-gui/        面板 deskbaton-gui（Tauri 2）：进程内运行 agent；显示器信息、切换输入源、设备配对。
+                    设计见 `2026-10-16-display-panel-design.md`、`2026-10-17-pairing-design.md`
 ```
 
 **扩展方式**：新增一种能力只需新增对应 trait 的实现并在 agent 里注入，不改核心层。例如：
@@ -182,8 +186,8 @@ pub trait Waker: Send + Sync {
 **用 `Wol` 唤醒 Mac**（实测见 `docs/research/2026-10-17-mac-wifi-wol-probe.md`）：
 
 - 前提：「唤醒以供网络访问」开启（`pmset womp 1`），入睡前内核有 `MAGICWAKE en0` 断言。airportd 的「WoW is not active」不代表收不到魔术包，不作判据。
-- 目标 MAC：`en0` 当前在用的地址。启用私有 Wi-Fi 地址时它不等于硬件地址，所以由 Mac agent 在 `hello.wol_mac` 上报，配置里的 `peers[].wol_mac` 只作兜底；该网络的私有地址须为「固定」，「轮换」会让对端缓存的地址失效。
-- 发送：同时发往 `255.255.255.255`、子网广播和对端最后已知的单播 IP 的 UDP 9。
+- 目标 MAC：`en0` 当前在用的地址。启用私有 Wi-Fi 地址时它不等于硬件地址，所以由 agent 在 `hello.wol_mac` 上报承载该连接的网卡当前 MAC，对端写入设备档案；配置里的 `peers[].wol_mac` 只作兜底。该网络的私有地址须为「固定」，「轮换」会让档案里的地址失效。
+- 发送：同时发往 `255.255.255.255`、本机各网卡的子网广播和对端最后已知的单播 IP（取自设备档案）的 UDP 9。
 - 魔术包只把 Mac 唤到暗唤醒，收到 `prepare` 后的 `wake_display` 把它转为完整唤醒。暗唤醒在无人干预时能持续多久未测；若短于 agent 重连并回心跳所需时间，Mac 要在 `kern.wakereason` 含 `wifibt` 时自行短暂保持唤醒，等待 `prepare`。
 - 系统约每 15 分钟会因 `rtc` 定时任务暗唤醒一次，持续几十秒后自行睡回。agent 不能把醒来本身当作交棒信号。
 
@@ -203,18 +207,23 @@ pub trait InputRouter: Send + Sync {
 
 ### 5.5 PeerLink
 
-- **发现**：mDNS 服务类型 `_deskbaton._tcp.local.`，默认端口 47800；配置里的 `peers[].address` 作为兜底。
-- **配对**：首次连接时双方显示同一个由证书指纹派生的 6 位数字，用户确认后固定对方指纹。
-- **传输**：TCP + TLS（rustls，自签证书 + 指纹固定），一对机器之间只有一条连接，上面跑多条逻辑通道，见 5.7。
+细节见 `2026-10-17-pairing-design.md`，这里只列要点。
+
+- **身份**：首次启动生成自签证书并持久化，证书指纹即设备身份。双向 TLS 1.3，TLS 层只验证对端持有证书私钥（加密库用 ring，不用含 OpenSSL 许可证成分的 aws-lc）。
+- **发现**：mDNS 服务类型 `_deskbaton._tcp.local.`，默认端口 47800，TXT 带证书指纹。
+- **配对**：握手时先交换承诺和随机数，双方面板显示同一个由两端指纹和随机数派生的 6 位数字，双方都同意后固定对方指纹，写入设备档案 `peers.toml`。
+- **令牌**：两端配置相同的 `network.token` 时，`hello.auth`（令牌对「角色、发送方名称、双方证书指纹」的 HMAC-SHA256）校验通过即自动配对，不弹窗。中间人终止 TLS 时两端看到的指纹不同，证明无法通过。
+- **传输**：TCP + TLS，一对机器之间只有一条连接，上面跑多条逻辑通道，见 5.7。
 - **心跳**：每 2 秒一次，走控制通道；连续 3 个周期收不到任何帧就判定对端离线。
-- **M1 认证（配对完成前）**：每次启动生成自签证书，双向 TLS 1.3，TLS 层只验证对端持有证书私钥（加密库用 ring，不用含 OpenSSL 许可证成分的 aws-lc）。`hello` 带 `auth`：用 `network.token` 对「角色、发送方名称、双方证书指纹」做 HMAC-SHA256。中间人终止 TLS 时两端看到的指纹不同，证明无法通过。
-- **拨号**：对配置了 `address` 的对端每 2 秒重试；拨出时要求对端声明的名称等于 `peers[].name`；接受方在拨号方发来 hello 之后的第一帧（拨号方登记后立即发出的心跳）时才登记连接、报告上线，避免拨号方拒绝后误报。双方同时互拨时，两端都保留由名称较小一方拨出的连接，被替换的连接静默关闭，不报离线。
+- **拨号**：自动拨号档案里的设备（有令牌时还有配置了 `address` 的对端），每 2 秒重试；地址依次取 mDNS、档案、配置。双方都发出并收到 `pair_accept` 后才登记连接、报告上线。双方同时互拨时，两端都保留由名称较小一方拨出的连接，被替换的连接静默关闭，不报离线。
 
 ### 5.6 协议消息
 
 | 消息 | 方向 | 含义 |
 |---|---|---|
-| `hello { device_id, protocol_version, input_code, wol_mac, auth }` | 双向 | 交换身份、本机输入源编码、WoL MAC（Mac 为 `en0` 当前地址）、认证证明 |
+| `hello { device_id, protocol_version, input_code, wol_mac, listen_port, auth? }` | 双向 | 交换身份、本机输入源编码、WoL MAC（承载该连接的网卡当前地址）、监听端口、令牌证明（可选） |
+| `pair_commit` / `pair_nonce` / `pair_reveal` | 握手 | 配对码的承诺与随机数交换 |
+| `pair_pending` / `pair_accept` | 双向 | 需要用户确认配对 / 已信任对方 |
 | `heartbeat { state }` | 双向 | 状态同步 |
 | `prepare { handoff_id }` | 持棒方 → 接棒方 | 准备接棒 |
 | `ready { handoff_id }` | 接棒方 → 持棒方 | 已点亮显示输出 |
@@ -242,7 +251,7 @@ pub trait InputRouter: Send + Sync {
 
 - Chunk / End / Cancel 的负载以 8 字节大端 `transfer_id` 开头（Chunk 后接原始字节），同一通道上交替发送的多个 transfer 据此区分。
 - 单次 transfer 上限 256 MiB（`MAX_TRANSFER_LEN`），超过时发送方拒绝、接收方丢弃；参与者自己的上限（如 `clipboard.max_bytes`）更小。
-- 线上格式版本 `PROTOCOL_VERSION = 2`（v1 为不带通道号的 `len | JSON`）。
+- 线上格式版本 `PROTOCOL_VERSION = 3`（v1 为不带通道号的 `len | JSON`；v2 为令牌认证、无配对握手）。
 
 **发送调度**（`mux`）：每条连接一个写任务，维护两个队列。
 - 控制队列永远优先发送；
@@ -338,7 +347,7 @@ handoff_timeout_ms = 8000
 
 [network]
 port = 47800
-token = "两端相同的随机字符串"   # M1 预共享令牌，配对完成后移除
+# token = "两端相同的随机字符串"   # 可选：两端相同时自动配对，不弹窗
 
 [display]
 mode = "ddc"            # ddc | none
@@ -367,7 +376,7 @@ address = "192.168.1.20:47800"
 wol_mac = "aa:bb:cc:dd:ee:ff"
 ```
 
-配对信息（对端指纹）单独存放，不写在配置文件里。
+`[[peers]]` 只作兜底（地址、WoL MAC），配对后可以不写。配对信息与设备档案存于同目录的 `peers.toml`，本机身份存于 `identity/`，都由程序维护，不写在配置文件里。
 
 ## 9. 测试策略
 
@@ -388,7 +397,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 |---|---|---|
 | M0 原型 | ① Mac 端 DDC 读写；② Windows 端 DDC 读写；③ 实测 P275MV 的输入源编码和 KVM 跟随；④ Mac `stay_awake` 两种机制；⑤ 实测不需要配件的唤醒路径（已确认 Wi-Fi 魔术包可行） | `deskbaton-cli` 在两端完成切换；验收清单第 1 项通过；明确合盖睡眠 Mac 的可行唤醒方式 |
 | M1 命令行交棒 | 无界面 agent，写死对端地址，用预共享令牌代替配对；多通道帧格式与 `mux`；`peer_offline` 保持唤醒策略 | 热键完成双向交棒；验收清单第 1、3、4 项通过 |
-| M2 可用版本 | 剪贴板同步；托盘、mDNS 发现、配对界面、开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项通过 |
+| M2 可用版本 | 剪贴板同步；agent 并入面板进程；mDNS 发现、面板配对、设备档案；开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项、配对设计验收清单通过 |
 | M3 扩展 | HID 唤醒配件（魔术包不可用时的备选）、剪贴板实时模式、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
 
 ## 11. 风险

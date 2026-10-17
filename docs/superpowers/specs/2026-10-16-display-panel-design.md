@@ -23,9 +23,11 @@
 
 ## 3. 与 agent 的关系
 
-面板是独立进程，直接调用 `baton_display::platform_display()`，不连接 agent，不改 `baton-core` 的交棒流程。
+面板直接调用 `baton_display::platform_display()` 切输入源，不经 `baton-core` 的交棒流程。
 
-代价：agent 同时运行时，面板切走输入源，对端 agent 不会知道，持棒状态可能与实际画面不一致。首期接受这一点；M2 做托盘时再把面板并入 agent，届时「切到对端机器的输入口」改为触发交棒。
+2026-10-17 起 agent 并入面板进程（`2026-10-17-pairing-design.md` 第 9 节）：`deskbaton-gui` 启动时调用 `baton_agent::Agent::start`，热键、长连接、配对都在面板进程里；无界面的 `deskbaton` 保留供调试，两者不同时运行。
+
+代价：面板切走输入源时，协调器和对端不会知道，持棒状态可能与实际画面不一致。「切到对端机器的输入口」改为触发交棒另列 `TODO.md`。
 
 为了便于以后并入，面板的后端逻辑（显示器视图组装、输入源名称查找）放在不依赖 Tauri 的模块里。
 
@@ -232,5 +234,5 @@ code = 0x11
 | 风险 | 应对 |
 |---|---|
 | CoreGraphics 与 framebuffer 配对失败 | 屏幕模式显示「未知」，不影响切换；记日志便于排查 |
-| 面板与 agent 同时运行导致持棒状态不一致 | 首期接受；M2 并入 agent |
+| 面板切输入源导致持棒状态不一致 | agent 已并入面板进程；面板切输入源改走交棒另列 TODO |
 | Tauri 依赖多、首次编译慢 | 只在 `baton-gui` 引入，不影响其它 crate |

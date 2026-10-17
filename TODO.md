@@ -36,10 +36,15 @@
 ## P2 · M2 可用版本
 
 - [ ] `baton-clipboard`：`ClipboardAccess`（arboard）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过
-- [ ] mDNS 发现、指纹配对界面，配对信息独立存储
-- [ ] 托盘、通知、开机自启
-- [ ] Mac agent 在 `hello.wol_mac` 上报 `en0` 当前在用的 MAC（私有地址），现在写死为 `None`（`crates/baton-agent/src/main.rs`）
-- [ ] `WolWaker` 同时发往 `255.255.255.255`、子网广播和对端最后已知 IP；改掉注释里「Wi-Fi 下的 Mac 基本无效」
+- 配对与设备档案（[设计](docs/superpowers/specs/2026-10-17-pairing-design.md)），按顺序推进：
+  - [ ] 持久化 TLS 身份、`peers.toml` 设备档案、握手 v3（承诺式配对码、信任判定、令牌自动配对），`PROTOCOL_VERSION` 升到 3
+  - [ ] 档案驱动唤醒：启动时把档案设备交给协调器，`wol_mac` 档案优先，`WakeTarget.last_ip`；`hello.wol_mac` 上报承载连接的网卡当前 MAC；`WolWaker` 同时发往 `255.255.255.255`、子网广播和最后已知 IP
+  - [ ] mDNS 广播与浏览，拨号地址依次取 mDNS、档案、配置
+  - [ ] `baton-agent` 抽成库 `Agent::start`，面板进程内运行 agent 与热键，保留无界面 `deskbaton`
+  - [ ] 面板「设备」卡片：配对请求（6 位码、同意 / 拒绝）、已配对设备、可配对设备与发起配对、取消配对
+  - [ ] 🔧 配对设计验收清单第 1–5 项
+- [ ] 托盘通知、开机自启
+- [ ] 面板上点对端机器的输入口时改为触发交棒，而不是直接切输入源
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 测魔术包触发的暗唤醒在无人干预时能持续多久；不够 agent 重连并回心跳时，`kern.wakereason` 含 `wifibt` 就短暂保持唤醒、等 `prepare`
 - [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电
