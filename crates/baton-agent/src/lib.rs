@@ -11,7 +11,7 @@ use std::thread::{self, JoinHandle};
 use baton_core::config::Config;
 use baton_core::coordinator::{Coordinator, Ports};
 use baton_core::event::{Event, PeerInfo};
-use baton_core::ids::DeviceId;
+use baton_core::ids::{DeviceId, Platform};
 use baton_core::ports::Notifier;
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
@@ -139,6 +139,7 @@ fn link_config(
 ) -> LinkConfig {
     let info = PeerInfo {
         device_id: me.clone(),
+        platform: Some(Platform::current()),
         input_code: config.display.input_code,
         wol_mac: None,
         ip: None,

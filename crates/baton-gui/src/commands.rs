@@ -9,7 +9,8 @@ use baton_core::{Error, Result};
 use serde::Serialize;
 use tauri::{AppHandle, LogicalSize, Manager, State};
 
-use crate::view::{self, DisplayView};
+use crate::agent::AgentSlot;
+use crate::view::{self, DisplayView, Machines, PortOwner};
 use crate::{PANEL, PANEL_WIDTH, place_panel};
 
 pub struct Panel {
@@ -35,7 +36,8 @@ impl Panel {
         })
     }
 
-    fn snapshot(&self) -> Result<Snapshot> {
+    fn snapshot(&self, mut machines: Machines) -> Result<Snapshot> {
+        machines.my_code = self.display.input_code;
         let ddc = self.ddc.lock().unwrap_or_else(PoisonError::into_inner);
         let infos = ddc.list()?;
         let preferred = DisplayInfo::select(infos.clone(), &self.display.matcher)
@@ -54,6 +56,7 @@ impl Panel {
                     current,
                     &self.display.inputs,
                     preferred.as_ref() == Some(&info.id),
+                    &machines,
                 )
             })
             .collect();
@@ -117,10 +120,41 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())
 }
 
+/// 本机名称与已配对设备的输入口；交棒服务未启动时为空。
+fn machines(app: &AppHandle) -> Machines {
+    let Some(slot) = app.try_state::<AgentSlot>() else {
+        return Machines::default();
+    };
+    let peers = slot.link.as_ref().map_or_else(Vec::new, |link| {
+        link.snapshot()
+            .paired
+            .into_iter()
+            .filter_map(|status| {
+                let peer = status.peer;
+                let owner = PortOwner {
+                    name: peer.name,
+                    platform: peer.platform,
+                    local: false,
+                };
+                Some((peer.input_code?, owner))
+            })
+            .collect()
+    });
+    Machines {
+        me: slot.name.clone(),
+        my_code: None,
+        peers,
+    }
+}
+
 #[tauri::command]
-pub async fn list_displays(panel: State<'_, Arc<Panel>>) -> std::result::Result<Snapshot, String> {
+pub async fn list_displays(
+    app: AppHandle,
+    panel: State<'_, Arc<Panel>>,
+) -> std::result::Result<Snapshot, String> {
     let panel = Arc::clone(&panel);
-    blocking(move || panel.snapshot()).await
+    let machines = machines(&app);
+    blocking(move || panel.snapshot(machines)).await
 }
 
 #[tauri::command]

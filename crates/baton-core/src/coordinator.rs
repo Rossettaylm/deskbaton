@@ -314,6 +314,7 @@ impl Coordinator {
         self.online.insert(peer.clone());
         let merged = match self.known.remove(&peer) {
             Some(old) => PeerInfo {
+                platform: info.platform.or(old.platform),
                 input_code: info.input_code.or(old.input_code),
                 wol_mac: info.wol_mac.or(old.wol_mac),
                 ip: info.ip.or(old.ip),

@@ -153,6 +153,7 @@ impl Agent {
         let mut link_config = LinkConfig::new(
             PeerInfo {
                 device_id: me.clone(),
+                platform: None,
                 input_code: Some(code),
                 wol_mac: None,
                 ip: None,

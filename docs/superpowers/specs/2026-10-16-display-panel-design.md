@@ -78,13 +78,26 @@ struct DisplayView {
     preferred: bool,           // display.match 命中的那台，作为默认选中
 }
 
-struct InputButton { label: String, code: u8, active: bool }
+struct InputButton {
+    label: String,
+    code: u8,
+    active: bool,
+    owners: Vec<PortOwner>,    // 接在这个口上的电脑，可能多台（显示器把两个口报成同一编码）
+}
+
+struct PortOwner { name: String, platform: Option<Platform>, local: bool }
 
 enum SwitchOutcome {
     Confirmed(u8), // 切换后回读成功
     LeftLocal,     // 写入成功但回读失败或不是目标编码：本机已不再持有画面，不算失败
 }
 ```
+
+**输入口上的设备**（`owners`）：
+
+- 本机：`display.match` 命中的显示器上取配置的 `display.input_code`；其它显示器或未配置时取当前读到的编码（显示器只对活跃输入口回读请求，读得到即本机在用）。都没有时不标本机。平台取编译目标。
+- 对端：已配对设备档案里的 `input_code` 与 `platform`（握手时上报，见配对设计第 4 节）。
+- 编码不在配置列表里但有设备占用时，也追加一项 `0xNN`，保证设备都有地方显示。
 
 - DDC 调用每次约 80 毫秒且会阻塞，命令内用 `spawn_blocking` 执行。
 - 进程内用一把 `Mutex` 串行化所有 DDC 调用，避免并发 I2C 读写。
@@ -127,7 +140,7 @@ label = "HDMI1"
 code = 0x11
 ```
 
-默认列表：DP `0x0F`、HDMI1 `0x11`、HDMI2 `0x12`、USB-C `0x1B`。这些是 MCCS 常见值，不同显示器可能不同，需用户核对。
+默认列表：DP `0x0F`、HDMI1 `0x11`、HDMI2 `0x12`、USB-C `0x1B`。这些是 MCCS 常见值，不同显示器可能不同，需用户核对。例如 P275MV 把 USB-C 报成 `0x0F`，用默认列表时 USB-C 接入的 Mac 会显示为「DP」，须在配置里改为 `label = "USB-C"`、`code = 0x0F`（见 `config.example.toml`）。
 
 面板复用 agent 的配置文件路径，只使用 `display` 段；文件不存在时用默认配置，解析失败时在底部状态行显示原因并使用默认配置。
 
@@ -143,7 +156,9 @@ code = 0x11
 │ ● 当前画面                  DP   │
 ├──────────────────────────────────┤
 │ 输入源                           │
-│ [DP] [HDMI1] [HDMI2] [USB-C]     │
+│ [USB-C ] [HDMI1] [HDMI2] [DP   ] │
+│ [ 本机 ]               [ win-pc] │  接口名下一行：系统标识 + 设备名
+│ [macOS ]               [Windows] │
 ├──────────────────────────────────┤
 │ ● DDC 正常                       │  出错时显示中文原因
 └──────────────────────────────────┘
@@ -195,7 +210,8 @@ code = 0x11
 
 - 标题栏：36px 橙色渐变图标块 + 名称 + 等宽副标题；右侧 30px「⋯」描边按钮。
 - 预览卡片：16:9 屏幕框（3px 深灰边框），屏内为自上而下的橙色径向辉光 + 极淡扫描线，中央是分辨率；下方底座短横线；最下一行「● 当前画面 …… DP」，信号灯带发光。
-- 输入源：一行四格；每格为接口轮廓图标（DP 缺角矩形、HDMI 梯形、USB-C 胶囊、未知编码用普通矩形）+ 名称 + 右上角 4px 指示灯。
+- 输入源：一行四格；每格为接口轮廓图标（DP 缺角矩形、HDMI 梯形、USB-C 胶囊、未知编码用普通矩形）+ 名称 + 右上角 4px 指示灯。有设备占用时名称下方再加两行 9px 小字：设备名（本机写「本机」，过长省略，完整名放 `title`）和系统名（macOS / Windows / Linux，未知不写）；多台设备时设备名用「、」连接。没有设备的格子不加这两行，各格顶端对齐。
+- 「当前画面」一行右侧：接口名后接占用设备，如「USB-C · 本机」。
 - 状态行：左侧状态点 + 文案，右侧等宽序列号。
 
 **状态**
@@ -215,6 +231,7 @@ code = 0x11
 
 - 单测（`view.rs`、`baton-core` 配置）：
   - 输入源名称查找：命中配置、编码不在列表时追加 `0xNN`、`current_input` 为 `None`
+  - 输入口上的设备：本机取配置编码或当前编码、对端按档案编码、两台设备同一编码、设备编码不在列表时追加
   - 副标题拼接：有 / 无屏幕模式、HiDPI 判定
   - `display.inputs` 解析：缺省值、自定义列表、未知字段报错
   - 面板摆放：菜单栏图标下方居中、屏幕右缘限制、底部任务栏图标上方、副屏坐标偏移

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr};
+use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr, Platform};
 use crate::state::AgentState;
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// agent 之间的消息。交棒流程见 `docs/superpowers/specs/2026-10-16-deskbaton-design.md`，
 /// 握手与配对见 `docs/superpowers/specs/2026-10-17-pairing-design.md`。
@@ -13,6 +13,7 @@ pub enum Message {
     Hello {
         device_id: DeviceId,
         protocol_version: u32,
+        platform: Platform,
         input_code: Option<InputCode>,
         /// 承载本连接的网卡当前的 MAC。
         wol_mac: Option<MacAddr>,
@@ -66,6 +67,7 @@ mod tests {
             Message::Hello {
                 device_id: DeviceId("mac".into()),
                 protocol_version: PROTOCOL_VERSION,
+                platform: Platform::Macos,
                 input_code: Some(InputCode(0x1B)),
                 wol_mac: None,
                 listen_port: 47800,
@@ -100,7 +102,8 @@ mod tests {
 
         let hello = Message::Hello {
             device_id: DeviceId("mac".into()),
-            protocol_version: 3,
+            protocol_version: 4,
+            platform: Platform::Macos,
             input_code: Some(InputCode(0x1B)),
             wol_mac: Some("aa:bb:cc:dd:ee:ff".parse().unwrap()),
             listen_port: 47800,
@@ -108,7 +111,7 @@ mod tests {
         };
         assert_eq!(
             serde_json::to_string(&hello).unwrap(),
-            r#"{"type":"hello","device_id":"mac","protocol_version":3,"input_code":27,"wol_mac":"aa:bb:cc:dd:ee:ff","listen_port":47800}"#
+            r#"{"type":"hello","device_id":"mac","protocol_version":4,"platform":"macos","input_code":27,"wol_mac":"aa:bb:cc:dd:ee:ff","listen_port":47800}"#
         );
         assert_eq!(
             serde_json::to_string(&Message::PairAccept).unwrap(),

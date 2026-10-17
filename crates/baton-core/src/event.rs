@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
 use crate::channel::ChannelId;
-use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr};
+use crate::ids::{DeviceId, HandoffId, InputCode, MacAddr, Platform};
 use crate::participant::Payload;
 use crate::protocol::Message;
 
@@ -9,6 +9,7 @@ use crate::protocol::Message;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeerInfo {
     pub device_id: DeviceId,
+    pub platform: Option<Platform>,
     pub input_code: Option<InputCode>,
     pub wol_mac: Option<MacAddr>,
     /// 对端最后已知的 IP，用于单播魔术包。

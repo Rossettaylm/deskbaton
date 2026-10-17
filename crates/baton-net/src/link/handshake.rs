@@ -1,4 +1,4 @@
-//! 握手 v3：hello、配对码随机数交换、信任判定、等待双方 `pair_accept`。
+//! 握手：hello、配对码随机数交换、信任判定、等待双方 `pair_accept`。
 //! 流程见 `docs/superpowers/specs/2026-10-17-pairing-design.md` 第 4、5 节。
 
 use std::net::SocketAddr;
@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use baton_core::event::PeerInfo;
-use baton_core::ids::DeviceId;
+use baton_core::ids::{DeviceId, Platform};
 use baton_core::protocol::{Message, PROTOCOL_VERSION};
 use baton_core::{Error, Result};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -304,6 +304,7 @@ fn hello(
     Ok(Message::Hello {
         device_id: shared.me.device_id.clone(),
         protocol_version: PROTOCOL_VERSION,
+        platform: shared.me.platform.unwrap_or(Platform::current()),
         input_code: shared.me.input_code,
         wol_mac: shared
             .me
@@ -325,6 +326,7 @@ fn check_hello(
     let Message::Hello {
         device_id,
         protocol_version,
+        platform,
         input_code,
         wol_mac,
         listen_port,
@@ -360,6 +362,7 @@ fn check_hello(
     Ok(PeerHello {
         info: PeerInfo {
             device_id,
+            platform: Some(platform),
             input_code,
             wol_mac,
             ip: (!peer_addr.ip().is_loopback()).then_some(peer_addr.ip()),

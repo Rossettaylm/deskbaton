@@ -1,7 +1,7 @@
 //! 面板展示用的数据组装，不依赖 Tauri，便于以后并入 agent 的托盘。
 
 use baton_core::config::InputPreset;
-use baton_core::ids::InputCode;
+use baton_core::ids::{InputCode, Platform};
 use baton_core::ports::DisplayInfo;
 use baton_display::ScreenMode;
 use serde::Serialize;
@@ -37,6 +37,49 @@ pub struct InputButton {
     pub code: u16,
     pub kind: PortKind,
     pub active: bool,
+    /// 接在这个口上的电脑；显示器把两个口报成同一编码时会有多台。
+    pub owners: Vec<PortOwner>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PortOwner {
+    pub name: String,
+    pub platform: Option<Platform>,
+    pub local: bool,
+}
+
+/// 面板知道的电脑：本机与已配对设备。
+#[derive(Debug, Clone, Default)]
+pub struct Machines {
+    /// 本机名称；交棒服务未启动时为空。
+    pub me: Option<String>,
+    /// 配置的 `display.input_code`，只对 `display.match` 命中的显示器有效。
+    pub my_code: Option<InputCode>,
+    pub peers: Vec<(InputCode, PortOwner)>,
+}
+
+impl Machines {
+    /// 显示器只对活跃输入口回读请求，所以读得到的编码就是本机在用的口。
+    fn on_display(
+        &self,
+        current: Option<InputCode>,
+        preferred: bool,
+    ) -> Vec<(InputCode, PortOwner)> {
+        let my_code = if preferred {
+            self.my_code.or(current)
+        } else {
+            current
+        };
+        let me = my_code.map(|code| {
+            let owner = PortOwner {
+                name: self.me.clone().unwrap_or_else(|| "本机".to_owned()),
+                platform: Some(Platform::current()),
+                local: true,
+            };
+            (code, owner)
+        });
+        me.into_iter().chain(self.peers.iter().cloned()).collect()
+    }
 }
 
 /// 决定按钮上画哪种接口轮廓。
@@ -70,6 +113,7 @@ pub fn display_view(
     current: Option<InputCode>,
     presets: &[InputPreset],
     preferred: bool,
+    machines: &Machines,
 ) -> DisplayView {
     let screen = screen.map(screen_view);
     let current_label = current.map(|code| input_label(presets, code));
@@ -81,33 +125,40 @@ pub fn display_view(
         screen,
         current_input: current.map(|c| c.0),
         current_label,
-        inputs: input_buttons(presets, current),
+        inputs: input_buttons(presets, current, &machines.on_display(current, preferred)),
         preferred,
     }
 }
 
-/// 当前编码不在配置里时追加一个以编码命名的按钮，保证当前输入源总能高亮。
-pub fn input_buttons(presets: &[InputPreset], current: Option<InputCode>) -> Vec<InputButton> {
-    let mut buttons: Vec<InputButton> = presets
-        .iter()
-        .map(|p| InputButton {
-            label: p.label.clone(),
-            code: p.code.0,
-            kind: PortKind::from_label(&p.label),
-            active: current == Some(p.code),
-        })
-        .collect();
-    if let Some(code) = current
-        && !presets.iter().any(|p| p.code == code)
-    {
-        buttons.push(InputButton {
-            label: hex(code),
-            code: code.0,
-            kind: PortKind::Other,
-            active: true,
-        });
+/// 当前编码或有电脑占用的编码不在配置里时，追加以编码命名的按钮，保证它们都有地方显示。
+pub fn input_buttons(
+    presets: &[InputPreset],
+    current: Option<InputCode>,
+    machines: &[(InputCode, PortOwner)],
+) -> Vec<InputButton> {
+    let mut extra: Vec<InputCode> = Vec::new();
+    for code in current.into_iter().chain(machines.iter().map(|(c, _)| *c)) {
+        if !presets.iter().any(|p| p.code == code) && !extra.contains(&code) {
+            extra.push(code);
+        }
     }
-    buttons
+    let ports = presets
+        .iter()
+        .map(|p| (p.label.clone(), p.code, PortKind::from_label(&p.label)))
+        .chain(extra.into_iter().map(|c| (hex(c), c, PortKind::Other)));
+    ports
+        .map(|(label, code, kind)| InputButton {
+            label,
+            code: code.0,
+            kind,
+            active: current == Some(code),
+            owners: machines
+                .iter()
+                .filter(|(c, _)| *c == code)
+                .map(|(_, owner)| owner.clone())
+                .collect(),
+        })
+        .collect()
 }
 
 pub fn input_label(presets: &[InputPreset], code: InputCode) -> String {
@@ -187,7 +238,7 @@ mod tests {
 
     #[test]
     fn highlights_configured_current_input() {
-        let buttons = input_buttons(&presets(), Some(InputCode(0x11)));
+        let buttons = input_buttons(&presets(), Some(InputCode(0x11)), &[]);
         let active: Vec<&str> = buttons
             .iter()
             .filter(|b| b.active)
@@ -199,7 +250,7 @@ mod tests {
 
     #[test]
     fn appends_unknown_current_input_as_hex() {
-        let buttons = input_buttons(&presets(), Some(InputCode(0x12)));
+        let buttons = input_buttons(&presets(), Some(InputCode(0x12)), &[]);
         let last = buttons.last().unwrap();
         assert_eq!(buttons.len(), 4);
         assert_eq!(
@@ -211,9 +262,108 @@ mod tests {
 
     #[test]
     fn nothing_active_when_current_input_unreadable() {
-        let buttons = input_buttons(&presets(), None);
+        let buttons = input_buttons(&presets(), None, &[]);
         assert!(buttons.iter().all(|b| !b.active));
         assert_eq!(buttons.len(), 3);
+    }
+
+    fn peer(name: &str, platform: Platform) -> PortOwner {
+        PortOwner {
+            name: name.into(),
+            platform: Some(platform),
+            local: false,
+        }
+    }
+
+    fn machines(my_code: Option<u16>) -> Machines {
+        Machines {
+            me: Some("mbp".into()),
+            my_code: my_code.map(InputCode),
+            peers: vec![(InputCode(0x11), peer("win", Platform::Windows))],
+        }
+    }
+
+    /// `(按钮名, 占用设备名)`，只列有设备的按钮。
+    fn owned(view: &DisplayView) -> Vec<(&str, Vec<&str>)> {
+        view.inputs
+            .iter()
+            .filter(|b| !b.owners.is_empty())
+            .map(|b| {
+                let names = b.owners.iter().map(|o| o.name.as_str()).collect();
+                (b.label.as_str(), names)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn readable_input_is_marked_as_local() {
+        let view = display_view(
+            &info(),
+            None,
+            Some(InputCode(0x1B)),
+            &presets(),
+            false,
+            &machines(Some(0x0F)),
+        );
+        assert_eq!(
+            owned(&view),
+            [("HDMI1", vec!["win"]), ("USB-C", vec!["mbp"])]
+        );
+        let me = &view.inputs[2].owners[0];
+        assert!(me.local);
+        assert_eq!(me.platform, Some(Platform::current()));
+        assert_eq!(view.inputs[1].owners[0].platform, Some(Platform::Windows));
+    }
+
+    #[test]
+    fn configured_code_wins_on_preferred_display() {
+        let on = |current| {
+            let view = display_view(
+                &info(),
+                None,
+                current,
+                &presets(),
+                true,
+                &machines(Some(0x1B)),
+            );
+            owned(&view)
+                .into_iter()
+                .map(|(l, _)| l.to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(on(Some(InputCode(0x0F))), ["HDMI1", "USB-C"]);
+        assert_eq!(on(None), ["HDMI1", "USB-C"]);
+    }
+
+    #[test]
+    fn no_local_owner_without_code() {
+        let view = display_view(&info(), None, None, &presets(), false, &machines(None));
+        assert_eq!(owned(&view), [("HDMI1", vec!["win"])]);
+    }
+
+    #[test]
+    fn machines_sharing_a_code_share_a_button() {
+        let shared = [
+            (InputCode(0x0F), peer("mbp", Platform::Macos)),
+            (InputCode(0x0F), peer("win", Platform::Windows)),
+        ];
+        let buttons = input_buttons(&presets(), None, &shared);
+        let names: Vec<&str> = buttons[0].owners.iter().map(|o| o.name.as_str()).collect();
+        assert_eq!(names, ["mbp", "win"]);
+        assert_eq!(buttons.len(), 3);
+    }
+
+    #[test]
+    fn appends_unlisted_machine_code_once() {
+        let machines = [
+            (InputCode(0x12), peer("win", Platform::Windows)),
+            (InputCode(0x12), peer("linux", Platform::Linux)),
+        ];
+        let buttons = input_buttons(&presets(), Some(InputCode(0x12)), &machines);
+        assert_eq!(buttons.len(), 4);
+        let last = buttons.last().unwrap();
+        assert_eq!((last.label.as_str(), last.active), ("0x12", true));
+        assert_eq!(last.owners.len(), 2);
     }
 
     #[test]
@@ -243,6 +393,7 @@ mod tests {
             Some(InputCode(0x0F)),
             &presets(),
             true,
+            &Machines::default(),
         );
         assert_eq!(view.subtitle, "外接显示器 · DP · 2560×1440 · 60Hz");
         assert_eq!(view.name, "HP D27k");
@@ -252,7 +403,8 @@ mod tests {
 
     #[test]
     fn subtitle_omits_missing_parts() {
-        let view = display_view(&info(), None, None, &presets(), false);
+        let none = Machines::default();
+        let view = display_view(&info(), None, None, &presets(), false, &none);
         assert_eq!(view.subtitle, "外接显示器");
         let no_refresh = ScreenMode {
             refresh_hz: None,
@@ -260,7 +412,7 @@ mod tests {
             pixel_height: 1440,
             ..mode()
         };
-        let view = display_view(&info(), Some(no_refresh), None, &presets(), false);
+        let view = display_view(&info(), Some(no_refresh), None, &presets(), false, &none);
         assert_eq!(view.subtitle, "外接显示器 · 2560×1440");
         assert!(!view.screen.unwrap().hidpi);
     }

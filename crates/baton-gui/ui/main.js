@@ -3,15 +3,18 @@
 /**
  * @typedef {{ width: number, height: number, pixel_width: number, pixel_height: number,
  *             refresh_hz: number | null, hidpi: boolean }} ScreenView
+ * @typedef {"macos" | "windows" | "linux" | "other"} Platform
+ * @typedef {{ name: string, platform: Platform | null, local: boolean }} PortOwner
  * @typedef {{ label: string, code: number, kind: "dp" | "hdmi" | "usb_c" | "other",
- *             active: boolean }} InputButton
+ *             active: boolean, owners: PortOwner[] }} InputButton
  * @typedef {{ id: string, name: string, serial: string | null, subtitle: string,
  *             screen: ScreenView | null, current_input: number | null,
  *             current_label: string | null, inputs: InputButton[], preferred: boolean }} DisplayView
  * @typedef {{ displays: DisplayView[], config_error: string | null }} Snapshot
  * @typedef {{ kind: "confirmed", code: number, label: string } | { kind: "left_local", label: string }} SwitchOutcome
  * @typedef {{ name: string | null, hotkey: string | null, error: string | null }} AgentStatus
- * @typedef {{ name: string, fingerprint: string, paired_at: number, input_code: number | null,
+ * @typedef {{ name: string, fingerprint: string, paired_at: number, platform: Platform | null,
+ *             input_code: number | null,
  *             wol_mac: string | null, last_ip: string | null, port: number | null }} PairedPeer
  * @typedef {{ id: number, peer: string, fingerprint: string, code: string, awaiting_me: boolean }} PairingSession
  * @typedef {{ name: string, fingerprint: string | null, address: string }} Candidate
@@ -31,6 +34,19 @@ const PORT_PATHS = {
   usb_c: '<rect x="4" y="2.5" width="22" height="9" rx="4.5"/>',
   other: '<rect x="3" y="2.5" width="24" height="9" rx="1.5"/>',
 };
+
+/** @type {Record<string, string>} */
+const PLATFORM_NAMES = { macos: "macOS", windows: "Windows", linux: "Linux" };
+
+/** @param {PortOwner} o */
+const ownerName = (o) => (o.local ? "本机" : o.name);
+
+/** @param {PortOwner[]} owners */
+const ownerNames = (owners) => owners.map(ownerName).join("、");
+
+/** @param {PortOwner[]} owners */
+const ownerPlatforms = (owners) =>
+  [...new Set(owners.map((o) => (o.platform ? PLATFORM_NAMES[o.platform] : undefined)).filter(Boolean))].join(" / ");
 
 const state = {
   /** @type {DisplayView[]} */
@@ -315,7 +331,9 @@ function renderScreen(d) {
   const away = !!d && d.current_input == null;
   bezel.classList.toggle("dark", !d || away);
   $("now").classList.toggle("away", !d || away);
-  $("now-label").textContent = d && !away ? (d.current_label ?? "—") : d ? "其它输入" : "—";
+  const owners = d?.inputs.find((i) => i.active)?.owners ?? [];
+  const current = [d?.current_label ?? "—", ownerNames(owners)].filter(Boolean).join(" · ");
+  $("now-label").textContent = d && !away ? current : d ? "其它输入" : "—";
 }
 
 /** @param {DisplayView | null} d */
@@ -330,12 +348,15 @@ function renderPorts(d) {
   for (const input of d.inputs) {
     const pending = state.pending === input.code;
     const switched = !input.active && leftTo === input.code;
+    const code = `0x${input.code.toString(16).toUpperCase().padStart(2, "0")}`;
+    const platforms = ownerPlatforms(input.owners);
+    const who = input.owners.map((o) => (o.platform ? `${o.name}（${PLATFORM_NAMES[o.platform] ?? "其它系统"}）` : o.name));
     const button = h(
       "button",
       {
         class: ["port", input.active || switched ? "on" : "", pending ? "pending" : ""].join(" "),
         disabled: state.pending != null,
-        title: `0x${input.code.toString(16).toUpperCase().padStart(2, "0")}`,
+        title: [code, ...who].join(" · "),
         onclick: () => switchTo(d, input),
       },
       h("i", { class: "led" }),
@@ -343,6 +364,11 @@ function renderPorts(d) {
     );
     button.insertAdjacentHTML("beforeend", `<svg viewBox="0 0 30 14">${PORT_PATHS[input.kind]}</svg>`);
     button.append(input.label);
+    if (input.owners.length > 0) {
+      button.append(
+        h("span", { class: "owner" }, h("b", {}, ownerNames(input.owners)), platforms ? h("small", {}, platforms) : null),
+      );
+    }
     ports.append(button);
   }
 }

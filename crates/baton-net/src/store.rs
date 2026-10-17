@@ -1,4 +1,4 @@
-//! 设备档案 `peers.toml`：已配对设备的指纹，以及在线期间记下的输入源编码、WoL MAC 与地址。
+//! 设备档案 `peers.toml`：已配对设备的指纹，以及在线期间记下的系统、输入源编码、WoL MAC 与地址。
 
 use std::fs;
 use std::io::{ErrorKind, Write};
@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use baton_core::event::PeerInfo;
-use baton_core::ids::{DeviceId, InputCode, MacAddr};
+use baton_core::ids::{DeviceId, InputCode, MacAddr, Platform};
 use baton_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +23,8 @@ pub struct PairedPeer {
     /// 配对时间，Unix 秒。
     #[serde(default)]
     pub paired_at: u64,
+    #[serde(default)]
+    pub platform: Option<Platform>,
     #[serde(default)]
     pub input_code: Option<InputCode>,
     #[serde(default)]
@@ -43,6 +45,7 @@ impl PairedPeer {
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
+            platform: None,
             input_code: None,
             wol_mac: None,
             last_ip: None,
@@ -58,6 +61,7 @@ impl PairedPeer {
     pub fn info(&self) -> PeerInfo {
         PeerInfo {
             device_id: self.device_id(),
+            platform: self.platform,
             input_code: self.input_code,
             wol_mac: self.wol_mac,
             ip: self.last_ip,
@@ -138,6 +142,7 @@ impl PeerStore {
         };
         let mut updated = peers[index].clone();
         updated.name.clone_from(&info.device_id.0);
+        updated.platform = info.platform.or(updated.platform);
         updated.input_code = info.input_code.or(updated.input_code);
         updated.wol_mac = info.wol_mac.or(updated.wol_mac);
         updated.last_ip = info.ip.or(updated.last_ip);
@@ -202,6 +207,7 @@ mod tests {
     fn info(name: &str) -> PeerInfo {
         PeerInfo {
             device_id: DeviceId(name.into()),
+            platform: Some(Platform::Windows),
             input_code: Some(InputCode(0x0F)),
             wol_mac: Some("aa:bb:cc:dd:ee:ff".parse().unwrap()),
             ip: Some("192.168.1.20".parse().unwrap()),
@@ -220,6 +226,7 @@ mod tests {
         let reopened = PeerStore::open(&path).unwrap();
         let peer = reopened.find(&A).unwrap();
         assert_eq!(peer.name, "win");
+        assert_eq!(peer.platform, Some(Platform::Windows));
         assert_eq!(peer.input_code, Some(InputCode(0x0F)));
         assert_eq!(peer.last_ip, Some("192.168.1.20".parse().unwrap()));
         assert_eq!(peer.port, Some(47800));

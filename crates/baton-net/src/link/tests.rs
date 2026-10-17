@@ -1,7 +1,7 @@
 use std::net::TcpListener as StdListener;
 use std::time::Instant;
 
-use baton_core::ids::InputCode;
+use baton_core::ids::{InputCode, Platform};
 
 use super::*;
 use crate::discovery::Discovered;
@@ -11,6 +11,11 @@ const WAIT: Duration = Duration::from_secs(5);
 fn info(name: &str, code: u16) -> PeerInfo {
     PeerInfo {
         device_id: DeviceId(name.into()),
+        platform: Some(if name == "win" {
+            Platform::Windows
+        } else {
+            Platform::Macos
+        }),
         input_code: Some(InputCode(code)),
         wol_mac: None,
         ip: None,
@@ -228,6 +233,7 @@ fn token_pairs_once_and_later_connects_without_it() {
     let pinned = win_dev.store.find(&mac_dev.identity.fingerprint).unwrap();
     assert_eq!(pinned.name, "mac");
     assert_eq!(pinned.input_code, Some(InputCode(0x1B)));
+    assert_eq!(pinned.platform, Some(Platform::Macos));
 
     let (_b, b_rx) = start(win_dev.config(win_addr, &[]));
     let (a, a_rx) = start(mac_dev.config(local(), &[("win", win_addr)]));

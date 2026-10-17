@@ -50,7 +50,8 @@ C → S  pair_reveal { nonce = n_c }      S 校验 SHA256(n_c) == commit，不�
 双方都「已发出 pair_accept 且收到对方的 pair_accept」后登记连接、报告上线、开始心跳
 ```
 
-- `hello { device_id, protocol_version, input_code, wol_mac, listen_port, auth }`：
+- `hello { device_id, protocol_version, platform, input_code, wol_mac, listen_port, auth }`：
+  - `platform`：本机操作系统，`macos` / `windows` / `linux` / `other`，面板据此标识输入口上的设备（v4 起）；
   - `wol_mac`：承载本连接的网卡当前的 MAC（按 TCP 连接的本地 IP 查网卡）。Mac 走 Wi-Fi 时即 `en0` 当前在用的私有地址；
   - `listen_port`：本机监听端口，对端据此记下可回拨的地址；
   - `auth`：配置了 `network.token` 时为令牌对「角色、发送方名称、双方证书指纹」的 HMAC，否则省略。
@@ -59,7 +60,7 @@ C → S  pair_reveal { nonce = n_c }      S 校验 SHA256(n_c) == commit，不�
 - 每次握手都走完整流程（包括已配对设备），不按条件分支。
 - 等待对方 `pair_accept` 的超时：默认 5 秒；收到 `pair_pending` 后延长到 120 秒（等用户操作）。
 - v2 中「接受方等到拨号方登记后的第一帧心跳才登记」的规则由 `pair_accept` 取代：拨号方因名称或指纹不符而拒绝时不会发 `pair_accept`，接受方不会误报上线。
-- 线上格式变化：`PROTOCOL_VERSION` 从 2 升到 3；版本不一致直接断开并提示两端同时升级。
+- 线上格式变化：`PROTOCOL_VERSION` 从 2 升到 3；版本不一致直接断开并提示两端同时升级。v4 在 `hello` 中增加 `platform`。
 
 ## 5. 信任判定
 
@@ -87,6 +88,7 @@ C → S  pair_reveal { nonce = n_c }      S 校验 SHA256(n_c) == commit，不�
 name = "windows-desktop"
 fingerprint = "9f86d081…"   # 64 位十六进制
 paired_at = 1792300000      # Unix 秒
+platform = "windows"
 input_code = 0x0F
 wol_mac = "aa:bb:cc:dd:ee:ff"
 last_ip = "192.168.1.20"
@@ -94,7 +96,7 @@ port = 47800
 ```
 
 - 写入用「临时文件 + 重命名」，避免写一半时崩溃损坏档案。
-- 每次握手成功都刷新 `input_code`、`wol_mac`、`last_ip`、`port`、`name`；`hello.wol_mac` 为空（例如回环地址）时保留旧值。
+- 每次握手成功都刷新 `platform`、`input_code`、`wol_mac`、`last_ip`、`port`、`name`；`hello.wol_mac` 为空（例如回环地址）时保留旧值。
 - 文件只有 `baton-net` 读写（`PeerStore`），进程内共享一个实例，所有修改经同一把锁。
 - 取消配对：从档案删除，断开现有连接，并通知协调器忘掉该设备（`Event::PeerRemoved`）。
 

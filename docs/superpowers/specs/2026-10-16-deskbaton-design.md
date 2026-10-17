@@ -221,7 +221,7 @@ pub trait InputRouter: Send + Sync {
 
 | 消息 | 方向 | 含义 |
 |---|---|---|
-| `hello { device_id, protocol_version, input_code, wol_mac, listen_port, auth? }` | 双向 | 交换身份、本机输入源编码、WoL MAC（承载该连接的网卡当前地址）、监听端口、令牌证明（可选） |
+| `hello { device_id, protocol_version, platform, input_code, wol_mac, listen_port, auth? }` | 双向 | 交换身份、操作系统（`macos` / `windows` / `linux` / `other`，供界面标识设备）、本机输入源编码、WoL MAC（承载该连接的网卡当前地址）、监听端口、令牌证明（可选） |
 | `pair_commit` / `pair_nonce` / `pair_reveal` | 握手 | 配对码的承诺与随机数交换 |
 | `pair_pending` / `pair_accept` | 双向 | 需要用户确认配对 / 已信任对方 |
 | `heartbeat { state }` | 双向 | 状态同步 |
@@ -251,7 +251,7 @@ pub trait InputRouter: Send + Sync {
 
 - Chunk / End / Cancel 的负载以 8 字节大端 `transfer_id` 开头（Chunk 后接原始字节），同一通道上交替发送的多个 transfer 据此区分。
 - 单次 transfer 上限 256 MiB（`MAX_TRANSFER_LEN`），超过时发送方拒绝、接收方丢弃；参与者自己的上限（如 `clipboard.max_bytes`）更小。
-- 线上格式版本 `PROTOCOL_VERSION = 3`（v1 为不带通道号的 `len | JSON`；v2 为令牌认证、无配对握手）。
+- 线上格式版本 `PROTOCOL_VERSION = 4`（v1 为不带通道号的 `len | JSON`；v2 为令牌认证、无配对握手；v3 的 `hello` 没有 `platform`）。
 
 **发送调度**（`mux`）：每条连接一个写任务，维护两个队列。
 - 控制队列永远优先发送；

@@ -44,6 +44,31 @@ impl fmt::Display for InputCode {
     }
 }
 
+/// 设备的操作系统，只用于界面上标识设备。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Platform {
+    Macos,
+    Windows,
+    Linux,
+    #[serde(other)]
+    Other,
+}
+
+impl Platform {
+    pub const fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Macos
+        } else if cfg!(target_os = "windows") {
+            Self::Windows
+        } else if cfg!(target_os = "linux") {
+            Self::Linux
+        } else {
+            Self::Other
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacAddr(pub [u8; 6]);
 
@@ -101,5 +126,16 @@ mod tests {
         let mac: MacAddr = "AA-bb-01-02-03-04".parse().unwrap();
         assert_eq!(mac.to_string(), "aa:bb:01:02:03:04");
         assert!("aa:bb:cc".parse::<MacAddr>().is_err());
+    }
+
+    #[test]
+    fn unknown_platform_reads_as_other() {
+        let parse = |s: &str| serde_json::from_str::<Platform>(s).unwrap();
+        assert_eq!(parse(r#""windows""#), Platform::Windows);
+        assert_eq!(parse(r#""freebsd""#), Platform::Other);
+        assert_eq!(
+            serde_json::to_string(&Platform::Macos).unwrap(),
+            r#""macos""#
+        );
     }
 }

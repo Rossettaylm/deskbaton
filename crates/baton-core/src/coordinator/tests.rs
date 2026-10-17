@@ -250,6 +250,7 @@ fn online(m: &mut Machine, peer: &Machine, now: Instant) {
     m.c.handle(
         Event::PeerOnline(PeerInfo {
             device_id: peer.id.clone(),
+            platform: None,
             input_code: Some(peer.code),
             wol_mac: None,
             ip: None,
@@ -728,6 +729,7 @@ fn waking_mac(
 fn stored(name: &str, mac: &str, ip: &str) -> PeerInfo {
     PeerInfo {
         device_id: DeviceId(name.into()),
+        platform: None,
         input_code: Some(WIN),
         wol_mac: Some(mac.parse().unwrap()),
         ip: Some(ip.parse().unwrap()),
@@ -795,6 +797,7 @@ fn handshake_without_mac_keeps_the_stored_one() {
     c.handle(
         Event::PeerOnline(PeerInfo {
             device_id: DeviceId("win".into()),
+            platform: None,
             input_code: Some(WIN),
             wol_mac: None,
             ip: None,
