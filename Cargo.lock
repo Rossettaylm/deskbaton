@@ -205,6 +205,7 @@ dependencies = [
  "gethostname",
  "global-hotkey",
  "log",
+ "tempfile",
  "windows",
 ]
 
@@ -243,8 +244,11 @@ dependencies = [
 name = "baton-gui"
 version = "0.0.1"
 dependencies = [
+ "baton-agent",
  "baton-core",
  "baton-display",
+ "baton-net",
+ "ctrlc",
  "env_logger",
  "log",
  "serde",

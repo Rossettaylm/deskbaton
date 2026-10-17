@@ -1,8 +1,10 @@
-//! deskbaton-gui：菜单栏 / 系统托盘里的显示器面板。
+//! deskbaton-gui：菜单栏 / 系统托盘里的面板，进程内运行 agent（热键、长连接、配对）。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod commands;
+mod devices;
 mod placement;
 mod view;
 
@@ -13,8 +15,9 @@ use std::time::{Duration, Instant};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, Rect, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Rect, RunEvent, WebviewWindow, WindowEvent};
 
+use crate::agent::AgentSlot;
 use crate::placement::Bounds;
 
 pub(crate) const PANEL: &str = "panel";
@@ -34,7 +37,7 @@ struct TrayRect(Mutex<Option<Rect>>);
 
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let result = tauri::Builder::default()
+    let app = tauri::Builder::default()
         .manage(commands::Panel::load())
         .manage(LastHidden::default())
         .manage(TrayRect::default())
@@ -43,11 +46,17 @@ fn main() -> ExitCode {
             commands::switch_input,
             commands::fit_panel,
             commands::quit,
+            devices::agent_status,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             build_tray(app.handle())?;
+            app.manage(AgentSlot::start(app.handle()));
+            let handle = app.handle().clone();
+            if let Err(e) = ctrlc::set_handler(move || handle.exit(0)) {
+                log::warn!("无法注册退出信号处理：{e}");
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -55,9 +64,18 @@ fn main() -> ExitCode {
                 hide_panel(window.app_handle());
             }
         })
-        .run(tauri::generate_context!());
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
+        .build(tauri::generate_context!());
+    match app {
+        Ok(app) => {
+            app.run(|app, event| {
+                if let RunEvent::Exit = event
+                    && let Some(slot) = app.try_state::<AgentSlot>()
+                {
+                    slot.shutdown();
+                }
+            });
+            ExitCode::SUCCESS
+        }
         Err(e) => {
             log::error!("面板启动失败：{e}");
             ExitCode::FAILURE
@@ -71,7 +89,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     TrayIconBuilder::with_id("main")
         .icon(Image::from_bytes(include_bytes!("../icons/tray.png"))?)
         .icon_as_template(true)
-        .tooltip("DeskBaton 显示器面板")
+        .tooltip("DeskBaton")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {

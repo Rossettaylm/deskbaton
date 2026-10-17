@@ -10,6 +10,7 @@
  *             current_label: string | null, inputs: InputButton[], preferred: boolean }} DisplayView
  * @typedef {{ displays: DisplayView[], config_error: string | null }} Snapshot
  * @typedef {{ kind: "confirmed", code: number, label: string } | { kind: "left_local", label: string }} SwitchOutcome
+ * @typedef {{ name: string | null, hotkey: string | null, error: string | null }} AgentStatus
  */
 
 const tauri = /** @type {any} */ (window).__TAURI__;
@@ -39,6 +40,8 @@ const state = {
   leftTo: new Map(),
   /** @type {{ tone: "idle" | "ok" | "err", text: string } | null} 覆盖默认状态行的一次性提示 */
   notice: null,
+  /** @type {AgentStatus | null} */
+  agent: null,
 };
 
 /** @param {string} id */
@@ -207,6 +210,9 @@ function renderFoot(d) {
   } else if (state.configError) {
     tone = "err";
     text = state.configError;
+  } else if (state.agent?.error) {
+    tone = "err";
+    text = state.agent.error;
   } else if (!d) {
     text = "未发现显示器";
   } else if (d.current_input != null) {
@@ -300,5 +306,17 @@ tauri.event.listen("panel-shown", () => {
   reveal();
   if (state.pending == null) refresh();
 });
+
+tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
+  state.notice = { tone: "idle", text: e.payload };
+  render();
+});
+
+invoke("agent_status")
+  .then((/** @type {AgentStatus} */ status) => {
+    state.agent = status;
+    render();
+  })
+  .catch(() => {});
 
 refresh();

@@ -1,6 +1,6 @@
 [package]
 name = "baton-gui"
-description = "DeskBaton 显示器面板：查看显示器信息、切换输入源"
+description = "DeskBaton 面板：进程内运行 agent；显示器信息、切换输入源、设备配对"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,8 +12,11 @@ name = "deskbaton-gui"
 path = "src/main.rs"
 
 [dependencies]
+baton-agent.workspace = true
 baton-core.workspace = true
 baton-display.workspace = true
+baton-net.workspace = true
+ctrlc.workspace = true
 serde.workspace = true
 log.workspace = true
 env_logger.workspace = true

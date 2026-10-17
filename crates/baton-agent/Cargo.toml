@@ -1,6 +1,6 @@
 [package]
 name = "baton-agent"
-description = "DeskBaton 常驻程序：托盘、热键，组装各模块"
+description = "DeskBaton agent：组装各模块、热键；库供面板复用，另带无界面程序 deskbaton"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -31,6 +31,9 @@ baton-macos-sys.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

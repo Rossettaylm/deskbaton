@@ -36,8 +36,10 @@
 ```text
 crates/
   baton-gui/                 Tauri 2 应用，可执行文件 deskbaton-gui
-    src/main.rs              Tauri 启动、托盘图标、显示 / 隐藏面板
+    src/main.rs              Tauri 启动、托盘图标、显示 / 隐藏面板；退出时等 agent 结束
+    src/agent.rs             进程内 agent（baton_agent::Agent）与热键注册
     src/commands.rs          Tauri 命令：list_displays / switch_input / fit_panel / quit
+    src/devices.rs           Tauri 命令：agent_status 及设备配对（见配对设计第 10 节）
     src/view.rs              显示器视图组装、输入源名称查找、副标题拼接（纯逻辑，可单测）
     src/placement.rs         面板相对托盘图标的摆放计算（纯逻辑，可单测）
     tauri.conf.json

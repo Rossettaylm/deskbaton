@@ -1,15 +1,24 @@
-//! 全局热键。macOS / Windows 需要在主线程运行系统事件循环，热键事件才会被分发。
+//! 全局热键。macOS / Windows 需要在主线程运行系统事件循环，热键事件才会被分发：
+//! 无界面程序用 [`run_main_loop`]，面板由 Tauri 的事件循环分发，只需 [`register`]。
 
 use std::sync::mpsc::Sender;
 
 use baton_core::Result;
 use baton_core::event::Event;
 
-pub use imp::{Hotkey, parse};
+pub use imp::{Hotkey, Registration, parse};
 
-/// 注册热键并在当前（主）线程运行事件循环，按下热键时发送 [`Event::Hotkey`]。
+/// 在主线程注册热键，按下时发送 [`Event::Hotkey`]；返回值被丢弃时注销。
+pub fn register(hotkey: Hotkey, events: Sender<Event>) -> Result<Registration> {
+    imp::register(hotkey, events)
+}
+
+/// 注册热键并在当前（主）线程运行事件循环。
 pub fn run_main_loop(hotkey: Hotkey, events: Sender<Event>) -> Result<()> {
-    imp::run_main_loop(hotkey, events)
+    let registration = register(hotkey, events)?;
+    imp::platform_loop();
+    drop(registration);
+    Ok(())
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -23,12 +32,16 @@ mod imp {
 
     pub type Hotkey = HotKey;
 
+    pub struct Registration {
+        _manager: GlobalHotKeyManager,
+    }
+
     pub fn parse(text: &str) -> Result<Hotkey> {
         text.parse()
             .map_err(|e| Error::Config(format!("无法解析热键「{text}」：{e}")))
     }
 
-    pub fn run_main_loop(hotkey: Hotkey, events: Sender<Event>) -> Result<()> {
+    pub fn register(hotkey: Hotkey, events: Sender<Event>) -> Result<Registration> {
         let manager = GlobalHotKeyManager::new()
             .map_err(|e| Error::Input(format!("无法初始化全局热键：{e}")))?;
         manager
@@ -40,19 +53,17 @@ mod imp {
                 let _ = events.send(Event::Hotkey);
             }
         }));
-        platform_loop();
-        drop(manager);
-        Ok(())
+        Ok(Registration { _manager: manager })
     }
 
     #[cfg(target_os = "macos")]
-    fn platform_loop() {
+    pub fn platform_loop() {
         // SAFETY: 无参数；main 在主线程调用，满足 NSApplication 的线程要求。
         unsafe { baton_macos_sys::deskbaton_run_app_loop() };
     }
 
     #[cfg(target_os = "windows")]
-    fn platform_loop() {
+    pub fn platform_loop() {
         use windows::Win32::UI::WindowsAndMessaging::{
             DispatchMessageW, GetMessageW, MSG, TranslateMessage,
         };
@@ -76,12 +87,18 @@ mod imp {
 
     pub struct Hotkey;
 
+    pub struct Registration;
+
     pub fn parse(_: &str) -> Result<Hotkey> {
         Ok(Hotkey)
     }
 
-    pub fn run_main_loop(_: Hotkey, _: Sender<Event>) -> Result<()> {
+    pub fn register(_: Hotkey, _: Sender<Event>) -> Result<Registration> {
         log::warn!("当前平台不支持全局热键，请使用 --stdin 触发交棒");
+        Ok(Registration)
+    }
+
+    pub fn platform_loop() {
         loop {
             std::thread::park();
         }
