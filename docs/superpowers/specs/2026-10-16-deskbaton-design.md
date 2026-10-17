@@ -7,6 +7,8 @@
 > - 为纯软件（非 KVM）模式和多台机器预留扩展点。
 > - 默认保持唤醒策略改为"对端在线期间不睡"（`stay_awake_until = "peer_offline"`），不依赖配件；用户没有 Apple TV / HomePod，不考虑 Bonjour 睡眠代理。HID 配件降回第二期可选项。
 > - 新增设备互联：互联层改为"一条 TLS 连接 + 多条逻辑通道"；首个互联能力为剪贴板同步（交棒时随身带过去）。
+>
+> 修订（2026-10-17）：实测 Wi-Fi 魔术包能唤醒合盖睡眠的 Mac（`docs/research/2026-10-17-mac-wifi-wol-probe.md`），`Wol` 同时用于 Mac；HID 配件降为备选。
 
 ## 1. 目标
 
@@ -21,7 +23,7 @@
 - 单台显示器，通过 DDC/CI 写 VCP `0x60` 切输入源
 - 键鼠由显示器内置 KVM 跟随输入源（`InputRouting::MonitorKvm`）
 - Mac 交棒后保持唤醒，释放条件可配置：`peer_offline`（默认，对端心跳消失即释放）/ `duration`（按 `stay_awake_secs` 计时）
-- 接棒方已经睡着时，按配置依次尝试唤醒方式：WoL → HID 唤醒配件（第二期）→ 提示用户
+- 接棒方已经睡着时，按配置依次尝试唤醒方式：WoL（有线的 Windows、Wi-Fi 的 Mac）→ HID 唤醒配件（备选，第二期）→ 提示用户
 - 局域网配对 + 加密通信，一条连接上多条逻辑通道
 - 剪贴板同步：交棒时把文本 / 图片带给接棒方
 
@@ -48,6 +50,7 @@
 | 输入源编码：DP = `0x0F`，USB-C = `0x1B` | 实测 USB-C 读到 `0x0F`；DP 口的值还没读到，两口可能撞码 | **未验证**，做成配置项 |
 | 显示器只接受当前活跃输入口发来的 DDC 命令 | 按最坏情况设计；实测画面在 DP 时 Mac 的读请求只收到 Null Message | 读取已证实，写入未测 |
 | 合盖 Mac 切回时睡着、KVM 键盘唤不醒 | 实测：切走时 Mac 仍有外接屏，不睡；**切回时 USB-C 重新协商，外接屏短暂消失，触发合盖睡眠**，键鼠在睡眠后才接入 | 已验证（`docs/research/2026-10-16-p275mv-ddc-probe.md`） |
+| 合盖睡眠的 Mac 能被 Wi-Fi 魔术包唤醒 | 实测：睡 45 秒和约 30 分钟后，Windows 发魔术包都能唤醒，无需睡眠代理和配件；目标 MAC 须为 `en0` 当前在用的（私有）地址 | 已验证（`docs/research/2026-10-17-mac-wifi-wol-probe.md`）；超过 1 小时、电池供电未测 |
 
 ## 4. 架构总览
 
@@ -172,14 +175,19 @@ pub trait Waker: Send + Sync {
 
 | 方式 | 适用对象 | 首版状态 |
 |---|---|---|
-| `Wol` | 有线网络的 Windows | 已实现 |
-| `HidDongle` | 合盖睡眠的 Mac：常插在 Mac 上的 USB / BLE HID 配件，收到局域网指令后模拟一次按键。因为它在 Mac 睡眠前就已接入，可以作为唤醒源 | 接口已留，第二期可选（默认策略下 Mac 在 Windows 在线时不睡，配件只用于 Mac 已经睡着的情况） |
+| `Wol` | 有线网络的 Windows；Wi-Fi 下合盖睡眠的 Mac | 已实现；Mac 已实测可用 |
+| `HidDongle` | 合盖睡眠的 Mac：常插在 Mac 上的 USB / BLE HID 配件，收到局域网指令后模拟一次按键。因为它在 Mac 睡眠前就已接入，可以作为唤醒源 | 接口已留，第二期备选（Wi-Fi 魔术包不可用的网络环境） |
 | `Prompt` | 兜底 | 已实现 |
 
-M0 还要实测两条不需要配件的路径，任一条可行就作为 `Waker` 加入：
+**用 `Wol` 唤醒 Mac**（实测见 `docs/research/2026-10-17-mac-wifi-wol-probe.md`）：
 
-- 显示器"USB Switch"菜单 / "USB Power(Sleep)"打开后，KVM 切过来的键盘能否唤醒；
-- 蓝牙 HID（Mac 设置"允许蓝牙设备唤醒"）由 Windows 侧发出能否唤醒。
+- 前提：「唤醒以供网络访问」开启（`pmset womp 1`），入睡前内核有 `MAGICWAKE en0` 断言。airportd 的「WoW is not active」不代表收不到魔术包，不作判据。
+- 目标 MAC：`en0` 当前在用的地址。启用私有 Wi-Fi 地址时它不等于硬件地址，所以由 Mac agent 在 `hello.wol_mac` 上报，配置里的 `peers[].wol_mac` 只作兜底；该网络的私有地址须为「固定」，「轮换」会让对端缓存的地址失效。
+- 发送：同时发往 `255.255.255.255`、子网广播和对端最后已知的单播 IP 的 UDP 9。
+- 魔术包只把 Mac 唤到暗唤醒，收到 `prepare` 后的 `wake_display` 把它转为完整唤醒。暗唤醒在无人干预时能持续多久未测；若短于 agent 重连并回心跳所需时间，Mac 要在 `kern.wakereason` 含 `wifibt` 时自行短暂保持唤醒，等待 `prepare`。
+- 系统约每 15 分钟会因 `rtc` 定时任务暗唤醒一次，持续几十秒后自行睡回。agent 不能把醒来本身当作交棒信号。
+
+USB-C 链路上的 KVM 键盘、蓝牙 HID 两条路径不再作为 M0 必测项。
 
 ### 5.4 InputRouter
 
@@ -206,7 +214,7 @@ pub trait InputRouter: Send + Sync {
 
 | 消息 | 方向 | 含义 |
 |---|---|---|
-| `hello { device_id, protocol_version, input_code, wol_mac, auth }` | 双向 | 交换身份、本机输入源编码、WoL MAC、认证证明 |
+| `hello { device_id, protocol_version, input_code, wol_mac, auth }` | 双向 | 交换身份、本机输入源编码、WoL MAC（Mac 为 `en0` 当前地址）、认证证明 |
 | `heartbeat { state }` | 双向 | 状态同步 |
 | `prepare { handoff_id }` | 持棒方 → 接棒方 | 准备接棒 |
 | `ready { handoff_id }` | 接棒方 → 持棒方 | 已点亮显示输出 |
@@ -378,16 +386,16 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 
 | 阶段 | 内容 | 退出条件 |
 |---|---|---|
-| M0 原型 | ① Mac 端 DDC 读写；② Windows 端 DDC 读写；③ 实测 P275MV 的输入源编码和 KVM 跟随；④ Mac `stay_awake` 两种机制；⑤ 实测不需要配件的唤醒路径（KVM 键盘、蓝牙） | `deskbaton-cli` 在两端完成切换；验收清单第 1 项通过；明确合盖睡眠 Mac 的可行唤醒方式 |
+| M0 原型 | ① Mac 端 DDC 读写；② Windows 端 DDC 读写；③ 实测 P275MV 的输入源编码和 KVM 跟随；④ Mac `stay_awake` 两种机制；⑤ 实测不需要配件的唤醒路径（已确认 Wi-Fi 魔术包可行） | `deskbaton-cli` 在两端完成切换；验收清单第 1 项通过；明确合盖睡眠 Mac 的可行唤醒方式 |
 | M1 命令行交棒 | 无界面 agent，写死对端地址，用预共享令牌代替配对；多通道帧格式与 `mux`；`peer_offline` 保持唤醒策略 | 热键完成双向交棒；验收清单第 1、3、4 项通过 |
-| M2 可用版本 | 剪贴板同步；托盘、mDNS 发现、配对界面、开机自启、通知 | 验收清单第 1、3、4、5 项通过 |
-| M3 扩展 | HID 唤醒配件（验收清单第 2 项）、剪贴板实时模式、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
+| M2 可用版本 | 剪贴板同步；托盘、mDNS 发现、配对界面、开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项通过 |
+| M3 扩展 | HID 唤醒配件（魔术包不可用时的备选）、剪贴板实时模式、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
 
 ## 11. 风险
 
 | 风险 | 影响 | 应对 |
 |---|---|---|
-| 合盖睡眠的 Mac 找不到不需要配件的唤醒方式 | Mac 已经睡着时（Windows 刚开机等）只能开盖 | 默认策略让 Mac 在 Windows 在线期间不睡，覆盖日常使用；配件作为第二期可选项 |
+| Wi-Fi 魔术包唤醒在部分环境失效（路由器不转发广播、长时间睡眠后网卡掉线、私有地址轮换等） | Mac 已经睡着时（Windows 刚开机等）只能开盖 | 默认策略让 Mac 在 Windows 在线期间不睡，覆盖日常使用；超过 1 小时睡眠待实测；HID 配件作为第二期备选 |
 | 敏感剪贴板标记各平台不统一 | 可能误同步密码 | 首版只认最常见的约定类型；在设置里提供"只同步文本"或关闭同步的开关 |
 | 合盖控制必须用 root（无需 root 的 IOKit 接口已证实无效） | 需要特权助手，安装体验变差；`SleepDisabled` 是持久的系统设置，残留会让 Mac 一直不睡 | 首次运行引导授权；guard 释放、agent 启动时都恢复（标记文件兜底） |
 | P275MV 的 USB-C 与 DP 输入源编码相同 | 持棒判定（`get_input()` 等于本机编码）无法区分两台机器 | 待在 Windows 上读 DP 口编码确认；撞码时需要另找判定依据 |

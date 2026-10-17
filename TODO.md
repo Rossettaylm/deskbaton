@@ -19,7 +19,7 @@
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
 - [x] Windows 端 DDC 读写（Dxva2，型号和序列号取自注册表 EDID）+ `wake_display`
 - [ ] 🔧 到 Windows 机器上跑 `deskbaton-cli displays / get-input / set-input` 验证
-- [ ] 🔧 实测免配件唤醒：显示器「USB Power(Sleep)」打开后 KVM 键盘能否唤醒合盖 Mac；蓝牙 HID 能否唤醒
+- [x] 🔧 实测免配件唤醒：Windows 发 Wi-Fi 魔术包可唤醒合盖睡眠的 Mac，睡 45 秒、约 30 分钟均通过，不需要睡眠代理和 Bonjour 服务（2026-10-17 用户实测，[记录](docs/research/2026-10-17-mac-wifi-wol-probe.md)）；KVM 键盘、蓝牙路径不再必测
 - [x] 把 HP D27k 实测记录到 `docs/research/2026-10-16-hp-d27k-ddc-probe.md`（切走后是否自动切回待用户确认）
 
 ## P1 · M1 命令行交棒
@@ -38,7 +38,12 @@
 - [ ] `baton-clipboard`：`ClipboardAccess`（arboard）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过
 - [ ] mDNS 发现、指纹配对界面，配对信息独立存储
 - [ ] 托盘、通知、开机自启
-- [ ] 🔧 验收清单第 1、3、4、5 项
+- [ ] Mac agent 在 `hello.wol_mac` 上报 `en0` 当前在用的 MAC（私有地址），现在写死为 `None`（`crates/baton-agent/src/main.rs`）
+- [ ] `WolWaker` 同时发往 `255.255.255.255`、子网广播和对端最后已知 IP；改掉注释里「Wi-Fi 下的 Mac 基本无效」
+- [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
+- [ ] 🔧 测魔术包触发的暗唤醒在无人干预时能持续多久；不够 agent 重连并回心跳时，`kern.wakereason` 含 `wifibt` 就短暂保持唤醒、等 `prepare`
+- [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电
+- [ ] 🔧 验收清单第 1–5 项
 
 ## 显示器面板（`docs/superpowers/specs/2026-10-16-display-panel-design.md`）
 
@@ -50,7 +55,7 @@
 
 ## P3 · M3 扩展（另立设计文档）
 
-- [ ] HID 唤醒配件（验收清单第 2 项）
+- [ ] HID 唤醒配件（Wi-Fi 魔术包不可用时的备选）
 - [ ] 剪贴板实时模式、文件快传
 - [ ] 软件键鼠模式、不切屏模式、多机器、Linux
 
