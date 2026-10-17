@@ -39,7 +39,7 @@ mod imp {
         CreateWindowExW, DefWindowProcW, HWND_MESSAGE, RegisterClassW, WINDOW_EX_STYLE,
         WINDOW_STYLE, WM_USER, WNDCLASSW,
     };
-    use windows::core::{PCWSTR, w};
+    use windows::core::w;
 
     const CALLBACK: u32 = WM_USER + 1;
 
