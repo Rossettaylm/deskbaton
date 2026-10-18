@@ -10,6 +10,7 @@ mod notify;
 mod placement;
 mod prefs;
 mod startup;
+mod update;
 mod view;
 
 use std::process::ExitCode;
@@ -84,6 +85,7 @@ struct TrayRect(Mutex<Option<Rect>>);
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::Panel::load())
         .manage(LastHidden::default())
         .manage(PendingOpen::default())
@@ -110,6 +112,9 @@ fn main() -> ExitCode {
             prefs::set_autostart,
             prefs::suspend_hotkey,
             prefs::resume_hotkey,
+            update::update_status,
+            update::check_update,
+            update::install_update,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -126,7 +131,12 @@ fn main() -> ExitCode {
                     );
                 }
             }
+            app.manage(update::UpdateSlot::new(startup::is_install_build()));
             app.manage(AgentSlot::start(app.handle()));
+            let updater = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                crate::update::auto_check(updater).await;
+            });
             let handle = app.handle().clone();
             if let Err(e) = ctrlc::set_handler(move || handle.exit(0)) {
                 log::warn!("无法注册退出信号处理：{e}");

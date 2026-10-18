@@ -1,8 +1,6 @@
 //! 面板开机自启：macOS LaunchAgent，Windows 当前用户 Run 键。
 
-#[cfg(any(target_os = "macos", test))]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use baton_core::{Error, Result};
 
@@ -17,6 +15,10 @@ pub fn current_exe() -> Result<PathBuf> {
 
 #[cfg(any(target_os = "macos", test))]
 pub fn exe_is_bundled(exe: &Path) -> bool {
+    is_mac_app_bundle(exe)
+}
+
+fn is_mac_app_bundle(exe: &Path) -> bool {
     exe.ancestors().any(|p| {
         p.extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
@@ -26,6 +28,26 @@ pub fn exe_is_bundled(exe: &Path) -> bool {
 #[cfg(target_os = "macos")]
 pub fn running_bundled() -> bool {
     current_exe().is_ok_and(|p| exe_is_bundled(&p))
+}
+
+/// 安装版：macOS 在 `.app` 内，Windows 在 `%LOCALAPPDATA%\Programs\DeskBaton\`。
+pub fn is_install_build() -> bool {
+    current_exe().is_ok_and(|exe| {
+        install_build_at(
+            &exe,
+            std::env::var_os("LOCALAPPDATA").as_deref().map(Path::new),
+        )
+    })
+}
+
+pub fn install_build_at(exe: &Path, local_app_data: Option<&Path>) -> bool {
+    if is_mac_app_bundle(exe) {
+        return true;
+    }
+    let Some(local) = local_app_data else {
+        return false;
+    };
+    exe.starts_with(local.join("Programs").join("DeskBaton"))
 }
 
 pub fn is_enabled() -> Result<bool> {
@@ -291,8 +313,8 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::exe_is_bundled;
-    use std::path::Path;
+    use super::{exe_is_bundled, install_build_at};
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn bundled_when_an_ancestor_is_app() {
@@ -305,5 +327,33 @@ mod tests {
         assert!(!exe_is_bundled(Path::new(
             r"C:\Users\me\AppData\Local\Programs\DeskBaton\DeskBaton.exe"
         )));
+    }
+
+    #[test]
+    fn install_build_mac_app_and_windows_programs_dir() {
+        assert!(install_build_at(
+            Path::new("/Applications/DeskBaton.app/Contents/MacOS/DeskBaton"),
+            None,
+        ));
+        assert!(!install_build_at(
+            Path::new("/Users/me/Code/deskbaton/target/debug/deskbaton-gui"),
+            None,
+        ));
+        let local = PathBuf::from("local-app-data");
+        assert!(install_build_at(
+            &local
+                .join("Programs")
+                .join("DeskBaton")
+                .join("DeskBaton.exe"),
+            Some(&local),
+        ));
+        assert!(!install_build_at(
+            &PathBuf::from("code")
+                .join("deskbaton")
+                .join("target")
+                .join("release")
+                .join("deskbaton-gui.exe"),
+            Some(&local),
+        ));
     }
 }

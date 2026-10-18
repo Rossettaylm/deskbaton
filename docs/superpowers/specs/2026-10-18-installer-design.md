@@ -4,6 +4,8 @@
 
 主设计见 `2026-10-16-deskbaton-design.md`，开机自启见 `2026-10-17-panel-settings-design.md`。冲突时以本文为准。
 
+修订（2026-10-18）：tag `vX.Y.Z` 发 GitHub Release 供程序内更新；`main` 推送仍只上传 7 天 artifact。安装包文件名随 workspace 版本。见 `2026-10-18-in-app-update-design.md`，冲突时以该文为准。
+
 用户拿到的是安装包，不是裸 `deskbaton-gui` / `.exe`。装完后面板（进程内跑 agent）落在系统常规位置，并预置登录自启；Mac 另预置特权助手。主程序仍在用户登录会话里跑，不做 Windows Service、系统级 LaunchDaemon 里的 agent、或 systemd 系统服务。
 
 ## 1. 目标
@@ -28,7 +30,7 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 - 改交棒、配对、剪贴板流程
 - 把 `deskbaton`、`deskbaton-cli` 放进用户安装包
 - Intel Mac、Windows arm64
-- 公证、Authenticode、GitHub Release
+- 公证、Authenticode（GitHub Release 见程序内更新设计）
 - 改数据目录位置
 
 开发时 `cargo run` / `cargo build` 仍出裸二进制，不作为分发产物。
@@ -40,7 +42,7 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 | macOS | `DeskBaton-0.0.1-macos-aarch64.dmg` | `/Applications/DeskBaton.app` | `~/Library/Application Support/DeskBaton/` |
 | Windows | `DeskBaton-0.0.1-windows-x64-setup.exe` | `%LOCALAPPDATA%\Programs\DeskBaton\` | `%APPDATA%\DeskBaton\` |
 
-版本号与 workspace `0.0.1` 相同，升版本时文件名跟着改。
+版本号与 workspace `version` 相同，升版本时文件名跟着改（当前示例为 `0.0.1`）。tag 发 Release 时的文件名与更新通道见 `2026-10-18-in-app-update-design.md`。
 
 `tauri.conf.json`：`productName` 改为 `DeskBaton`（现在是 `DeskBaton Panel`）；`identifier` 保持 `io.github.rossettaylm.deskbaton.panel`；`bundle.active` 打开；`targets` 只有 `dmg` 和 `nsis`；`bundle.macOS.signingIdentity` 为 `-`。Windows `nsis.installMode` 为 `currentUser`。安装后 Windows 可执行文件名为 `DeskBaton.exe`（Tauri 按 `productName` 命名）。
 
@@ -104,15 +106,15 @@ macOS 没有卸载程序。用户把 `DeskBaton.app` 丢进废纸篓。丢进废
 
 | | |
 |---|---|
-| 触发 | `main` 的 `push`；`workflow_dispatch` |
+| 触发 | `main` 的 `push`；`workflow_dispatch`；tag `vX.Y.Z`（Release 见程序内更新设计） |
 | 不触发 | pull request |
 | 矩阵 | `macos-latest` → `--bundles dmg`（aarch64）；`windows-latest` → `--bundles nsis`（x64） |
 | 构建 | `tauri-apps/tauri-action`，`projectPath` 为 `crates/baton-gui` |
-| 上传 | 第 3 节两个文件名；保留 7 天 |
+| 上传 | `main` / 手动：第 3 节两个文件名，保留 7 天；tag：另发 GitHub Release |
 
 `check` 未通过不阻止手动 `workflow_dispatch` 出包。PR 不打包。
 
-删掉 `.github/workflows/windows-build.yml`。不建 GitHub Release。
+删掉 `.github/workflows/windows-build.yml`。`main` 推送不建 GitHub Release。
 
 Tauri / NSIS 打出的原始文件名若与第 3 节不同，`pack` 在上传前改名。
 

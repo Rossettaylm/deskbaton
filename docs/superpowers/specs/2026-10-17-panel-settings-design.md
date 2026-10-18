@@ -4,7 +4,9 @@
 
 主设计见 `2026-10-16-deskbaton-design.md`，显示器面板见 `2026-10-16-display-panel-design.md`，配对见 `2026-10-17-pairing-design.md`，零配置见 `2026-10-17-zero-config-design.md`。本文落实 M2 的「开机自启、通知」，并在面板上提供本机名称与切换热键。冲突时以本文为准。
 
-修订（2026-10-18）：安装版的登录项写入时机与 macOS 机制见 `2026-10-18-installer-design.md`。macOS 安装版用 `SMAppService` 登记主程序，不再写 `~/Library/LaunchAgents/com.deskbaton.gui.plist`。Windows 安装器可在首次启动前写好 Run 键。`autostart_seeded` 语义不变。开发版做法仍以本文 5.4 为准。
+修订（2026-10-18）：安装版的登录项写入时机与 macOS 机制见 `2026-10-18-installer-design.md`。macOS 安装版用 `SMAppService` 登记主程序，不再写 `~/Library/LaunchAgents/com.deskbaton.gui.plist`。Windows 安装器可在首次启动前写好 Run 键。`autostart_seeded` 语义不变。
+
+修订（2026-10-18）：本机卡片加「版本」行（检查 / 升级），见 `2026-10-18-in-app-update-design.md`。冲突时以该文为准。开发版做法仍以本文 5.4 为准。
 
 配对设计第 2 节「不做」中的「系统通知、开机自启」改由本文实现。
 
@@ -87,6 +89,7 @@ autostart_seeded = true         # 缺省 false
 | 开机自启 | 开关 | 反映系统登录项是否指向本程序 |
 | 通知 | 开关 | 反映 `state.toml` 的 `notify` |
 | 剪贴板 | 开关 | 反映 `state.toml` 的 `clipboard_sync`；见实时设计 |
+| 版本 | 按钮「检查更新」/「升级到 vx.y.z」 | 仅安装版；见程序内更新设计 |
 
 录制热键期间，这次按键不得触发交棒。格式与现有 `hotkey::parse` 相同，例如 `Ctrl+Alt+Space`。
 

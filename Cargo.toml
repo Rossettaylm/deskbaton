@@ -44,6 +44,7 @@ cc = "1"
 windows = "0.62"
 tauri = { version = "2.12", features = ["tray-icon", "image-png", "macos-private-api"] }
 tauri-build = "2.7"
+tauri-plugin-updater = "2"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

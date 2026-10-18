@@ -29,8 +29,17 @@
       "csp": "default-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; script-src 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY0MTgxNzUwNEQ2QTgzNDIKUldSQ2cycE5VQmNZOUtDTm9JSXdFYWFqODJCQ2xWWnVoUjJSL2R2Q3pLaEFjd3RFcVowaFpXbDAK",
+      "endpoints": [
+        "https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json"
+      ]
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": false,
     "targets": ["dmg", "nsis"],
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "externalBin": ["binaries/deskbaton-sleep-helper"],

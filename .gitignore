@@ -7,3 +7,5 @@
 
 .worktrees/
 .superpowers/
+*.key
+*.key.pub

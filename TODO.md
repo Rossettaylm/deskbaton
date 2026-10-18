@@ -67,6 +67,12 @@
   - [x] CI：非 macOS clippy 不再因 `SleepPrivileges` 死代码失败；`beforeBundleCommand` 按仓库根找脚本，Windows 打包装时去掉该钩子
   - [x] CI：Linux 链路测试不再抢已释放端口；Pack 在 workspace `target/` 下找安装包
   - [ ] 🔧 安装器设计验收清单第 1–5 项
+- 程序内自动更新（[设计](docs/superpowers/specs/2026-10-18-in-app-update-design.md)），按顺序推进：
+  - [x] 安装版判定、UpdateSlot、面板检查/升级命令
+  - [x] `tauri-plugin-updater` + `latest.json` endpoint + minisign 公钥
+  - [x] `pack.yml`：tag `vX.Y.Z` 发 GitHub Release，安装包文件名随 workspace 版本
+  - [ ] 把 `TAURI_SIGNING_PRIVATE_KEY` 写入仓库 Secrets 后，打 tag 发可升级版本
+  - [ ] 🔧 更新设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
 - [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电

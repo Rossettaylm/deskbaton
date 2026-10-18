@@ -599,6 +599,11 @@ button { font: inherit; color: inherit; }
 
 .pref .hotkey.recording { color: var(--mute); font-weight: 400; }
 
+.pref .hotkey:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .pref input[type="checkbox"] {
   appearance: none;
   width: 32px;

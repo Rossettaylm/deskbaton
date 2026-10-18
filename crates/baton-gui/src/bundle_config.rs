@@ -33,6 +33,17 @@ mod tests {
             v["bundle"]["macOS"]["signingIdentity"], "-",
             "Apple Silicon 上 linker-signed 半截签名会被 Gatekeeper 报已损坏"
         );
+        assert_eq!(v["bundle"]["createUpdaterArtifacts"], false);
+        let endpoints = v["plugins"]["updater"]["endpoints"].as_array().unwrap();
+        assert!(
+            endpoints.iter().any(|e| e.as_str()
+                == Some(
+                    "https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json"
+                )),
+            "更新清单走 GitHub latest.json"
+        );
+        let pubkey = v["plugins"]["updater"]["pubkey"].as_str().unwrap_or("");
+        assert!(!pubkey.is_empty(), "更新器公钥必须写入 tauri.conf.json");
     }
 
     #[test]
@@ -54,8 +65,21 @@ mod tests {
         assert!(yml.contains("macos-latest"));
         assert!(yml.contains("windows-latest"));
         assert!(!yml.contains("\n  pull_request:"), "PR 不打安装包");
-        assert!(yml.contains("DeskBaton-0.0.1-macos-aarch64.dmg"));
-        assert!(yml.contains("DeskBaton-0.0.1-windows-x64-setup.exe"));
+        assert!(yml.contains("tags:"));
+        assert!(yml.contains("TAURI_SIGNING_PRIVATE_KEY"));
+        assert!(yml.contains("createUpdaterArtifacts"));
+        assert!(yml.contains("includeUpdaterJson"));
+        assert!(yml.contains("updaterJsonPreferNsis"));
+        assert!(yml.contains("contents: write"));
+        assert!(
+            yml.contains("steps.ver.outputs.version") && yml.contains("macos-aarch64.dmg"),
+            "安装包文件名随 workspace 版本"
+        );
+        assert!(yml.contains("windows-x64-setup.exe"));
+        assert!(
+            !yml.contains("DeskBaton-0.0.1-macos-aarch64.dmg"),
+            "不得写死 0.0.1 文件名"
+        );
         assert!(yml.contains("tauri-apps/tauri-action"));
         assert!(yml.contains("crates/baton-gui"));
         assert!(yml.contains("beforeBundleCommand"));

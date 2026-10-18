@@ -20,7 +20,9 @@ ctrlc.workspace = true
 serde.workspace = true
 log.workspace = true
 env_logger.workspace = true
+serde_json.workspace = true
 tauri.workspace = true
+tauri-plugin-updater.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baton-macos-sys.workspace = true
@@ -35,9 +37,6 @@ windows = { workspace = true, features = [
 
 [build-dependencies]
 tauri-build.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

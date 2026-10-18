@@ -78,6 +78,8 @@ const state = {
   agent: null,
   /** @type {string | null} */
   version: null,
+  /** @type {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null }} */
+  update: { supported: false, kind: "idle", version: null },
   /** @type {Devices | null} */
   devices: null,
   /** @type {string | null} 读取设备失败的原因 */
@@ -251,7 +253,72 @@ function render() {
   renderDevices();
   renderFoot(d);
   renderMenu();
+  renderUpdateRow();
   fit();
+}
+
+/**
+ * @typedef {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null }} UpdateStatus
+ */
+
+function renderUpdateRow() {
+  const row = $("pref-update-row");
+  const btn = /** @type {HTMLButtonElement} */ ($("pref-update"));
+  const u = state.update;
+  if (!u.supported) {
+    row.hidden = true;
+    return;
+  }
+  row.hidden = false;
+  btn.disabled = u.kind === "installing";
+  if (u.kind === "installing") btn.textContent = "正在升级…";
+  else if (u.kind === "available" && u.version) btn.textContent = `升级到 v${u.version}`;
+  else btn.textContent = "检查更新";
+}
+
+/** @param {UpdateStatus} status */
+function applyUpdateStatus(status) {
+  state.update = {
+    supported: status.supported,
+    kind: status.kind,
+    version: status.version,
+  };
+}
+
+async function refreshUpdate() {
+  try {
+    applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("update_status")));
+  } catch (e) {
+    logUpdateError(e);
+  }
+}
+
+/** @param {unknown} e */
+function logUpdateError(e) {
+  state.notice = { tone: "err", text: String(e) };
+}
+
+async function onUpdateClick() {
+  if (state.update.kind === "installing") return;
+  if (state.update.kind === "available") {
+    state.update.kind = "installing";
+    render();
+    try {
+      await invoke("install_update");
+    } catch (e) {
+      logUpdateError(e);
+      await refreshUpdate();
+      render();
+    }
+    return;
+  }
+  try {
+    applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("check_update")));
+    render();
+  } catch (e) {
+    logUpdateError(e);
+    render();
+  }
 }
 
 /**
@@ -839,6 +906,7 @@ $("pref-hotkey").addEventListener("click", startHotkeyRecord);
 $("pref-notify").addEventListener("change", saveNotify);
 $("pref-clipboard").addEventListener("change", saveClipboard);
 $("pref-autostart").addEventListener("change", saveAutostart);
+$("pref-update").addEventListener("click", onUpdateClick);
 window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();
 });
@@ -882,6 +950,18 @@ tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
   render();
 });
 
+tauri.event.listen("update-available", (/** @type {{ payload: string }} */ e) => {
+  state.update.supported = true;
+  state.update.kind = "available";
+  state.update.version = e.payload;
+  render();
+});
+
+tauri.event.listen("update-progress", () => {
+  state.update.kind = "installing";
+  render();
+});
+
 invoke("agent_status")
   .then((/** @type {AgentStatus} */ status) => {
     state.agent = status;
@@ -899,3 +979,4 @@ invoke("app_version")
 refresh();
 refreshDevices();
 refreshPrefs();
+refreshUpdate().then(() => render());
