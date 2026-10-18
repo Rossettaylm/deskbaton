@@ -39,6 +39,7 @@ jobs:
           $conf = 'crates/baton-gui/tauri.conf.json'
           $j = Get-Content $conf -Raw | ConvertFrom-Json
           $j.bundle.externalBin = @()
+          $j.build.beforeBundleCommand = ''
           $j | ConvertTo-Json -Depth 20 | Set-Content $conf
       - uses: tauri-apps/tauri-action@v0
         env:

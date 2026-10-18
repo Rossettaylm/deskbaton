@@ -8,12 +8,14 @@ pub(crate) use imp::{set_sleep_disabled, sleep_disabled};
 #[cfg(any(target_os = "macos", test))]
 use baton_core::{Error, Result};
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SleepPrivileges {
     Helper,
     Sudoers,
 }
 
+#[cfg(any(target_os = "macos", test))]
 pub(crate) fn privileges_for(bundled: bool) -> SleepPrivileges {
     if bundled {
         SleepPrivileges::Helper

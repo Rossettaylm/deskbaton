@@ -4,7 +4,7 @@
   "identifier": "io.github.rossettaylm.deskbaton.panel",
   "build": {
     "frontendDist": "ui",
-    "beforeBundleCommand": "bash ../../scripts/embed-sleep-daemon.sh"
+    "beforeBundleCommand": "bash -c 'bash \"$(git rev-parse --show-toplevel)/scripts/embed-sleep-daemon.sh\"'"
   },
   "app": {
     "withGlobalTauri": true,

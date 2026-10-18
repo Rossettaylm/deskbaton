@@ -64,6 +64,7 @@
   - [x] macOS 安装版首次启动用 `SMAppService` 登记登录项；开发版维持 LaunchAgent
   - [x] `baton-sleep-helper` + 安装版经助手执行 pmset；开发版维持 sudoers
   - [x] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
+  - [x] CI：非 macOS clippy 不再因 `SleepPrivileges` 死代码失败；`beforeBundleCommand` 按仓库根找脚本，Windows 打包装时去掉该钩子
   - [ ] 🔧 安装器设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
