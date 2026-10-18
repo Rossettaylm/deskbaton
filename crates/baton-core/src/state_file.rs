@@ -27,10 +27,10 @@ pub struct LocalState {
     /// 是否同步系统剪贴板。
     #[serde(default = "default_clipboard_sync")]
     pub clipboard_sync: bool,
-    /// 面板是否显示「剪贴板」页；关掉不影响同步。
+    /// 兼容旧 `state.toml`；面板不再使用。
     #[serde(default = "default_clipboard_tab")]
     pub clipboard_tab: bool,
-    /// 每个对端发件箱最多几条。
+    /// 每个对端发件箱最多几条；启动时读取，面板不提供旋钮。
     #[serde(default = "default_clipboard_outbox_limit")]
     pub clipboard_outbox_limit: u32,
     /// 面板已经成功种过一次登录项；之后不再擅自打开开机自启。

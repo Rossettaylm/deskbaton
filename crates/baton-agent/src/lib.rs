@@ -17,7 +17,7 @@ use baton_core::coordinator::{Coordinator, Ports};
 use baton_core::event::{Event, PeerInfo};
 use baton_core::ids::{DeviceId, HandoffId, InputCode, Platform};
 use baton_core::learn::InputCodeLearner;
-use baton_core::outbox::{OutboxViewItem, PeerRef};
+use baton_core::outbox::PeerRef;
 use baton_core::ports::{ClipboardAccess, DisplayInfo, Notifier, PeerLink};
 use baton_core::state_file::{LocalState, clamp_outbox_limit};
 use baton_core::wake::WakeChain;
@@ -49,7 +49,6 @@ pub struct Agent {
     stop_learning: Option<Sender<()>>,
     learning: Option<JoinHandle<()>>,
     clipboard_sync: Arc<AtomicBool>,
-    bridge: Arc<ClipboardBridge>,
     /// 丢弃即通知剪贴板线程退出。
     stop_clipboard: Option<Sender<()>>,
     clipboard_thread: Option<JoinHandle<()>>,
@@ -125,16 +124,16 @@ impl Agent {
             Arc::clone(&notifier),
             Arc::clone(&echoes),
         ));
-        let bridge = Arc::new(ClipboardBridge::new(
+        let bridge = ClipboardBridge::new(
             access,
             Arc::clone(&clipboard_sync),
             Arc::clone(&notifier),
             echoes,
             clamp_outbox_limit(local.clipboard_outbox_limit),
-        ));
+        );
         let (stop_clipboard, clipboard_stopped) = mpsc::channel();
         let clipboard_loop = ClipboardLoop {
-            bridge: Arc::clone(&bridge),
+            bridge,
             link: Arc::clone(&link),
         };
         let clipboard_thread = thread::Builder::new()
@@ -172,7 +171,6 @@ impl Agent {
             stop_learning,
             learning,
             clipboard_sync,
-            bridge,
             stop_clipboard: Some(stop_clipboard),
             clipboard_thread: Some(clipboard_thread),
         })
@@ -219,18 +217,6 @@ impl Agent {
 
     pub fn set_clipboard_sync(&self, on: bool) {
         self.clipboard_sync.store(on, Ordering::SeqCst);
-    }
-
-    pub fn clipboard_outbox(&self) -> Vec<OutboxViewItem> {
-        self.bridge.snapshot(self.link.snapshot().paired.len())
-    }
-
-    pub fn set_outbox_limit(&self, limit: u32) {
-        self.bridge.set_limit(clamp_outbox_limit(limit));
-    }
-
-    pub fn set_on_outbox_change(&self, f: impl Fn() + Send + Sync + 'static) {
-        self.bridge.set_on_change(f);
     }
 
     /// 本机名称立刻用于展示、mDNS 和之后的握手；不断开已有连接。
@@ -293,7 +279,7 @@ const LEARN_INTERVAL: Duration = Duration::from_secs(2);
 const CLIPBOARD_POLL: Duration = Duration::from_millis(500);
 
 struct ClipboardLoop {
-    bridge: Arc<ClipboardBridge>,
+    bridge: ClipboardBridge,
     link: Arc<TcpPeerLink>,
 }
 
@@ -319,7 +305,6 @@ fn clipboard_peers(link: &TcpPeerLink) -> Vec<PeerRef> {
             } else {
                 p.peer.fingerprint.clone()
             },
-            name: p.peer.name.clone(),
             to: p.peer.device_id(),
             online: p.online,
         })

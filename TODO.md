@@ -38,7 +38,7 @@
 
 - [x] `baton-clipboard`：`ClipboardAccess`（clipboard-rs）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过；本机开关写入 `state.toml`（[设计](docs/superpowers/specs/2026-10-17-clipboard-design.md)）
 - [ ] 🔧 剪贴板设计验收清单第 1–5 项（交棒时同步；已被实时设计取代，该项随实时验收一起勾）
-- [x] 剪贴板实时同步（[设计](docs/superpowers/specs/2026-10-18-clipboard-realtime-design.md)）：按对端发件箱、上线冲刷、tab 只显示未发、总开关与 tab 显隐分开
+- [x] 剪贴板实时同步（[设计](docs/superpowers/specs/2026-10-18-clipboard-realtime-design.md)）：按对端发件箱、上线冲刷；面板不展示未发列表
 - [ ] 🔧 剪贴板实时设计验收清单第 1–6 项
 - 配对与设备档案（[设计](docs/superpowers/specs/2026-10-17-pairing-design.md)），按顺序推进：
   - [x] 持久化 TLS 身份、`peers.toml` 设备档案、握手 v3（承诺式配对码、信任判定、令牌自动配对），`PROTOCOL_VERSION` 升到 3

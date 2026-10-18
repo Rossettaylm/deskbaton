@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use baton_core::Result;
 use baton_core::ids::DeviceId;
-use baton_core::outbox::{Outbox, OutboxViewItem, PeerRef};
+use baton_core::outbox::{Outbox, PeerRef};
 use baton_core::participant::Payload;
 use baton_core::ports::{ClipboardAccess, ClipboardRead, Notifier};
 
@@ -17,7 +17,6 @@ pub struct ClipboardBridge {
     notifier: Arc<dyn Notifier>,
     echoes: Arc<Mutex<EchoSet>>,
     outbox: Mutex<Outbox>,
-    on_change: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 impl ClipboardBridge {
@@ -34,62 +33,28 @@ impl ClipboardBridge {
             notifier,
             echoes,
             outbox: Mutex::new(Outbox::new(limit)),
-            on_change: Mutex::new(None),
         }
-    }
-
-    pub fn set_on_change(&self, f: impl Fn() + Send + Sync + 'static) {
-        *self.on_change() = Some(Arc::new(f));
-    }
-
-    pub fn set_limit(&self, limit: u32) {
-        let mut outbox = self.outbox();
-        let before = outbox.len();
-        outbox.set_limit(limit);
-        let changed = outbox.len() != before;
-        drop(outbox);
-        if changed {
-            self.emit();
-        }
-    }
-
-    pub fn snapshot(&self, paired: usize) -> Vec<OutboxViewItem> {
-        self.outbox().view(paired)
     }
 
     /// 丢掉已解绑的箱子；总开关打开时采集、分发、冲刷。
     pub fn tick(&self, peers: &[PeerRef], mut send: impl FnMut(&DeviceId, Payload) -> Result<()>) {
-        {
-            let mut outbox = self.outbox();
-            let before = outbox.len();
-            outbox.retain_peers(peers.iter().map(|p| p.key.as_str()));
-            if outbox.len() != before {
-                drop(outbox);
-                self.emit();
-            }
-        }
+        self.outbox()
+            .retain_peers(peers.iter().map(|p| p.key.as_str()));
         if !self.enabled.load(Ordering::SeqCst) {
             return;
         }
         if let Some((format, data)) = self.read_new() {
             self.echoes().remember(&format, &data);
-            let mut outbox = self.outbox();
-            let before = outbox.len();
-            outbox.distribute(format, data, peers, |to, payload| send(to, payload).is_ok());
-            let changed = outbox.len() != before;
-            drop(outbox);
-            if changed {
-                self.emit();
-            }
+            self.outbox()
+                .distribute(format, data, peers, |to, payload| send(to, payload).is_ok());
         }
-        let mut outbox = self.outbox();
-        let before = outbox.len();
-        outbox.flush_online(peers, |to, payload| send(to, payload).is_ok());
-        let changed = outbox.len() != before;
-        drop(outbox);
-        if changed {
-            self.emit();
-        }
+        self.outbox()
+            .flush_online(peers, |to, payload| send(to, payload).is_ok());
+    }
+
+    /// 发件箱里还没送出的条数。
+    pub fn pending(&self) -> usize {
+        self.outbox().len()
     }
 
     fn read_new(&self) -> Option<(String, Vec<u8>)> {
@@ -114,24 +79,12 @@ impl ClipboardBridge {
         Some((content.format().into(), content.bytes().to_vec()))
     }
 
-    fn emit(&self) {
-        if let Some(f) = self.on_change().as_ref() {
-            f();
-        }
-    }
-
     fn outbox(&self) -> std::sync::MutexGuard<'_, Outbox> {
         self.outbox.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn echoes(&self) -> std::sync::MutexGuard<'_, EchoSet> {
         self.echoes.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-
-    fn on_change(&self) -> std::sync::MutexGuard<'_, Option<Arc<dyn Fn() + Send + Sync>>> {
-        self.on_change
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -193,7 +146,6 @@ mod tests {
     fn peer(name: &str, online: bool) -> PeerRef {
         PeerRef {
             key: format!("fp-{name}"),
-            name: name.into(),
             to: DeviceId(name.into()),
             online,
         }
@@ -222,7 +174,7 @@ mod tests {
             sent.lock().unwrap().push((to.0.clone(), payload.data));
             Ok(())
         });
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
         assert_eq!(
             sent.lock().unwrap().as_slice(),
             [("win".into(), b"hello".to_vec())]
@@ -240,13 +192,7 @@ mod tests {
         b.tick(&[peer("win", false)], |_, _| unreachable!());
         *access.read.lock().unwrap() = ClipboardRead::Content(ClipboardContent::Text("two".into()));
         b.tick(&[peer("win", false)], |_, _| unreachable!());
-        assert_eq!(
-            b.snapshot(1)
-                .iter()
-                .filter_map(|i| i.text.clone())
-                .collect::<Vec<_>>(),
-            ["two", "one"]
-        );
+        assert_eq!(b.pending(), 2);
 
         let sent = Mutex::new(Vec::new());
         *access.read.lock().unwrap() = ClipboardRead::Empty;
@@ -254,7 +200,7 @@ mod tests {
             sent.lock().unwrap().push(payload.data);
             Ok(())
         });
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
         assert_eq!(
             sent.lock().unwrap().as_slice(),
             [b"one".to_vec(), b"two".to_vec()]
@@ -273,7 +219,7 @@ mod tests {
             Ok(())
         });
         assert_eq!(sent.load(Ordering::SeqCst), 0);
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
     }
 
     #[test]
@@ -313,17 +259,17 @@ mod tests {
             10,
         );
         b.tick(&[peer("win", false)], |_, _| unreachable!());
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
 
         enabled.store(true, Ordering::SeqCst);
         b.tick(&[peer("win", false)], |_, _| unreachable!());
-        assert_eq!(b.snapshot(1)[0].text.as_deref(), Some("hello"));
+        assert_eq!(b.pending(), 1);
 
         enabled.store(false, Ordering::SeqCst);
         b.tick(&[peer("win", true)], |_, _| {
             panic!("关掉后不得冲刷");
         });
-        assert_eq!(b.snapshot(1).len(), 1);
+        assert_eq!(b.pending(), 1);
     }
 
     #[test]
@@ -335,8 +281,7 @@ mod tests {
             |_, _| unreachable!(),
         );
         b.tick(&[peer("linux", false)], |_, _| unreachable!());
-        assert_eq!(b.snapshot(1).len(), 1);
-        assert_eq!(b.snapshot(2)[0].peer, "linux");
+        assert_eq!(b.pending(), 1);
     }
 
     #[test]
@@ -344,7 +289,7 @@ mod tests {
         let access = FakeAccess::content(ClipboardContent::Text("hello".into()));
         let b = bridge(access, true, Arc::new(Mutex::new(EchoSet::new())));
         b.tick(&[peer("win", true)], |_, _| Err(Error::Net("down".into())));
-        assert_eq!(b.snapshot(1).len(), 1);
+        assert_eq!(b.pending(), 1);
     }
 
     #[test]
@@ -362,7 +307,7 @@ mod tests {
         b.tick(&[peer("win", true)], |_, _| unreachable!());
         b.tick(&[peer("win", true)], |_, _| unreachable!());
         assert_eq!(notes.0.lock().unwrap().as_slice(), ["剪贴板过大，未同步"]);
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
     }
 
     #[test]
@@ -381,6 +326,6 @@ mod tests {
         *access.read.lock().unwrap() = ClipboardRead::Empty;
         b.tick(&[peer("win", true)], |_, _| unreachable!());
         assert!(notes.0.lock().unwrap().is_empty());
-        assert!(b.snapshot(1).is_empty());
+        assert_eq!(b.pending(), 0);
     }
 }

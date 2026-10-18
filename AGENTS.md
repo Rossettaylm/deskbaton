@@ -11,7 +11,7 @@ DeskBaton（交棒）：一台显示器、多台电脑，一键把画面和键�
 - 持棒判定：`get_input()` 等于本机 `display.input_code`。
 - Mac 保持唤醒只能经 `PowerControl::stay_awake` 返回的 `AwakeGuard`，默认在对端在线期间保持。不得永久修改系统睡眠策略；guard 释放和 agent 启动时都要恢复。
 - 交棒附带能力失败只记日志，不得阻断或拖慢交棒。剪贴板已改为实时同步，不再随交棒 `pack`。
-- 剪贴板实时发给已配对对端；对端离线时进该对端发件箱，上线后按序送出。不转发收到的内容；跳过敏感标记；超过 32 MiB 跳过。总开关与「剪贴板」tab 显隐分开，写入 `state.toml`。
+- 剪贴板实时发给已配对对端；对端离线时进该对端发件箱，上线后按序送出。不转发收到的内容；跳过敏感标记；超过 32 MiB 跳过。总开关写入 `state.toml`。面板不展示未发列表。
 - 网络只限局域网：TLS + 证书指纹固定，不暴露到公网。
 - 唤醒配件只执行唤醒，不接受任意按键输入，必须校验配对令牌。
 
@@ -58,3 +58,11 @@ CI 在 macOS / Windows / Linux 上执行同样的检查。
 - 提交信息：Conventional Commits 前缀 + 中文描述，如 `feat: 实现 Windows DDC 读写`。
 - 身份只在仓库本地配置：`Rossettaylm <2441197035@qq.com>`。不修改全局 git 配置。
 - 调研结论放 `docs/research/`，设计放 `docs/superpowers/specs/`。
+- 每次 `git push` 之后立刻触发 Windows 发行构建，不得只推源码。用刚推上去的分支：
+
+  ```bash
+  gh workflow run windows-build.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
+  gh run list --workflow=windows-build.yml --limit 1
+  ```
+
+  确认已排队。产物是 `deskbaton-cli.exe`、`deskbaton.exe`、`deskbaton-gui.exe`（artifact `deskbaton-windows`）。

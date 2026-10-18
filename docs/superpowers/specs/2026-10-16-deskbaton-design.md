@@ -16,7 +16,7 @@
 >
 > 修订（2026-10-17）：剪贴板同步改按 `2026-10-17-clipboard-design.md`：`clipboard-rs` 读写系统剪贴板，只在交棒时带走文本 / PNG；开关在面板「本机」卡片，写入 `state.toml`，不进 `config.toml`。冲突时以剪贴板设计为准。
 >
-> 修订（2026-10-18）：剪贴板改为实时同步，对端离线进该对端发件箱，上线后按序送出；交棒不再附带。见 `2026-10-18-clipboard-realtime-design.md`，冲突时以该文为准。
+> 修订（2026-10-18）：剪贴板改为实时同步，对端离线进该对端发件箱，上线后按序送出；交棒不再附带。见 `2026-10-18-clipboard-realtime-design.md`，冲突时以该文为准。同日去掉面板「剪贴板」tab，同步与发件箱不变。
 >
 > 修订（2026-10-18）：离线的 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠。合盖 Mac 仍先唤醒再切。见 `2026-10-18-offline-switch-design.md`，冲突时以该文为准。
 

@@ -398,12 +398,11 @@ fn clipboard_outbox_flushes_after_fake_offline() {
     );
     let mut peer = PeerRef {
         key: "fp-win".into(),
-        name: "win".into(),
         to: DeviceId("win".into()),
         online: false,
     };
     bridge.tick(&[peer.clone()], |_, _| unreachable!());
-    assert_eq!(bridge.snapshot(1).len(), 1);
+    assert_eq!(bridge.pending(), 1);
 
     peer.online = true;
     let link = Arc::clone(&mac.link);
@@ -413,7 +412,7 @@ fn clipboard_outbox_flushes_after_fake_offline() {
     wait_until("冲刷到达 win", || {
         win.received.lock().unwrap().as_slice() == ["queued"]
     });
-    assert!(bridge.snapshot(1).is_empty());
+    assert_eq!(bridge.pending(), 0);
 
     mac.shutdown();
     win.shutdown();

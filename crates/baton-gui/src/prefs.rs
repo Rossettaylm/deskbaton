@@ -6,8 +6,7 @@ use std::sync::mpsc;
 use baton_agent::{Agent, data_dir_of, hostname, hotkey, load_config};
 use baton_core::autostart::{self, AutostartOnLaunch};
 use baton_core::config::default_config_path;
-use baton_core::outbox::OutboxViewItem;
-use baton_core::state_file::{LocalState, clamp_outbox_limit};
+use baton_core::state_file::LocalState;
 use baton_core::{Error, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -23,8 +22,6 @@ pub struct PrefsView {
     pub hotkey: String,
     pub notify: bool,
     pub clipboard_sync: bool,
-    pub clipboard_tab: bool,
-    pub clipboard_outbox_limit: u32,
     pub autostart: bool,
 }
 
@@ -87,8 +84,6 @@ fn read_prefs(slot: &AgentSlot) -> Result<PrefsView> {
         clipboard_sync: slot
             .with_agent(Agent::clipboard_sync)
             .unwrap_or(local.clipboard_sync),
-        clipboard_tab: local.clipboard_tab,
-        clipboard_outbox_limit: clamp_outbox_limit(local.clipboard_outbox_limit),
         autostart: startup::is_enabled().unwrap_or(false),
     })
 }
@@ -126,36 +121,6 @@ pub fn set_clipboard_sync(
     .map_err(|e| e.to_string())?;
     slot.set_clipboard_sync(clipboard_sync);
     Ok(())
-}
-
-#[tauri::command]
-pub fn set_clipboard_tab(clipboard_tab: bool) -> std::result::Result<(), String> {
-    LocalState::update(&state_path().map_err(|e| e.to_string())?, |s| {
-        s.clipboard_tab = clipboard_tab;
-    })
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-pub fn set_clipboard_outbox_limit(
-    slot: State<'_, AgentSlot>,
-    limit: u32,
-) -> std::result::Result<u32, String> {
-    let limit = clamp_outbox_limit(limit);
-    LocalState::update(&state_path().map_err(|e| e.to_string())?, |s| {
-        s.clipboard_outbox_limit = limit;
-    })
-    .map_err(|e| e.to_string())?;
-    slot.set_outbox_limit(limit);
-    Ok(limit)
-}
-
-#[tauri::command]
-pub fn clipboard_outbox(
-    slot: State<'_, AgentSlot>,
-) -> std::result::Result<Vec<OutboxViewItem>, String> {
-    Ok(slot.with_agent(Agent::clipboard_outbox).unwrap_or_default())
 }
 
 #[tauri::command]

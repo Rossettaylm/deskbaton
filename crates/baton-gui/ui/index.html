@@ -23,7 +23,6 @@
     <nav class="tabs" id="tabs" role="tablist" aria-label="面板分页">
       <button type="button" role="tab" id="tab-handoff" aria-controls="pane-handoff" aria-selected="true" data-tab="handoff">显示器</button>
       <button type="button" role="tab" id="tab-devices" aria-controls="pane-devices" aria-selected="false" data-tab="devices">设备</button>
-      <button type="button" role="tab" id="tab-clipboard" aria-controls="pane-clipboard" aria-selected="false" data-tab="clipboard">剪贴板</button>
       <button type="button" role="tab" id="tab-local" aria-controls="pane-local" aria-selected="false" data-tab="local">设置</button>
     </nav>
 
@@ -54,10 +53,6 @@
         </section>
       </div>
 
-      <div class="pane" id="pane-clipboard" role="tabpanel" aria-labelledby="tab-clipboard" data-pane="clipboard" hidden>
-        <section class="card outbox" id="clipboard-list"></section>
-      </div>
-
       <div class="pane" id="pane-local" role="tabpanel" aria-labelledby="tab-local" data-pane="local" hidden>
         <section class="card prefs">
           <label class="pref">
@@ -80,20 +75,8 @@
             <span>剪贴板</span>
             <input id="pref-clipboard" type="checkbox">
           </label>
-          <label class="pref">
-            <span>剪贴板页</span>
-            <input id="pref-clipboard-tab" type="checkbox">
-          </label>
-          <label class="pref">
-            <span>未发上限</span>
-            <input id="pref-outbox-limit" type="number" min="1" max="50">
-          </label>
         </section>
       </div>
-    </div>
-
-    <div class="lightbox" id="clipboard-lightbox" hidden>
-      <img id="clipboard-lightbox-img" alt="">
     </div>
 
     <footer class="foot">

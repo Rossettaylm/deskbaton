@@ -35,7 +35,7 @@
 | 项 | 真相 | 读取顺序 |
 |---|---|---|
 | 开机自启 | 系统登录项 | 打开面板时问系统 |
-| 名称、热键、通知、剪贴板 | `state.toml` | 名称/热键：`state.toml` > `config.toml`（只读）> 默认值；通知、剪贴板同步、剪贴板页：`state.toml`（缺省为开）；未发上限缺省 10 |
+| 名称、热键、通知、剪贴板 | `state.toml` | 名称/热键：`state.toml` > `config.toml`（只读）> 默认值；通知、剪贴板同步：`state.toml`（缺省为开）；`clipboard_tab` / `clipboard_outbox_limit` 仍可读以免拒读旧文件，面板不再改 |
 | 是否已种过登录项 | `state.toml` 的 `autostart_seeded` | 仅程序使用 |
 
 与输入源编码相反：编码仍是配置优先于学到的值（零配置设计第 4.3 节）；名称和热键是 `state.toml` 优先，因为面板是今后的写入入口。
@@ -52,8 +52,8 @@ name = "macbook"                # 可选；字段不存在 = 未在面板保存�
 hotkey = "Ctrl+Alt+B"           # 可选；字段不存在 = 未在面板保存过
 notify = true                   # 缺省 true
 clipboard_sync = true           # 缺省 true；见剪贴板实时设计
-clipboard_tab = true            # 缺省 true；只控制 tab 显隐
-clipboard_outbox_limit = 10     # 缺省 10；每端发件箱上限，1–50
+clipboard_tab = true            # 兼容旧文件；面板不再使用
+clipboard_outbox_limit = 10     # 缺省 10；每端发件箱上限，1–50；启动时读取，面板不提供旋钮
 autostart_seeded = true         # 缺省 false
 ```
 
@@ -85,8 +85,6 @@ autostart_seeded = true         # 缺省 false
 | 开机自启 | 开关 | 反映系统登录项是否指向本程序 |
 | 通知 | 开关 | 反映 `state.toml` 的 `notify` |
 | 剪贴板 | 开关 | 反映 `state.toml` 的 `clipboard_sync`；见实时设计 |
-| 剪贴板页 | 开关 | 反映 `clipboard_tab`；关掉只藏 tab |
-| 未发上限 | 数字 | 反映 `clipboard_outbox_limit` |
 
 录制热键期间，这次按键不得触发交棒。格式与现有 `hotkey::parse` 相同，例如 `Ctrl+Alt+Space`。
 
