@@ -71,7 +71,7 @@
   - [x] 安装版判定、UpdateSlot、面板检查/升级命令
   - [x] `tauri-plugin-updater` + `latest.json` endpoint + minisign 公钥
   - [x] `pack.yml`：tag `vX.Y.Z` 发 GitHub Release，安装包文件名随 workspace 版本
-  - [ ] 把 `TAURI_SIGNING_PRIVATE_KEY` 写入仓库 Secrets 后，打 tag 发可升级版本
+  - [x] 把 `TAURI_SIGNING_PRIVATE_KEY` 写入仓库 Secrets 后，打 tag 发可升级版本
   - [ ] 🔧 更新设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖

@@ -88,4 +88,37 @@ mod tests {
             "产物在 workspace target 下；find 缺目录时不能让 pipefail 失败"
         );
     }
+
+    fn pref_container_tag(html: &str, id: &str) -> &'static str {
+        let pos = html
+            .find(&format!("id=\"{id}\""))
+            .unwrap_or_else(|| panic!("missing #{id}"));
+        let before = &html[..pos];
+        let pref = before
+            .rfind("class=\"pref\"")
+            .unwrap_or_else(|| panic!("#{id} not in .pref"));
+        let tag_start = before[..pref]
+            .rfind('<')
+            .unwrap_or_else(|| panic!("#{id} .pref has no tag"));
+        let tag = before[tag_start + 1..]
+            .split(|c: char| c.is_whitespace() || c == '>')
+            .next()
+            .unwrap_or("");
+        match tag {
+            "label" => "label",
+            "div" => "div",
+            other => panic!("#{id} .pref is <{other}>"),
+        }
+    }
+
+    #[test]
+    fn pref_buttons_are_not_wrapped_in_labels() {
+        let html = include_str!("../ui/index.html");
+        assert_eq!(pref_container_tag(html, "pref-hotkey"), "div");
+        assert_eq!(pref_container_tag(html, "pref-update"), "div");
+        assert_eq!(pref_container_tag(html, "pref-name"), "label");
+        assert_eq!(pref_container_tag(html, "pref-autostart"), "label");
+        assert_eq!(pref_container_tag(html, "pref-notify"), "label");
+        assert_eq!(pref_container_tag(html, "pref-clipboard"), "label");
+    }
 }
