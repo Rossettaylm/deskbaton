@@ -47,7 +47,29 @@ pub fn install_build_at(exe: &Path, local_app_data: Option<&Path>) -> bool {
     let Some(local) = local_app_data else {
         return false;
     };
-    exe.starts_with(local.join("Programs").join("DeskBaton"))
+    path_is_under(exe, &local.join("Programs").join("DeskBaton"))
+}
+
+fn normalize_windows_path(path: &Path) -> String {
+    let mut s = path.to_string_lossy().replace('/', "\\");
+    for prefix in [r"\\?\", r"\\.\", "//?/", "//./"] {
+        if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
+            s = s[prefix.len()..].to_string();
+            break;
+        }
+    }
+    while s.ends_with('\\') && s.len() > 3 {
+        s.pop();
+    }
+    s
+}
+
+fn path_is_under(path: &Path, root: &Path) -> bool {
+    let path = normalize_windows_path(path);
+    let root = normalize_windows_path(root);
+    path.len() >= root.len()
+        && path.as_bytes()[..root.len()].eq_ignore_ascii_case(root.as_bytes())
+        && (path.len() == root.len() || path.as_bytes().get(root.len()) == Some(&b'\\'))
 }
 
 pub fn is_enabled() -> Result<bool> {
@@ -354,6 +376,23 @@ mod tests {
                 .join("release")
                 .join("deskbaton-gui.exe"),
             Some(&local),
+        ));
+    }
+
+    #[test]
+    fn install_build_windows_ignores_case_and_verbatim_prefix() {
+        let local = Path::new(r"C:\Users\me\AppData\Local");
+        assert!(install_build_at(
+            Path::new(r"c:\users\me\appdata\local\programs\deskbaton\DeskBaton.exe"),
+            Some(local),
+        ));
+        assert!(install_build_at(
+            Path::new(r"\\?\C:\Users\me\AppData\Local\Programs\DeskBaton\DeskBaton.exe"),
+            Some(local),
+        ));
+        assert!(!install_build_at(
+            Path::new(r"\\?\C:\Users\me\Code\deskbaton\target\release\deskbaton-gui.exe"),
+            Some(local),
         ));
     }
 }

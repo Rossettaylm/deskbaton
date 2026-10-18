@@ -78,6 +78,7 @@
   - [x] 清单拉取失败重试一次，底栏「检查失败，请稍后再试。」
   - [x] 「已是最新版本」等结果底栏约 3 秒后消失
   - [x] Windows 检查请求避开 `Accept: application/json` 并给清单 URL 加时间戳；旧 tag 的 `latest.json` 与 latest 对齐
+  - [x] Windows 安装版路径忽略大小写 / `\\?\`；`.pref[hidden]` 真正隐藏；未安装版不得宣称已是最新
   - [ ] 🔧 更新设计验收清单第 1–6 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖

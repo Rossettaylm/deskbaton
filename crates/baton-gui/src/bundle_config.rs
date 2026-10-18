@@ -176,6 +176,15 @@ mod tests {
             js.contains("NOTICE_TTL_MS = 3000") && js.contains("updateNoticeTtl"),
             "已是最新 / 检查失败约 3 秒后消失，不能一直占着底栏"
         );
+        assert!(
+            js.contains("state.update.supported && state.update.kind === \"idle\""),
+            "未判定为安装版不得宣称已是最新"
+        );
+        let css = include_str!("../ui/style.css");
+        assert!(
+            css.contains(".pref[hidden]") && css.contains("display: none"),
+            ".pref {{ display:flex }} 会盖掉 hidden，版本行会在非安装版露出来"
+        );
     }
 
     #[test]

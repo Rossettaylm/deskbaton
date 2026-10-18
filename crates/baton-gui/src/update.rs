@@ -282,7 +282,14 @@ async fn fetch_remote(app: &AppHandle) -> Result<Option<String>> {
 async fn check_remote(app: &AppHandle) -> Result<UpdateStatus> {
     let slot = app.state::<UpdateSlot>();
     let status = slot.status();
-    if !status.supported || status.kind == UpdateKind::Installing {
+    if !status.supported {
+        let exe = crate::startup::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|e| e.to_string());
+        log::info!("非安装版，跳过检查 {exe}");
+        return Ok(status);
+    }
+    if status.kind == UpdateKind::Installing {
         return Ok(status);
     }
     Ok(slot.apply_remote(fetch_remote(app).await?))
@@ -574,6 +581,10 @@ mod tests {
         assert!(
             prod.contains("version_comparator") && prod.contains("manifest_endpoint"),
             "比较与清单 URL 必须走带日志、带时间戳的路径"
+        );
+        assert!(
+            prod.contains("非安装版，跳过检查"),
+            "supported=false 必须记日志，不得静默宣称已是最新"
         );
     }
 

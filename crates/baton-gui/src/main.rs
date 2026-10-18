@@ -189,7 +189,12 @@ fn main() -> ExitCode {
                     );
                 }
             }
-            app.manage(update::UpdateSlot::new(startup::is_install_build()));
+            let install = startup::is_install_build();
+            match startup::current_exe() {
+                Ok(exe) => log::info!("安装版={install} 路径={}", exe.display()),
+                Err(e) => log::info!("安装版={install} 路径未知：{e}"),
+            }
+            app.manage(update::UpdateSlot::new(install));
             app.manage(AgentSlot::start(app.handle()));
             let updater = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -471,6 +476,11 @@ mod tests {
         assert_eq!(
             path,
             std::path::Path::new("/tmp/DeskBaton/logs/deskbaton.log")
+        );
+        let main = include_str!("main.rs");
+        assert!(
+            main.contains("安装版={install}") && main.contains("exe.display()"),
+            "启动必须写下安装版判定和可执行文件路径"
         );
     }
 }

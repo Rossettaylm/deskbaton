@@ -45,9 +45,9 @@
 | 平台 | 安装版 | 开发版 |
 |---|---|---|
 | macOS | 可执行文件的祖先路径带 `.app`（现有 `exe_is_bundled`） | `cargo run` 的 `target/.../deskbaton-gui` |
-| Windows | 可执行文件在 `%LOCALAPPDATA%\Programs\DeskBaton\` 下 | `target\...\deskbaton-gui.exe` |
+| Windows | 可执行文件在 `%LOCALAPPDATA%\Programs\DeskBaton\` 下（忽略大小写，去掉 `\\?\`） | `target\...\deskbaton-gui.exe` |
 
-开发版不检查网络、本机卡片不画「版本」行。
+开发版不检查网络、本机卡片不画「版本」行。`.pref { display: flex }` 会盖掉 HTML `hidden`，版本行必须另写 `.pref[hidden] { display: none }`，与菜单、分页相同。未判定为安装版时，检查不得宣称「已是最新版本」。启动时把安装版判定和可执行文件路径写入日志。
 
 ## 4. 检查与安装
 

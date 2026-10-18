@@ -586,6 +586,8 @@ button { font: inherit; color: inherit; }
   line-height: 1.45;
 }
 
+.pref[hidden] { display: none; }
+
 .pref {
   display: flex;
   align-items: center;

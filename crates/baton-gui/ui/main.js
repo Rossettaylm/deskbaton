@@ -380,7 +380,7 @@ async function onUpdateClick() {
   render();
   try {
     applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("check_update")));
-    if (state.update.kind === "idle") {
+    if (state.update.supported && state.update.kind === "idle") {
       setNotice({ tone: "idle", text: "已是最新版本", keep: true }, NOTICE_TTL_MS);
     } else if (state.update.kind === "available" && state.update.version) {
       setNotice({
