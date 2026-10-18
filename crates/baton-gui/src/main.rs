@@ -13,6 +13,9 @@ mod startup;
 mod update;
 mod view;
 
+use std::fs::File;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
@@ -82,8 +85,63 @@ impl PendingOpen {
 #[derive(Default)]
 struct TrayRect(Mutex<Option<Rect>>);
 
+fn session_log_path(data_dir: &Path) -> PathBuf {
+    data_dir.join("logs").join("deskbaton.log")
+}
+
+struct TeeLog {
+    file: Mutex<File>,
+}
+
+impl Write for TeeLog {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let _ = io::stderr().write_all(buf);
+        self.file
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let _ = io::stderr().flush();
+        self.file
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .flush()
+    }
+}
+
+fn open_session_log() -> io::Result<(PathBuf, File)> {
+    let dir = baton_core::config::data_dir().map_err(|e| io::Error::other(e.to_string()))?;
+    let path = session_log_path(&dir);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let file = File::create(&path)?;
+    Ok((path, file))
+}
+
+fn init_logger() {
+    let mut builder =
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"));
+    let log_path = match open_session_log() {
+        Ok((path, file)) => {
+            builder.target(env_logger::Target::Pipe(Box::new(TeeLog {
+                file: Mutex::new(file),
+            })));
+            Some(path)
+        }
+        Err(_) => None,
+    };
+    builder.init();
+    if let Some(path) = log_path {
+        log::info!("日志：{}", path.display());
+    }
+}
+
 fn main() -> ExitCode {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_logger();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(commands::Panel::load())
@@ -405,5 +463,14 @@ mod tests {
         pending.restore(generation);
 
         assert!(pending.take().is_none());
+    }
+
+    #[test]
+    fn session_log_is_under_data_dir_logs() {
+        let path = super::session_log_path(std::path::Path::new("/tmp/DeskBaton"));
+        assert_eq!(
+            path,
+            std::path::Path::new("/tmp/DeskBaton/logs/deskbaton.log")
+        );
     }
 }

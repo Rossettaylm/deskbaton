@@ -72,14 +72,14 @@ const state = {
   pending: null,
   /** @type {Map<string, number>} 本机切走后，各显示器被切到的编码 */
   leftTo: new Map(),
-  /** @type {{ tone: "idle" | "ok" | "err", text: string } | null} 覆盖默认状态行的一次性提示 */
+  /** @type {{ tone: "idle" | "ok" | "err", text: string, keep?: boolean } | null} 覆盖默认状态行的一次性提示 */
   notice: null,
   /** @type {AgentStatus | null} */
   agent: null,
   /** @type {string | null} */
   version: null,
-  /** @type {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null }} */
-  update: { supported: false, kind: "idle", version: null },
+  /** @type {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null, checking: boolean }} */
+  update: { supported: false, kind: "idle", version: null, checking: false },
   /** @type {Devices | null} */
   devices: null,
   /** @type {string | null} 读取设备失败的原因 */
@@ -146,7 +146,7 @@ async function refresh() {
     for (const d of state.displays) {
       if (d.current_input != null) state.leftTo.delete(d.id);
     }
-    state.notice = null;
+    if (state.notice && !state.notice.keep) state.notice = null;
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
   } finally {
@@ -270,9 +270,10 @@ function renderUpdateRow() {
     return;
   }
   row.hidden = false;
-  btn.disabled = u.kind === "installing";
-  btn.classList.toggle("primary", u.kind === "available");
+  btn.disabled = u.kind === "installing" || u.checking;
+  btn.classList.toggle("primary", u.kind === "available" && !u.checking);
   if (u.kind === "installing") btn.textContent = "正在升级…";
+  else if (u.checking) btn.textContent = "正在检查更新…";
   else if (u.kind === "available" && u.version) btn.textContent = `升级到 v${u.version}`;
   else btn.textContent = "检查更新";
 }
@@ -283,6 +284,7 @@ function applyUpdateStatus(status) {
     supported: status.supported,
     kind: status.kind,
     version: status.version,
+    checking: state.update.checking,
   };
 }
 
@@ -295,12 +297,36 @@ async function refreshUpdate() {
 }
 
 /** @param {unknown} e */
+function invokeErrorText(e) {
+  if (typeof e === "string") return e;
+  if (e && typeof e === "object" && "message" in e && typeof e.message === "string" && e.message) {
+    return e.message;
+  }
+  return String(e);
+}
+
+/** @param {unknown} e */
 function logUpdateError(e) {
-  state.notice = { tone: "err", text: String(e) };
+  state.notice = { tone: "err", text: invokeErrorText(e), keep: true };
+}
+
+/** @param {string} text */
+function isUpdateNoticeText(text) {
+  return (
+    text.includes("检查更新") ||
+    text.includes("最新版本") ||
+    text.includes("发现新版本") ||
+    text.includes("无法安装更新") ||
+    text.includes("更新包校验失败") ||
+    text.includes("正在下载更新") ||
+    text.includes("没有可用更新") ||
+    text.includes("正在升级")
+  );
 }
 
 async function onUpdateClick() {
   if (state.update.kind === "installing") return;
+  if (state.update.checking) return;
   if (state.update.kind === "available") {
     state.update.kind = "installing";
     render();
@@ -313,11 +339,20 @@ async function onUpdateClick() {
     }
     return;
   }
+  state.update.checking = true;
+  state.notice = { tone: "idle", text: "正在检查更新…", keep: true };
+  render();
   try {
     applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("check_update")));
-    render();
+    if (state.update.kind === "idle") {
+      state.notice = { tone: "idle", text: "已是最新版本", keep: true };
+    } else if (state.update.kind === "available" && state.update.version) {
+      state.notice = { tone: "idle", text: `发现新版本 v${state.update.version}`, keep: true };
+    }
   } catch (e) {
     logUpdateError(e);
+  } finally {
+    state.update.checking = false;
     render();
   }
 }
@@ -947,7 +982,7 @@ tauri.event.listen("devices-changed", () => {
 });
 
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
-  state.notice = { tone: "idle", text: e.payload };
+  state.notice = { tone: "idle", text: e.payload, keep: isUpdateNoticeText(e.payload) };
   render();
 });
 

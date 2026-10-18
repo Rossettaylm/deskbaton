@@ -1,7 +1,8 @@
 //! 安装版程序内更新：状态槽、检查与安装。
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
+use std::time::Duration;
 
 use baton_core::{Error, Result};
 use serde::Serialize;
@@ -11,6 +12,9 @@ use tauri_plugin_updater::UpdaterExt;
 use crate::PANEL;
 use crate::agent::AgentSlot;
 use crate::notify;
+
+pub(crate) const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,7 +40,6 @@ struct Inner {
 
 pub struct UpdateSlot {
     inner: Mutex<Inner>,
-    fetching: AtomicBool,
 }
 
 impl UpdateSlot {
@@ -48,7 +51,6 @@ impl UpdateSlot {
                 version: None,
                 announced: None,
             }),
-            fetching: AtomicBool::new(false),
         }
     }
 
@@ -173,6 +175,11 @@ fn updater_user_text(prefix: &str, text: &str) -> String {
         || lower.contains("not found in the response `platforms`")
     {
         format!("{prefix}当前系统没有对应的更新包")
+    } else if lower.contains("timeout")
+        || lower.contains("timed out")
+        || lower.contains("error sending request")
+    {
+        format!("{prefix}网络超时，请检查能否访问 GitHub")
     } else {
         format!("{prefix}{text}")
     }
@@ -182,12 +189,29 @@ fn updater_err(prefix: &str, e: tauri_plugin_updater::Error) -> Error {
     Error::Config(updater_user_text(prefix, &e.to_string()))
 }
 
+fn updater_client(
+    app: &AppHandle,
+    timeout: Duration,
+    prefix: &str,
+) -> Result<tauri_plugin_updater::Updater> {
+    app.updater_builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| updater_err(prefix, e))
+}
+
 async fn fetch_remote(app: &AppHandle) -> Result<Option<String>> {
-    let updater = app
-        .updater()
-        .map_err(|e| updater_err("无法检查更新：", e))?;
+    log::info!("正在检查更新");
+    let updater = updater_client(app, CHECK_TIMEOUT, "无法检查更新：")?;
     match updater.check().await {
-        Ok(update) => Ok(update.map(|u| u.version)),
+        Ok(update) => {
+            let version = update.map(|u| u.version);
+            match &version {
+                Some(v) => log::info!("发现新版本 {v}"),
+                None => log::info!("已是最新版本"),
+            }
+            Ok(version)
+        }
         Err(e) => Err(updater_err("无法检查更新：", e)),
     }
 }
@@ -198,12 +222,7 @@ async fn check_remote(app: &AppHandle) -> Result<UpdateStatus> {
     if !status.supported || status.kind == UpdateKind::Installing {
         return Ok(status);
     }
-    if slot.fetching.swap(true, Ordering::SeqCst) {
-        return Ok(status);
-    }
-    let remote = fetch_remote(app).await;
-    slot.fetching.store(false, Ordering::SeqCst);
-    Ok(slot.apply_remote(remote?))
+    Ok(slot.apply_remote(fetch_remote(app).await?))
 }
 
 fn announce(app: &AppHandle, system_notify: bool) {
@@ -252,22 +271,26 @@ pub async fn check_update(app: AppHandle) -> std::result::Result<UpdateStatus, S
             announce(&app, false);
             Ok(status)
         }
-        Err(e) => Err(cmd_err(e)),
+        Err(e) => {
+            log::info!("{e}");
+            Err(cmd_err(e))
+        }
     }
 }
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> std::result::Result<(), String> {
-    do_install(app).await.map_err(cmd_err)
+    do_install(app).await.map_err(|e| {
+        log::info!("{e}");
+        cmd_err(e)
+    })
 }
 
 async fn do_install(app: AppHandle) -> Result<()> {
     let slot = app.state::<UpdateSlot>();
     let _version = slot.begin_install()?;
     let _ = app.emit_to(PANEL, "notice", progress_text(0, None));
-    let updater = app
-        .updater()
-        .map_err(|e| updater_err("无法安装更新：", e))?;
+    let updater = updater_client(&app, INSTALL_TIMEOUT, "无法安装更新：")?;
     let Some(update) = updater
         .check()
         .await
@@ -381,7 +404,35 @@ mod tests {
         );
         assert_eq!(
             updater_user_text("无法检查更新：", "timeout"),
-            "无法检查更新：timeout"
+            "无法检查更新：网络超时，请检查能否访问 GitHub"
+        );
+        assert_eq!(
+            updater_user_text(
+                "无法检查更新：",
+                "error sending request for url (https://github.com/x): operation timed out"
+            ),
+            "无法检查更新：网络超时，请检查能否访问 GitHub"
+        );
+        assert_eq!(
+            updater_user_text("无法检查更新：", "error sending request for url"),
+            "无法检查更新：网络超时，请检查能否访问 GitHub"
+        );
+    }
+
+    #[test]
+    fn check_timeout_is_fifteen_seconds() {
+        assert_eq!(super::CHECK_TIMEOUT, std::time::Duration::from_secs(15));
+        let prod = include_str!("update.rs")
+            .split("mod tests")
+            .next()
+            .expect("production source");
+        assert!(
+            prod.contains(".timeout(timeout)") && prod.contains("CHECK_TIMEOUT,"),
+            "检查与下载必须带超时，否则 GitHub 卡住时按钮无响应"
+        );
+        assert!(
+            !prod.contains("fetching.swap"),
+            "自动检查未完成时不得立刻返回 idle 并宣称已是最新"
         );
     }
 

@@ -4,6 +4,8 @@
 
 主设计见 `2026-10-16-deskbaton-design.md`。安装器见 `2026-10-18-installer-design.md`。本机卡片见 `2026-10-17-panel-settings-design.md`。冲突时以本文为准。
 
+修订（2026-10-18）：检查更新 15 秒超时；手动检查先出「正在检查更新…」；显示器刷新不得清掉更新底栏；安装版日志写到数据目录 `logs/deskbaton.log`。
+
 ## 1. 目标
 
 安装版面板能自己发现 GitHub 上的新版本；用户确认后下载、验签、覆盖安装并重启。日常 `main` 推送仍只打 7 天 artifact，不进更新通道。
@@ -30,7 +32,9 @@
 
 **版本：** tag `v0.0.2` 必须等于 workspace `version = "0.0.2"`，对不上 CI 失败。安装包文件名随版本变，例如 `DeskBaton-0.0.2-macos-aarch64.dmg`。
 
-**网络：** 机器互联仍只走局域网 TLS。检查更新是另一次对 GitHub 的 HTTPS GET。失败只记日志或底栏，不挡交棒。不升 `PROTOCOL_VERSION`。
+**网络：** 机器互联仍只走局域网 TLS。检查更新是另一次对 GitHub 的 HTTPS GET，15 秒超时。失败只记日志或底栏，不挡交棒。不升 `PROTOCOL_VERSION`。
+
+**日志：** 面板进程把 `info` 及以上写到数据目录 `logs/deskbaton.log`（每次启动截断），同时仍打 stderr（开发时能看见）。Windows 安装版是 GUI 子系统，没有控制台，查更新问题看这份文件：`%APPDATA%\DeskBaton\logs\deskbaton.log`。Mac：`~/Library/Application Support/DeskBaton/logs/deskbaton.log`。建文件失败不挡启动。
 
 ## 3. 安装版判定
 
@@ -45,17 +49,18 @@
 
 ## 4. 检查与安装
 
-进程内一份 `UpdateSlot`（`Mutex`），同一时刻只跑一轮检查或安装。
+进程内一份 `UpdateSlot`（`Mutex`）。安装进行中不再开一轮安装。检查更新的 HTTPS 15 秒超时；超时或连不上时文案「无法检查更新：网络超时，请检查能否访问 GitHub」。手动检查进行中按钮不可点。启动时的自动检查若尚未结束，手动检查仍要自己发一次请求并等待结果，不得立刻宣称已是最新。
 
 ```text
 启动（安装版）
     → 窗口起来后 spawn 检查 latest.json
-        ├ 已是最新 / 网络失败 → 只记日志，槽位 kind=none
+        ├ 已是最新 / 网络失败 → 只记日志，槽位 kind=idle
         └ 有新版本 → 槽位 kind=available
               emit update-available
               底栏 notice「发现新版本 vx.y.z」
               通知开关为开则再弹一次系统通知（同一句；点通知只打开面板）
 本机卡片「检查更新」
+    → 立刻底栏和按钮「正在检查更新…」
     → 再查一次；已最新则底栏「已是最新版本」；失败则底栏中文原因
 点「升级到 vx.y.z」
     → 底栏「正在下载更新…（升级会短暂退出）」
@@ -66,16 +71,17 @@
 
 `https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json`
 
-自动检查的失败不写底栏。同一版本的「发现新版本」底栏和系统通知每进程只发一次；被其它底栏文案盖掉后不再自动写回。按钮在这次进程里一直保持「升级到 vx.y.z」，直到重启或升完。不另做关闭按钮，不写 `state.toml`。
+自动检查的失败不写底栏。同一版本的「发现新版本」底栏和系统通知每进程只发一次。手动检查的底栏（正在检查、已是最新、失败原因）以及升级进度，不被显示器 `refresh()` 清掉；直到下一次手动检查 / 升级或用户其它操作写出新 notice。按钮在这次进程里一直保持「升级到 vx.y.z」，直到重启或升完。不另做关闭按钮，不写 `state.toml`。
 
 覆盖安装不删数据目录（身份、`peers.toml`、`state.toml`、睡眠标记留下），与安装器设计第 5 节一致。下载中热键和交棒照常。升级会退出当前进程：合盖 Mac 上会松开 `AwakeGuard`，可能睡着。不为此先交棒，也不拦升级。
 
 | 情况 | 自动检查 | 手动检查 / 升级中 |
 |---|---|---|
-| 已是最新 | 只记日志 | 底栏「已是最新版本」 |
-| 网络失败、清单无效 | 只记日志 | 底栏说明原因 |
+| 已是最新 | 只记日志 | 底栏「已是最新版本」，刷新显示器不清掉 |
+| 网络失败、超时、清单无效 | 只记日志 | 底栏中文原因，刷新显示器不清掉 |
 | 签名不对 | — | 不安装，底栏「更新包校验失败」 |
 | 写入失败 / 重启失败 | — | 底栏说明；已写下的文件不回滚 |
+| 正在检查时再点 | — | 忽略 |
 | 正在升级时再点 | — | 底栏「正在升级…」，不另开一轮 |
 
 进度：`emit` `update-progress` `{ loaded, total }`。有 `total` 时底栏「正在下载更新 12 / 40 MB」；没有则保持「正在下载更新…（升级会短暂退出）」。
@@ -87,6 +93,7 @@
 | 状态 | 这一行 |
 |---|---|
 | 空闲 / 已最新 | 左侧「版本」，右侧按钮「检查更新」 |
+| 正在检查 | 按钮不可点，文案「正在检查更新…」 |
 | 发现新版本 | 左侧「版本」，右侧按钮「升级到 vx.y.z」 |
 | 正在下载 / 安装 | 按钮不可点，文案「正在升级…」 |
 | 开发版 | 不画这一行 |
@@ -139,6 +146,8 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 
 - 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\Programs\DeskBaton\DeskBaton.exe` 为真，`target\release\deskbaton-gui.exe` 为假
 - 开发版检查直接返回不支持，不发网络
+- 超时、连接失败映射为「无法检查更新：网络超时，请检查能否访问 GitHub」
+- 日志路径为数据目录下 `logs/deskbaton.log`
 - `tauri.conf.json`：有 endpoint 与公钥字段、`createUpdaterArtifacts` 为 false
 - `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败
 
@@ -151,8 +160,8 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 
 1. 低版本安装版启动后底栏提示新版本，本机卡片可升级；确认后重启，版本号变新，数据目录还在。
 2. `cargo run -p baton-gui` 没有「版本」这一行。
-3. 已是最新时手动检查：底栏「已是最新版本」。
-4. 断网：自动检查无提示；手动检查底栏报错，交棒仍可用。
+3. 已是最新时手动检查：立刻「正在检查更新…」，完成后底栏「已是最新版本」，切走再切回本机卡片仍在。
+4. 断网或访问不了 GitHub：自动检查无提示；手动检查最多约 15 秒后底栏报超时或失败，交棒仍可用。日志在数据目录 `logs/deskbaton.log`。
 5. 🔧 Mac：升完后若 Gatekeeper 拦截，记进验收，不在本轮做公证。
 
 ## 9. 风险

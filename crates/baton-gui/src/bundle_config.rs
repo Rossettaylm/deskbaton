@@ -146,6 +146,31 @@ mod tests {
     }
 
     #[test]
+    fn check_update_shows_progress_and_keeps_notice() {
+        let js = include_str!("../ui/main.js");
+        assert!(
+            js.contains("正在检查更新…"),
+            "手动检查必须立刻出「正在检查更新…」，不能干等网络"
+        );
+        assert!(
+            js.contains("keep: true"),
+            "更新底栏要带 keep，避免 refresh 清掉"
+        );
+        assert!(
+            js.contains("!state.notice.keep"),
+            "refresh 成功读显示器时不得清掉 keep 的更新提示"
+        );
+        assert!(
+            js.contains("if (state.update.checking) return"),
+            "正在检查时再点忽略"
+        );
+        assert!(
+            js.contains("e.message") && js.contains("check_update"),
+            "invoke 失败不能把 [object Object] 写到 底栏"
+        );
+    }
+
+    #[test]
     fn pref_buttons_are_not_wrapped_in_labels() {
         let html = include_str!("../ui/index.html");
         assert_eq!(pref_container_tag(html, "pref-hotkey"), "div");
