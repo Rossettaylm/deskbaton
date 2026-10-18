@@ -1,23 +1,23 @@
 # 面板分平台外壳与主题 token
 
-日期：2026-10-18　状态：已确认
+日期：2026-10-18　状态：已确认（同日修订：摆放与打开动画两边统一；分页高度锁定为显示器 tab）
 
 主设计见 `2026-10-16-deskbaton-design.md`，面板见 `2026-10-16-display-panel-design.md`。冲突时以本文为准。覆盖面板设计第 7 节「窗口形态 / 摆放 / 动效」，以及第 7.1 节色彩表。
 
 ## 1. 目标
 
-macOS 继续从菜单栏图标往下弹气泡。Windows 改成贴任务栏的系统浮层，不再水平对齐托盘图标、也不再从右下角往上长。
+macOS 继续从菜单栏图标往下弹气泡。Windows 仍是任务栏旁的浮层，但摆放算法与 macOS 相同：水平对准托盘图标，下方放不下就放上方。不再贴工作区右缘。
 
-两边同一套主题 token：换强调色或底色只改一份变量。平台只覆盖外壳（圆角、边距、打开动画）。
+两边同一套主题 token：换强调色或底色只改一份变量。平台只覆盖外壳圆角和边距。打开动画两边都是各卡片上浮。
 
 ## 2. 范围
 
 **做**
 
-- Windows：工作区右对齐、钉在任务栏上方、先量高再显示、整块上滑
+- Windows：先量高再显示；摆放与 macOS 同一套「对准托盘图标」算法
 - 主题色、圆角、间距、时长全部收成 CSS 变量；组件不再写主题色或外壳尺寸的字面量
-- `html.platform-macos` / `html.platform-windows` 只覆盖外壳变量
-- `panel_origin` 按平台选对齐方式，单测覆盖 Windows 右对齐与底边钉死
+- `html.platform-macos` / `html.platform-windows` 只覆盖外壳变量（圆角、边距）
+- 分页高度锁定为「显示器」tab；其它 tab 同高，超出则在分页区域内滚动
 
 **不做**
 
@@ -35,31 +35,23 @@ macOS 继续从菜单栏图标往下弹气泡。Windows 改成贴任务栏的系
 
 | | macOS | Windows |
 |---|---|---|
-| 水平 | 图标居中，再夹进屏幕，边距 `--edge-gap`（6px） | 工作区右对齐，`x = screen.right - width - gap`，边距 12px |
-| 垂直 | 图标下方放得下就下方，否则上方 | 永远在托盘上方：`y = tray.y - height - gap`，下限 `screen.y` |
+| 水平 | 图标居中，再夹进屏幕，边距 `--edge-gap`（6px） | 同左，边距 12px |
+| 垂直 | 图标下方放得下就下方，否则上方 | 同左 |
 | 显示 | 先 `show` 再 `fit_panel`（现状） | **先 `fit_panel`，再 `show` + `focus`** |
-| 高度变化 | 重新摆放 | 底边钉在 `tray.y - gap`，只往上长 |
+| 高度 | 锁定为显示器 tab；显示器内容或「⋯」菜单变化才 `fit_panel` | 同左 |
 
-多屏：仍用托盘图标所在那块屏。托盘矩形读不到：Windows 退到该屏（或主屏）右下，按同样的右对齐和底边钉死，不居中。
+多屏：仍用托盘图标所在那块屏。托盘矩形读不到：两边都跳过这次摆放，不伪造右下角锚点。
 
-`placement.rs` 的 `GAP` 与 CSS `--edge-gap` 数值相同，但 Rust 不读 CSS：macOS `6.0`，Windows `12.0`。
+`placement.rs` 的 `GAP` 与 CSS `--edge-gap` 数值相同，但 Rust 不读 CSS：macOS `6.0`，Windows `12.0`。`panel_origin` 不再分对齐方式：
 
 ```rust
-pub enum PanelAlign {
-    CenterOnTray,
-    WorkAreaEnd,
-}
-
 pub fn panel_origin(
     tray: Bounds,
     panel: (f64, f64),
     screen: Bounds,
     gap: f64,
-    align: PanelAlign,
 ) -> (f64, f64);
 ```
-
-`CenterOnTray` 保持现有水平算法。`WorkAreaEnd` 取 `screen.right - width - gap`，再与 `screen.x + gap` 取较大值，避免比屏幕还宽时出界。垂直算法按上表，不复用「下方优先」。
 
 Windows 11 任务栏只在底部。顶栏或不在底部的任务栏不单独处理。
 
@@ -70,7 +62,7 @@ Windows 11 任务栏只在底部。顶栏或不在底部的任务栏不单独处
 | | macOS | Windows |
 |---|---|---|
 | `--radius-shell` | 18px | 12px |
-| 打开动画 | 各卡片上浮 `--reveal-shift`（8px），时长 500ms，间隔 60ms | **整块**面板从下上滑 12px + 淡入，`transform-origin: bottom`，220ms；取消卡片逐张 `translateY` |
+| 打开动画 | 各卡片上浮 `--reveal-shift`（8px），时长 500ms，间隔 60ms | 同左 |
 | 卡片 / 接口圆角 | `--radius-card` 12px、`--radius-port` 9px，两边相同 | 同左 |
 
 ## 5. 主题 token
@@ -125,8 +117,8 @@ Windows 11 任务栏只在底部。顶栏或不在底部的任务栏不单独处
 |---|---|---|
 | `--radius-shell` | `18px` | `12px` |
 | `--edge-gap` | `6px` | `12px` |
-| `--reveal-shift` | `8px` | `12px` |
-| `--reveal-ms` | `500ms` | `220ms` |
+
+`--reveal-shift` / `--reveal-ms` 只在 `:root`，两边都是 `8px` / `500ms`。
 
 `--edge-gap` 给 CSS 间距用；Rust 摆放用同名含义的常量，不解析这套 CSS。
 
@@ -152,8 +144,8 @@ macOS 保持先 `show` 再 `fit`，避免改一条已经验收过的路径。
 ```text
 baton-gui/ui/theme.css     :root 与 html.platform-windows 的变量；style.css 首行导入
 baton-gui/ui/style.css     组件只引用 var(--…)
-baton-gui/src/placement.rs panel_origin 增加 PanelAlign；单测分平台
-baton-gui/src/main.rs      启动时给 html 加 platform-*；Windows 摆放用 WorkAreaEnd 与 gap 12
+baton-gui/src/placement.rs panel_origin 两边同一算法；单测含 Windows gap 12 仍居中
+baton-gui/src/main.rs      启动时给 html 加 platform-*；Windows 摆放同算法、gap 12
 baton-gui/src/commands.rs  fit_panel：Windows 仅消费待打开标记后量完再 show
 ```
 
@@ -161,8 +153,9 @@ baton-gui/src/commands.rs  fit_panel：Windows 仅消费待打开标记后量完
 
 ## 8. 既有文档
 
-- 面板设计第 7 节「窗口形态 / 摆放」：Windows 改为本文 §3、§6。
-- 面板设计第 7 节「动效」：Windows 改为本文 §4。
+- 面板设计第 7 节「窗口形态 / 摆放」：Windows 显示时序见本文 §6；摆放算法与 macOS 相同，见本文 §3。
+- 面板设计第 7 节「动效」：两边都是各卡片上浮，见本文 §4。
+- 面板设计第 7 节「高度」：锁定为显示器 tab，见本文 §3。
 - 面板设计第 7.1 节色彩表：升级为本文 §5.1；外壳尺寸从 7.1「尺寸」里拆出，按 §5.2 分平台。
 - 7.1「始终深色、橙色只用于当前信号」仍然有效。
 
@@ -170,18 +163,16 @@ baton-gui/src/commands.rs  fit_panel：Windows 仅消费待打开标记后量完
 
 **单测（`placement.rs`）**
 
-- `CenterOnTray`：现有用例保持原期望值（补上 `align` 参数即可）
-- `WorkAreaEnd`：1920×1080、托盘 `(1700, 1048, 36×24)`、面板 360×440、gap 12 → `(1548, 596)`
-- 面板比屏幕还宽时，`x = screen.x + gap`
-- 上方空间不够时，`y = screen.y`
+- 现有居中 / 右缘 / 底部任务栏 / 副屏用例保持原期望值
+- Windows gap 12、底部任务栏：1920×1080、托盘 `(1700, 1048, 36×24)`、面板 360×440 → `(1538, 596)`（水平仍居中图标，不是贴右缘）
 
 **CI**：现有 `fmt` / `clippy -D warnings` / `test`；Linux 继续排除 `baton-gui`。
 
 **手动**
 
 1. macOS：面板仍在菜单栏图标正下方弹出，圆角 18，卡片上浮；再点或点别处收起。
-2. Windows：面板贴在主屏任务栏上方、距右缘 12px，圆角 12；打开是整块上滑，没有先出现一块 480 高再长高。
-3. Windows：切换「显示器 / 设备 / 设置」或展开「⋯」时，底边不动、只往上长。
+2. Windows：面板对准托盘图标、在任务栏上方，圆角 12；打开是各卡片上浮，没有先出现一块 480 高再长高。
+3. 切换「显示器 / 设备 / 设置」时窗口高度不变；设备或设置内容超出则分页区域内滚动。展开「⋯」仍可长高。
 4. 把 `--signal` / `--signal-hot` / `--signal-deep` / `--signal-dim` / `--signal-glow` / `--signal-line` 改成另一色后重载，logo、高亮电脑、信号灯、预览辉光一起变，组件文件不用改。
 
 第 2–3 项标 🔧，用户在 Windows 上确认后打勾。
@@ -191,6 +182,6 @@ baton-gui/src/commands.rs  fit_panel：Windows 仅消费待打开标记后量完
 | 风险 | 应对 |
 |---|---|
 | Windows 先 fit 再 show，首开若前端没量到高 | `fit_panel` 收到高度后再 show；超时或失败仍按上次高度 show，并记日志 |
-| 托盘在溢出区，右对齐看起来不跟图标对 | 这是方案 A 的预期：跟系统音量/网络浮层一样贴工作区右下 |
+| 设备列表比显示器 tab 高 | 分页区域内滚动，不撑高窗口 |
 | 漏收硬编码色，改主题色漏一块 | 验收第 4 项；实现时 `style.css` 里不应再出现 `#` 或 `rgba(255, 106, 26` |
 | macOS 被连带改坏 | 摆放默认与测试保持 `CenterOnTray`；显示时序不改 |

@@ -53,24 +53,10 @@ button { font: inherit; color: inherit; }
   to { opacity: 1; transform: none; }
 }
 
-@keyframes slide-up {
-  from { opacity: 0; transform: translateY(var(--reveal-shift)); }
-  to { opacity: 1; transform: none; }
-}
-
 .panel.reveal > * { animation: rise var(--reveal-ms) cubic-bezier(0.2, 0.7, 0.2, 1) both; }
 .panel.reveal > :nth-child(2) { animation-delay: 0.06s; }
 .panel.reveal > :nth-child(3) { animation-delay: 0.12s; }
 .panel.reveal > :nth-child(4) { animation-delay: 0.18s; }
-
-html.platform-windows .panel.reveal {
-  transform-origin: bottom center;
-  animation: slide-up var(--reveal-ms) cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-
-html.platform-windows .panel.reveal > * {
-  animation: none;
-}
 
 /* ---------- 标题栏 ---------- */
 
@@ -211,7 +197,23 @@ html.platform-windows .panel.reveal > * {
   vertical-align: 1px;
 }
 
+.panes { position: relative; }
+
 .pane[hidden] { display: none; }
+
+#pane-handoff[hidden] {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pane:not(#pane-handoff) {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
 .pane > .card:first-child { margin-top: 0; }
 
 /* ---------- 预览 ---------- */

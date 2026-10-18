@@ -35,11 +35,6 @@ const GAP: f64 = 6.0;
 #[cfg(not(target_os = "macos"))]
 const GAP: f64 = 12.0;
 
-#[cfg(target_os = "macos")]
-const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::CenterOnTray;
-#[cfg(not(target_os = "macos"))]
-const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::WorkAreaEnd;
-
 #[derive(Default)]
 struct LastHidden(Mutex<Option<Instant>>);
 
@@ -327,25 +322,10 @@ fn try_place(window: &WebviewWindow, rect: Option<Rect>) -> tauri::Result<()> {
             };
             (screen, scale, tray)
         }
-        None => {
-            #[cfg(target_os = "macos")]
-            return Ok(());
-            #[cfg(not(target_os = "macos"))]
-            {
-                let primary = window.primary_monitor()?;
-                let monitor = primary.as_ref().unwrap_or(&monitors[0]);
-                let screen = logical_bounds(monitor);
-                (
-                    screen,
-                    monitor.scale_factor(),
-                    placement::work_area_end_tray(screen),
-                )
-            }
-        }
+        None => return Ok(()),
     };
     let panel = window.outer_size()?.to_logical::<f64>(window_scale);
-    let (x, y) =
-        placement::panel_origin(tray, (panel.width, panel.height), screen, GAP, PANEL_ALIGN);
+    let (x, y) = placement::panel_origin(tray, (panel.width, panel.height), screen, GAP);
     // macOS 窗口坐标本身就是全局逻辑坐标；Windows 是全局物理坐标。
     #[cfg(target_os = "macos")]
     let result = {

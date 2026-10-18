@@ -228,7 +228,6 @@ function setTab(next) {
   if (state.tab === "local" && recordingHotkey) cancelHotkeyRecord();
   state.tab = next;
   applyTab();
-  fit();
 }
 
 function applyTab() {

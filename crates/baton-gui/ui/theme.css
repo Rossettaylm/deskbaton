@@ -49,6 +49,4 @@
 html.platform-windows {
   --radius-shell: 12px;
   --edge-gap: 12px;
-  --reveal-shift: 12px;
-  --reveal-ms: 220ms;
 }
