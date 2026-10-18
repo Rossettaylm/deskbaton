@@ -52,4 +52,10 @@ void deskbaton_run_app_loop(void);
 /* 弹出系统通知；message 为 UTF-8。 */
 int32_t deskbaton_notify(const char *message);
 
+/* 安装版登录项与特权助手（SMAppService）。status：0 未登记，1 已启用，2 待用户允许。 */
+int32_t deskbaton_login_item_status(void);
+int32_t deskbaton_login_item_set(int32_t enabled);
+int32_t deskbaton_helper_register(void);
+int32_t deskbaton_helper_set_sleep_disabled(int32_t disabled);
+
 #endif

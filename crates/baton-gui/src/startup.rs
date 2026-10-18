@@ -1,6 +1,6 @@
 //! 面板开机自启：macOS LaunchAgent，Windows 当前用户 Run 键。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use baton_core::{Error, Result};
 
@@ -11,6 +11,17 @@ const RUN_VALUE: &str = "DeskBaton";
 
 pub fn current_exe() -> Result<PathBuf> {
     std::env::current_exe().map_err(|e| Error::Config(format!("无法确定本程序路径：{e}")))
+}
+
+pub fn exe_is_bundled(exe: &Path) -> bool {
+    exe.ancestors().any(|p| {
+        p.extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+    })
+}
+
+pub fn running_bundled() -> bool {
+    current_exe().is_ok_and(|p| exe_is_bundled(&p))
 }
 
 pub fn is_enabled() -> Result<bool> {
@@ -40,10 +51,16 @@ mod imp {
     use baton_core::Error;
 
     pub fn is_enabled() -> Result<bool> {
+        if super::running_bundled() {
+            return sm_enabled();
+        }
         Ok(plist_path()?.is_file())
     }
 
     pub fn enable(exe: &Path) -> Result<()> {
+        if super::exe_is_bundled(exe) {
+            return sm_set(true);
+        }
         let path = plist_path()?;
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir)
@@ -65,6 +82,9 @@ mod imp {
     }
 
     pub fn disable() -> Result<()> {
+        if super::running_bundled() {
+            return sm_set(false);
+        }
         let domain = gui_domain()?;
         let id = format!("{domain}/{LABEL}");
         let _ = Command::new("launchctl").args(["bootout", &id]).status();
@@ -73,6 +93,25 @@ mod imp {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(Error::Config(format!("无法删除登录项：{e}"))),
+        }
+    }
+
+    fn sm_enabled() -> Result<bool> {
+        // SAFETY: 无参数。
+        match unsafe { baton_macos_sys::deskbaton_login_item_status() } {
+            1 | 2 => Ok(true),
+            0 => Ok(false),
+            other => Err(Error::Config(format!("无法读取登录项：{other}"))),
+        }
+    }
+
+    fn sm_set(on: bool) -> Result<()> {
+        // SAFETY: 只传 0/1。
+        let rc = unsafe { baton_macos_sys::deskbaton_login_item_set(i32::from(on)) };
+        if rc == baton_macos_sys::OK {
+            Ok(())
+        } else {
+            Err(Error::Config("无法登记登录项".into()))
         }
     }
 
@@ -243,5 +282,24 @@ mod imp {
 
     pub fn disable() -> Result<()> {
         Err(Error::Unsupported("开机自启"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exe_is_bundled;
+    use std::path::Path;
+
+    #[test]
+    fn bundled_when_an_ancestor_is_app() {
+        assert!(exe_is_bundled(Path::new(
+            "/Applications/DeskBaton.app/Contents/MacOS/DeskBaton"
+        )));
+        assert!(!exe_is_bundled(Path::new(
+            "/Users/me/Code/deskbaton/target/debug/deskbaton-gui"
+        )));
+        assert!(!exe_is_bundled(Path::new(
+            r"C:\Users\me\AppData\Local\Programs\DeskBaton\DeskBaton.exe"
+        )));
     }
 }

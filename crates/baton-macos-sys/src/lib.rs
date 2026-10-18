@@ -65,6 +65,11 @@ unsafe extern "C" {
 
     pub fn deskbaton_run_app_loop();
     pub fn deskbaton_notify(message: *const c_char) -> i32;
+
+    pub fn deskbaton_login_item_status() -> i32;
+    pub fn deskbaton_login_item_set(enabled: i32) -> i32;
+    pub fn deskbaton_helper_register() -> i32;
+    pub fn deskbaton_helper_set_sleep_disabled(disabled: i32) -> i32;
 }
 
 /// `kCGEventSourceStateHIDSystemState`：汇总所有硬件输入设备。

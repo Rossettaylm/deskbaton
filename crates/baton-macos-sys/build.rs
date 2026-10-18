@@ -9,6 +9,7 @@ fn main() {
         .file("native/power.m")
         .file("native/screen.m")
         .file("native/notify.m")
+        .file("native/service.m")
         .flag("-fobjc-arc")
         .flag("-Wno-deprecated-declarations")
         .compile("deskbaton_native");
@@ -18,6 +19,7 @@ fn main() {
         "CoreFoundation",
         "CoreGraphics",
         "Foundation",
+        "ServiceManagement",
     ] {
         println!("cargo:rustc-link-lib=framework={framework}");
     }
