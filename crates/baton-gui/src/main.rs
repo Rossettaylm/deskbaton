@@ -57,6 +57,7 @@ fn main() -> ExitCode {
             commands::list_displays,
             commands::switch_input,
             commands::fit_panel,
+            commands::host_platform,
             commands::quit,
             commands::app_version,
             devices::agent_status,
@@ -172,11 +173,7 @@ fn toggle_panel(app: &AppHandle) {
     if just_hidden {
         return;
     }
-    place_panel(&window);
-    if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-        log::warn!("显示面板失败：{e}");
-    }
-    let _ = app.emit_to(PANEL, "panel-shown", ());
+    reveal_or_request(app, &window);
 }
 
 /// 有配对请求时主动弹出面板；已显示时不动。
@@ -187,11 +184,22 @@ pub(crate) fn show_panel(app: &AppHandle) {
     if window.is_visible().unwrap_or(false) {
         return;
     }
-    place_panel(&window);
-    if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-        log::warn!("显示面板失败：{e}");
+    reveal_or_request(app, &window);
+}
+
+fn reveal_or_request(app: &AppHandle, window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    {
+        place_panel(window);
+        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+            log::warn!("显示面板失败：{e}");
+        }
+        let _ = app.emit_to(PANEL, "panel-shown", ());
     }
-    let _ = app.emit_to(PANEL, "panel-shown", ());
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app.emit_to(PANEL, "panel-will-show", ());
+    }
 }
 
 fn hide_panel(app: &AppHandle) {

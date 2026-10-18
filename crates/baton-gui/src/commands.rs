@@ -215,7 +215,22 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
         .set_size(LogicalSize::new(PANEL_WIDTH, height.ceil()))
         .map_err(|e| e.to_string())?;
     place_panel(&window);
+    if !window.is_visible().unwrap_or(false) {
+        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+            return Err(e.to_string());
+        }
+        let _ = app.emit_to(PANEL, "panel-shown", ());
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn host_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "windows"
+    }
 }
 
 #[tauri::command]
