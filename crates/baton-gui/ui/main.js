@@ -314,6 +314,7 @@ function logUpdateError(e) {
 function isUpdateNoticeText(text) {
   return (
     text.includes("检查更新") ||
+    text.includes("检查失败") ||
     text.includes("最新版本") ||
     text.includes("发现新版本") ||
     text.includes("无法安装更新") ||

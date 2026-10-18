@@ -175,6 +175,8 @@ fn updater_user_text(prefix: &str, text: &str) -> String {
         || lower.contains("not found in the response `platforms`")
     {
         format!("{prefix}当前系统没有对应的更新包")
+    } else if lower.contains("could not fetch") {
+        "检查失败，请稍后再试。".into()
     } else if lower.contains("timeout")
         || lower.contains("timed out")
         || lower.contains("error sending request")
@@ -182,6 +184,22 @@ fn updater_user_text(prefix: &str, text: &str) -> String {
         format!("{prefix}网络超时，请检查能否访问 GitHub")
     } else {
         format!("{prefix}{text}")
+    }
+}
+
+fn should_retry_check(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("could not fetch")
+}
+
+#[cfg(test)]
+fn retry_if<T, E: ToString>(
+    first: std::result::Result<T, E>,
+    retry: impl FnOnce() -> std::result::Result<T, E>,
+) -> std::result::Result<T, E> {
+    match first {
+        Ok(value) => Ok(value),
+        Err(err) if should_retry_check(&err.to_string()) => retry(),
+        Err(err) => Err(err),
     }
 }
 
@@ -200,16 +218,33 @@ fn updater_client(
         .map_err(|e| updater_err(prefix, e))
 }
 
+fn log_checked(version: &Option<String>) {
+    match version {
+        Some(v) => log::info!("发现新版本 {v}"),
+        None => log::info!("已是最新版本"),
+    }
+}
+
+async fn check_once(
+    app: &AppHandle,
+) -> std::result::Result<Option<String>, tauri_plugin_updater::Error> {
+    let updater = app.updater_builder().timeout(CHECK_TIMEOUT).build()?;
+    Ok(updater.check().await?.map(|u| u.version))
+}
+
 async fn fetch_remote(app: &AppHandle) -> Result<Option<String>> {
     log::info!("正在检查更新");
-    let updater = updater_client(app, CHECK_TIMEOUT, "无法检查更新：")?;
-    match updater.check().await {
-        Ok(update) => {
-            let version = update.map(|u| u.version);
-            match &version {
-                Some(v) => log::info!("发现新版本 {v}"),
-                None => log::info!("已是最新版本"),
-            }
+    let result = match check_once(app).await {
+        Ok(version) => Ok(version),
+        Err(e) if should_retry_check(&e.to_string()) => {
+            log::info!("检查失败，重试一次：{e}");
+            check_once(app).await
+        }
+        Err(e) => Err(e),
+    };
+    match result {
+        Ok(version) => {
+            log_checked(&version);
             Ok(version)
         }
         Err(e) => Err(updater_err("无法检查更新：", e)),
@@ -417,6 +452,49 @@ mod tests {
             updater_user_text("无法检查更新：", "error sending request for url"),
             "无法检查更新：网络超时，请检查能否访问 GitHub"
         );
+        assert_eq!(
+            updater_user_text(
+                "无法检查更新：",
+                "Could not fetch a valid release JSON from the remote"
+            ),
+            "检查失败，请稍后再试。"
+        );
+    }
+
+    #[test]
+    fn fetch_json_failure_retries_once() {
+        assert!(super::should_retry_check(
+            "Could not fetch a valid release JSON from the remote"
+        ));
+        assert!(!super::should_retry_check("timeout"));
+        assert!(!super::should_retry_check("update package signature"));
+        let mut n = 0;
+        let ok = super::retry_if(
+            Err("Could not fetch a valid release JSON from the remote"),
+            || {
+                n += 1;
+                Ok("0.0.5")
+            },
+        );
+        assert_eq!(ok, Ok("0.0.5"));
+        assert_eq!(n, 1);
+        n = 0;
+        let still_err: std::result::Result<(), &str> = super::retry_if(
+            Err("Could not fetch a valid release JSON from the remote"),
+            || {
+                n += 1;
+                Err("Could not fetch a valid release JSON from the remote")
+            },
+        );
+        assert!(still_err.is_err());
+        assert_eq!(n, 1);
+        n = 0;
+        let no_retry = super::retry_if(Err("timeout"), || {
+            n += 1;
+            Ok("nope")
+        });
+        assert_eq!(no_retry, Err("timeout"));
+        assert_eq!(n, 0);
     }
 
     #[test]
@@ -427,7 +505,7 @@ mod tests {
             .next()
             .expect("production source");
         assert!(
-            prod.contains(".timeout(timeout)") && prod.contains("CHECK_TIMEOUT,"),
+            prod.contains(".timeout(CHECK_TIMEOUT)") && prod.contains(".timeout(timeout)"),
             "检查与下载必须带超时，否则 GitHub 卡住时按钮无响应"
         );
         assert!(

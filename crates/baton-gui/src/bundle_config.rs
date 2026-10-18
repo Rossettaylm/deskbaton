@@ -157,6 +157,10 @@ mod tests {
             "更新底栏要带 keep，避免 refresh 清掉"
         );
         assert!(
+            js.contains("检查失败"),
+            "检查失败底栏也要 keep，不能被 refresh 清掉"
+        );
+        assert!(
             js.contains("!state.notice.keep"),
             "refresh 成功读显示器时不得清掉 keep 的更新提示"
         );

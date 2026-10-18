@@ -4,7 +4,7 @@
 
 主设计见 `2026-10-16-deskbaton-design.md`。安装器见 `2026-10-18-installer-design.md`。本机卡片见 `2026-10-17-panel-settings-design.md`。冲突时以本文为准。
 
-修订（2026-10-18）：检查更新 15 秒超时；手动检查先出「正在检查更新…」；显示器刷新不得清掉更新底栏；安装版日志写到数据目录 `logs/deskbaton.log`。
+修订（2026-10-18）：检查更新 15 秒超时；手动检查先出「正在检查更新…」；显示器刷新不得清掉更新底栏；安装版日志写到数据目录 `logs/deskbaton.log`。清单拉取失败（HTTP 非 2xx / `ReleaseNotFound`）自动再试一次；底栏只写「检查失败，请稍后再试。」，不提清单、endpoint、GitHub JSON。
 
 ## 1. 目标
 
@@ -49,7 +49,7 @@
 
 ## 4. 检查与安装
 
-进程内一份 `UpdateSlot`（`Mutex`）。安装进行中不再开一轮安装。检查更新的 HTTPS 15 秒超时；超时或连不上时文案「无法检查更新：网络超时，请检查能否访问 GitHub」。手动检查进行中按钮不可点。启动时的自动检查若尚未结束，手动检查仍要自己发一次请求并等待结果，不得立刻宣称已是最新。
+进程内一份 `UpdateSlot`（`Mutex`）。安装进行中不再开一轮安装。检查更新的 HTTPS 15 秒超时；超时或连不上时文案「无法检查更新：网络超时，请检查能否访问 GitHub」。拉清单得到非成功状态（插件 `Could not fetch a valid release JSON`）时自动再试一次，仍失败则底栏「检查失败，请稍后再试。」——面向用户的文案不出现清单、JSON、endpoint、英文插件错误。手动检查进行中按钮不可点。启动时的自动检查若尚未结束，手动检查仍要自己发一次请求并等待结果，不得立刻宣称已是最新。
 
 ```text
 启动（安装版）
@@ -78,7 +78,8 @@
 | 情况 | 自动检查 | 手动检查 / 升级中 |
 |---|---|---|
 | 已是最新 | 只记日志 | 底栏「已是最新版本」，刷新显示器不清掉 |
-| 网络失败、超时、清单无效 | 只记日志 | 底栏中文原因，刷新显示器不清掉 |
+| 网络失败、超时 | 只记日志 | 底栏中文原因，刷新显示器不清掉 |
+| 清单 HTTP 非 2xx / 暂时无效 | 只记日志；自动再试一次 | 仍失败则底栏「检查失败，请稍后再试。」 |
 | 签名不对 | — | 不安装，底栏「更新包校验失败」 |
 | 写入失败 / 重启失败 | — | 底栏说明；已写下的文件不回滚 |
 | 正在检查时再点 | — | 忽略 |
@@ -147,6 +148,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 - 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\Programs\DeskBaton\DeskBaton.exe` 为真，`target\release\deskbaton-gui.exe` 为假
 - 开发版检查直接返回不支持，不发网络
 - 超时、连接失败映射为「无法检查更新：网络超时，请检查能否访问 GitHub」
+- `Could not fetch a valid release JSON` 映射为「检查失败，请稍后再试。」；此类失败自动再试一次
 - 日志路径为数据目录下 `logs/deskbaton.log`
 - `tauri.conf.json`：有 endpoint 与公钥字段、`createUpdaterArtifacts` 为 false
 - `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败
