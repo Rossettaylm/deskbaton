@@ -14,7 +14,7 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 
 **做**
 
-- macOS：`.dmg` 里的 `DeskBaton.app`
+- macOS：`.dmg` 里的 `DeskBaton.app`；`bundle.macOS.signingIdentity` 为 `-`，对整个 `.app` 做 ad-hoc 签名
 - Windows：NSIS 当前用户安装器
 - 安装或首次启动预置登录自启
 - Mac 安装版用 `SMAppService` 登记特权助手，替换手跑 `deskbaton-cli sleep-helper install`
@@ -42,7 +42,7 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 
 版本号与 workspace `0.0.1` 相同，升版本时文件名跟着改。
 
-`tauri.conf.json`：`productName` 改为 `DeskBaton`（现在是 `DeskBaton Panel`）；`identifier` 保持 `io.github.rossettaylm.deskbaton.panel`；`bundle.active` 打开；`targets` 只有 `dmg` 和 `nsis`。Windows `nsis.installMode` 为 `currentUser`。安装后 Windows 可执行文件名为 `DeskBaton.exe`（Tauri 按 `productName` 命名）。
+`tauri.conf.json`：`productName` 改为 `DeskBaton`（现在是 `DeskBaton Panel`）；`identifier` 保持 `io.github.rossettaylm.deskbaton.panel`；`bundle.active` 打开；`targets` 只有 `dmg` 和 `nsis`；`bundle.macOS.signingIdentity` 为 `-`。Windows `nsis.installMode` 为 `currentUser`。安装后 Windows 可执行文件名为 `DeskBaton.exe`（Tauri 按 `productName` 命名）。
 
 `.dmg` 只负责把 `.app` 放到应用程序文件夹。不另做 `.pkg`：特权助手必须从 `.app` 里登记 `SMAppService`，`.pkg` 也省不掉系统设置那一次确认。不另做 MSI：当前用户 NSIS 不需要管理员，机器级安装用不上。
 
@@ -116,19 +116,20 @@ macOS 没有卸载程序。用户把 `DeskBaton.app` 丢进废纸篓。丢进废
 
 Tauri / NSIS 打出的原始文件名若与第 3 节不同，`pack` 在上传前改名。
 
-## 7. 未签名
+## 7. 未公证（ad-hoc 签名）
 
-首版 CI 不配证书、不公证、不签 Authenticode。
+首版 CI 不配 Apple Developer 证书、不公证、不签 Authenticode。
 
-- **macOS：** Gatekeeper 拦截「未识别的开发者」。用户把 app 放到应用程序后，右键 → 打开。安装包和程序都不做绕过。
+macOS 必须对整个 `.app` 做 ad-hoc 签名：`bundle.macOS.signingIdentity` 为 `-`。不设此项时，链接器只给 Mach-O 打 `adhoc,linker-signed`，`Info.plist` 与 Resources 不进签名；Apple Silicon 上经浏览器下载后，Gatekeeper 报「已损坏」而不是「未识别的开发者」。ad-hoc 签整包后，用户仍要右键 → 打开，或到「系统设置 → 隐私与安全性」允许。安装包和程序都不剥隔离属性、不做其它绕过。
+
 - **Windows：** SmartScreen 提示「已保护你的电脑」。用户点「更多信息」→「仍要运行」。
 
-有 Apple Developer 与 Authenticode 证书后再加签名步骤，不在本文实现。
+有 Apple Developer 与 Authenticode 证书后再加 Developer ID / 公证，不在本文实现。
 
 ## 8. 代码组织
 
 ```text
-crates/baton-gui/tauri.conf.json          productName、bundle.active、targets、nsis.installMode
+crates/baton-gui/tauri.conf.json          productName、bundle.active、targets、signingIdentity、nsis.installMode
 crates/baton-gui/windows/hooks.nsh        Run 键写入 / 删除
 crates/baton-gui/src/startup.rs           macOS 安装版走 SMAppService 登录项，开发版维持 LaunchAgent
 crates/baton-power                        安装版经助手调 pmset，开发版维持 sudo -n
@@ -149,7 +150,7 @@ crates/baton-macos-sys/native             SMAppService 登记 / 查询 / 注销
 
 - 助手：只放行第 4.2 节两条命令；其它 argv（缺参、多参、改开关、加别的子命令）拒绝。
 - 开机自启策略：安装版首次启动在登录项已存在时把 `autostart_seeded` 置真且不重复「失败重试」以外的副作用；`autostart_seeded` 为真且系统已关时不得再开（沿用面板设置设计第 7 节）。
-- 配置：`baton-gui` 单测读 `tauri.conf.json`，断言 `productName` 为 `DeskBaton`、`bundle.active` 为真、`targets` 含 `dmg` 与 `nsis`、`nsis.installMode` 为 `currentUser`。CI `check` 在 macOS / Windows 上跑（Linux 排除 `baton-gui`）。
+- 配置：`baton-gui` 单测读 `tauri.conf.json`，断言 `productName` 为 `DeskBaton`、`bundle.active` 为真、`targets` 含 `dmg` 与 `nsis`、`nsis.installMode` 为 `currentUser`、`bundle.macOS.signingIdentity` 为 `-`。CI `check` 在 macOS / Windows 上跑（Linux 排除 `baton-gui`）。
 
 **CI**
 
@@ -170,7 +171,7 @@ crates/baton-macos-sys/native             SMAppService 登记 / 查询 / 注销
 
 | 风险 | 应对 |
 |---|---|
-| 未公证 / 未签名，Gatekeeper 与 SmartScreen 拦截 | 第 7 节写明用户操作；证书另做 |
+| 未公证，Gatekeeper 与 SmartScreen 仍拦截 | 第 7 节：ad-hoc 避免「已损坏」；用户右键打开；证书另做 |
 | 用户拒绝 Mac 后台项目，合盖切回仍会睡 | 与现在 sudoers 缺失相同；警告，不挡交棒 |
 | `.app` 丢进废纸篓后助手或 `SleepDisabled` 残留 | 第 5 节：系统设置关掉后台项目；`restore_sleep` / 手动 `pmset` |
 | 开发版 LaunchAgent 与安装版 SMAppService 并存 | 按是否在 `.app` 内分流；已开则刷新为当前路径 |

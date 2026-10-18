@@ -29,6 +29,10 @@ mod tests {
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../scripts/embed-sleep-daemon.sh");
         assert!(script.is_file(), "{}", script.display());
+        assert_eq!(
+            v["bundle"]["macOS"]["signingIdentity"], "-",
+            "Apple Silicon 上 linker-signed 半截签名会被 Gatekeeper 报已损坏"
+        );
     }
 
     #[test]
