@@ -266,7 +266,13 @@ fn try_place(window: &WebviewWindow, rect: Rect) -> tauri::Result<()> {
         height: size.height / scale,
     };
     let panel = window.outer_size()?.to_logical::<f64>(window_scale);
-    let (x, y) = placement::panel_origin(tray, (panel.width, panel.height), screen, GAP);
+    let (x, y) = placement::panel_origin(
+        tray,
+        (panel.width, panel.height),
+        screen,
+        GAP,
+        placement::PanelAlign::CenterOnTray,
+    );
     // macOS 窗口坐标本身就是全局逻辑坐标；Windows 是全局物理坐标。
     #[cfg(target_os = "macos")]
     return window.set_position(tauri::LogicalPosition::new(x, y));
