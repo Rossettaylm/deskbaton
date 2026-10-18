@@ -30,7 +30,15 @@ pub(crate) const PANEL_WIDTH: f64 = 360.0;
 /// 点托盘图标时，面板会先因失焦被隐藏，紧接着收到点击；这段时间内的点击视为「关闭」而不是「重新打开」。
 const BLUR_CLICK_GRACE: Duration = Duration::from_millis(300);
 /// 面板与托盘图标、屏幕边缘的间距（逻辑像素）。
+#[cfg(target_os = "macos")]
 const GAP: f64 = 6.0;
+#[cfg(not(target_os = "macos"))]
+const GAP: f64 = 12.0;
+
+#[cfg(target_os = "macos")]
+const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::CenterOnTray;
+#[cfg(not(target_os = "macos"))]
+const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::WorkAreaEnd;
 
 #[derive(Default)]
 struct LastHidden(Mutex<Option<Instant>>);
@@ -209,10 +217,7 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
         .0
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    let Some(rect) = live.or(stored) else {
-        return;
-    };
-    if let Err(e) = try_place(window, rect) {
+    if let Err(e) = try_place(window, live.or(stored)) {
         log::warn!("摆放面板失败：{e}");
     }
 }
@@ -220,67 +225,86 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
 /// 托盘矩形和显示器位置都是「各屏逻辑坐标 × 该屏缩放比例」，不能跨屏直接比较；
 /// 先按各屏比例换回逻辑坐标找出图标所在的屏幕，再在该屏的逻辑坐标里计算。
 /// 对不上时退到主屏，没有主屏则退到第一块。
-fn try_place(window: &WebviewWindow, rect: Rect) -> tauri::Result<()> {
-    let window_scale = window.scale_factor()?;
-    let position = rect.position.to_physical::<f64>(window_scale);
-    let size = rect.size.to_physical::<f64>(window_scale);
+fn try_place(window: &WebviewWindow, rect: Option<Rect>) -> tauri::Result<()> {
     let monitors = window.available_monitors()?;
     if monitors.is_empty() {
         return Ok(());
     }
-    let found = monitors.iter().find_map(|m| {
-        let scale = m.scale_factor();
-        let screen = logical_bounds(m);
-        screen
-            .contains(position.x / scale, position.y / scale)
-            .then_some((screen, scale))
-    });
-    let (screen, scale) = match found {
-        Some(hit) => hit,
-        None => {
-            let screens: Vec<Bounds> = monitors.iter().map(logical_bounds).collect();
-            let screen = window
-                .primary_monitor()?
-                .map(|m| logical_bounds(&m))
-                .or_else(|| {
-                    placement::screen_for_point(
-                        position.x / window_scale,
-                        position.y / window_scale,
-                        &screens,
-                    )
-                });
-            let Some(screen) = screen else {
-                return Ok(());
+    let window_scale = window.scale_factor()?;
+    let (screen, scale, tray) = match rect {
+        Some(rect) => {
+            let position = rect.position.to_physical::<f64>(window_scale);
+            let size = rect.size.to_physical::<f64>(window_scale);
+            let found = monitors.iter().find_map(|m| {
+                let scale = m.scale_factor();
+                let screen = logical_bounds(m);
+                screen
+                    .contains(position.x / scale, position.y / scale)
+                    .then_some((screen, scale))
+            });
+            let (screen, scale) = match found {
+                Some(hit) => hit,
+                None => {
+                    let screens: Vec<Bounds> = monitors.iter().map(logical_bounds).collect();
+                    let screen = window
+                        .primary_monitor()?
+                        .map(|m| logical_bounds(&m))
+                        .or_else(|| {
+                            placement::screen_for_point(
+                                position.x / window_scale,
+                                position.y / window_scale,
+                                &screens,
+                            )
+                        });
+                    let Some(screen) = screen else {
+                        return Ok(());
+                    };
+                    let scale = monitors
+                        .iter()
+                        .find(|m| logical_bounds(m) == screen)
+                        .map_or(window_scale, tauri::Monitor::scale_factor);
+                    (screen, scale)
+                }
             };
-            let scale = monitors
-                .iter()
-                .find(|m| logical_bounds(m) == screen)
-                .map_or(window_scale, tauri::Monitor::scale_factor);
-            (screen, scale)
+            let tray = Bounds {
+                x: position.x / scale,
+                y: position.y / scale,
+                width: size.width / scale,
+                height: size.height / scale,
+            };
+            (screen, scale, tray)
+        }
+        None => {
+            #[cfg(target_os = "macos")]
+            return Ok(());
+            #[cfg(not(target_os = "macos"))]
+            {
+                let primary = window.primary_monitor()?;
+                let monitor = primary.as_ref().unwrap_or(&monitors[0]);
+                let screen = logical_bounds(monitor);
+                (
+                    screen,
+                    monitor.scale_factor(),
+                    placement::work_area_end_tray(screen),
+                )
+            }
         }
     };
-    let tray = Bounds {
-        x: position.x / scale,
-        y: position.y / scale,
-        width: size.width / scale,
-        height: size.height / scale,
-    };
     let panel = window.outer_size()?.to_logical::<f64>(window_scale);
-    let (x, y) = placement::panel_origin(
-        tray,
-        (panel.width, panel.height),
-        screen,
-        GAP,
-        placement::PanelAlign::CenterOnTray,
-    );
+    let (x, y) =
+        placement::panel_origin(tray, (panel.width, panel.height), screen, GAP, PANEL_ALIGN);
     // macOS 窗口坐标本身就是全局逻辑坐标；Windows 是全局物理坐标。
     #[cfg(target_os = "macos")]
-    return window.set_position(tauri::LogicalPosition::new(x, y));
+    let result = {
+        let _ = scale;
+        window.set_position(tauri::LogicalPosition::new(x, y))
+    };
     #[cfg(not(target_os = "macos"))]
-    window.set_position(tauri::PhysicalPosition::new(
+    let result = window.set_position(tauri::PhysicalPosition::new(
         (x * scale).round() as i32,
         (y * scale).round() as i32,
-    ))
+    ));
+    result
 }
 
 fn logical_bounds(monitor: &tauri::Monitor) -> Bounds {
