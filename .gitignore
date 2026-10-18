@@ -3,3 +3,4 @@
 .idea/
 .vscode/
 /crates/baton-gui/gen/
+/crates/baton-gui/binaries/deskbaton-sleep-helper-*

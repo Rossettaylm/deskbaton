@@ -36,5 +36,8 @@ windows = { workspace = true, features = [
 [build-dependencies]
 tauri-build.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true
