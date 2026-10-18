@@ -6,6 +6,8 @@
 
 修订（2026-10-18）：检查更新 15 秒超时；手动检查先出「正在检查更新…」；显示器刷新不得清掉更新底栏；安装版日志写到数据目录 `logs/deskbaton.log`。清单拉取失败（HTTP 非 2xx / `ReleaseNotFound`）自动再试一次；底栏只写「检查失败，请稍后再试。」，不提清单、endpoint、GitHub JSON。已是最新 / 检查失败 / 超时底栏约 3 秒后恢复默认状态行。
 
+修订（2026-10-18）：Windows 安装版曾在本机仍是旧版本时底栏「已是最新版本」。浏览器打开同一 `latest.json` 已是新版本。插件默认带 `Accept: application/json`，部分路径会拿到另一份表示或缓存副本。检查与下载请求改为 `Accept: */*`、`Cache-Control: no-cache`，清单 URL 附加 `?t=<unix>`；日志写「本机 x.y.z / 清单 x.y.z」。旧 tag 上的 `latest.json` 与当前 latest 对齐，避免仍指向旧 tag 的缓存读到旧清单。
+
 ## 1. 目标
 
 安装版面板能自己发现 GitHub 上的新版本；用户确认后下载、验签、覆盖安装并重启。日常 `main` 推送仍只打 7 天 artifact，不进更新通道。
@@ -67,9 +69,11 @@
     → 验签、覆盖、AppHandle::restart()
 ```
 
-比较：semver，只升不降。清单地址：
+比较：semver，只升不降。`tauri.conf.json` 里的清单地址：
 
 `https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json`
+
+实际请求在其后加 `?t=<unix>`，并带 `Accept: */*`、`Cache-Control: no-cache`，避免插件默认的 `Accept: application/json` 和中间缓存把旧清单当成最新。检查结果无论是否有更新，都记「本机 x.y.z / 清单 x.y.z」。
 
 自动检查的失败不写底栏。同一版本的「发现新版本」底栏和系统通知每进程只发一次。手动检查的「正在检查」、升级进度、以及「发现新版本」，不被显示器 `refresh()` 清掉，直到下一次检查 / 升级或用户其它操作写出新 notice。「已是最新版本」「检查失败，请稍后再试。」和超时文案同样不被 refresh 立刻清掉，但约 3 秒后自动恢复默认状态行。按钮在这次进程里一直保持「升级到 vx.y.z」，直到重启或升完。不另做关闭按钮，不写 `state.toml`。
 
@@ -151,6 +155,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 - `Could not fetch a valid release JSON` 映射为「检查失败，请稍后再试。」；此类失败自动再试一次
 - 日志路径为数据目录下 `logs/deskbaton.log`
 - `tauri.conf.json`：有 endpoint 与公钥字段、`createUpdaterArtifacts` 为 false
+- 清单 URL 带 `?t=` 时间戳；请求头含 `Accept: */*` 与 `Cache-Control: no-cache`；日志含「本机」与「清单」
 - `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败
 
 **CI**
@@ -165,6 +170,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 3. 已是最新时手动检查：立刻「正在检查更新…」，完成后底栏「已是最新版本」，约 3 秒后恢复默认状态行。
 4. 断网或访问不了 GitHub：自动检查无提示；手动检查最多约 15 秒后底栏报超时或失败，交棒仍可用。日志在数据目录 `logs/deskbaton.log`。
 5. 🔧 Mac：升完后若 Gatekeeper 拦截，记进验收，不在本轮做公证。
+6. 🔧 Windows：低版本安装版检查能发现 GitHub latest 上的更高版本；日志有本机与清单两个版本号。
 
 ## 9. 风险
 

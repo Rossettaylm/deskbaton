@@ -207,15 +207,43 @@ fn updater_err(prefix: &str, e: tauri_plugin_updater::Error) -> Error {
     Error::Config(updater_user_text(prefix, &e.to_string()))
 }
 
+const MANIFEST_URL: &str =
+    "https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json";
+
+pub(crate) fn manifest_endpoint(now_unix: u64) -> String {
+    format!("{MANIFEST_URL}?t={now_unix}")
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn build_updater(
+    app: &AppHandle,
+    timeout: Duration,
+) -> std::result::Result<tauri_plugin_updater::Updater, tauri_plugin_updater::Error> {
+    let endpoint = manifest_endpoint(unix_now()).parse()?;
+    app.updater_builder()
+        .timeout(timeout)
+        .header("Accept", "*/*")?
+        .header("Cache-Control", "no-cache")?
+        .endpoints(vec![endpoint])?
+        .version_comparator(|current, release| {
+            log::info!("本机 {current} / 清单 {}", release.version);
+            release.version > current
+        })
+        .build()
+}
+
 fn updater_client(
     app: &AppHandle,
     timeout: Duration,
     prefix: &str,
 ) -> Result<tauri_plugin_updater::Updater> {
-    app.updater_builder()
-        .timeout(timeout)
-        .build()
-        .map_err(|e| updater_err(prefix, e))
+    build_updater(app, timeout).map_err(|e| updater_err(prefix, e))
 }
 
 fn log_checked(version: &Option<String>) {
@@ -228,7 +256,7 @@ fn log_checked(version: &Option<String>) {
 async fn check_once(
     app: &AppHandle,
 ) -> std::result::Result<Option<String>, tauri_plugin_updater::Error> {
-    let updater = app.updater_builder().timeout(CHECK_TIMEOUT).build()?;
+    let updater = build_updater(app, CHECK_TIMEOUT)?;
     Ok(updater.check().await?.map(|u| u.version))
 }
 
@@ -505,12 +533,47 @@ mod tests {
             .next()
             .expect("production source");
         assert!(
-            prod.contains(".timeout(CHECK_TIMEOUT)") && prod.contains(".timeout(timeout)"),
+            prod.contains("build_updater(app, CHECK_TIMEOUT)")
+                && prod.contains("build_updater(app, timeout)")
+                && prod.contains(".timeout(timeout)"),
             "检查与下载必须带超时，否则 GitHub 卡住时按钮无响应"
         );
         assert!(
             !prod.contains("fetching.swap"),
             "自动检查未完成时不得立刻返回 idle 并宣称已是最新"
+        );
+    }
+
+    #[test]
+    fn manifest_endpoint_busts_cache() {
+        let url = super::manifest_endpoint(1_792_338_000);
+        assert_eq!(
+            url,
+            "https://github.com/Rossettaylm/deskbaton/releases/latest/download/latest.json?t=1792338000"
+        );
+    }
+
+    #[test]
+    fn check_avoids_json_accept_and_logs_both_versions() {
+        let prod = include_str!("update.rs")
+            .split("mod tests")
+            .next()
+            .expect("production source");
+        assert!(
+            prod.contains("Accept") && prod.contains("*/*"),
+            "不得使用插件默认 Accept: application/json，Windows 上会误判已是最新"
+        );
+        assert!(
+            prod.contains("Cache-Control") && prod.contains("no-cache"),
+            "清单请求必须禁缓存"
+        );
+        assert!(
+            prod.contains("本机") && prod.contains("清单"),
+            "检查必须记下本机版本与清单版本"
+        );
+        assert!(
+            prod.contains("version_comparator") && prod.contains("manifest_endpoint"),
+            "比较与清单 URL 必须走带日志、带时间戳的路径"
         );
     }
 

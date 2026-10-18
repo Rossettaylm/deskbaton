@@ -200,7 +200,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "baton-agent"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-clipboard",
  "baton-core",
@@ -221,7 +221,7 @@ dependencies = [
 
 [[package]]
 name = "baton-cli"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "baton-display",
@@ -232,7 +232,7 @@ dependencies = [
 
 [[package]]
 name = "baton-clipboard"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "clipboard-rs",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "baton-core"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "log",
  "serde",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "baton-display"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "baton-macos-sys",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "baton-gui"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-agent",
  "baton-core",
@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "baton-input"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "baton-macos-sys",
@@ -292,14 +292,14 @@ dependencies = [
 
 [[package]]
 name = "baton-macos-sys"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "baton-net"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "getrandom 0.4.3",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "baton-power"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "baton-core",
  "baton-macos-sys",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "baton-sleep-helper"
-version = "0.0.6"
+version = "0.0.7"
 dependencies = [
  "cc",
 ]
