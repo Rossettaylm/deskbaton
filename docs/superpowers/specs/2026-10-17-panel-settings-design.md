@@ -4,6 +4,8 @@
 
 主设计见 `2026-10-16-deskbaton-design.md`，显示器面板见 `2026-10-16-display-panel-design.md`，配对见 `2026-10-17-pairing-design.md`，零配置见 `2026-10-17-zero-config-design.md`。本文落实 M2 的「开机自启、通知」，并在面板上提供本机名称与切换热键。冲突时以本文为准。
 
+修订（2026-10-18）：安装版的登录项写入时机与 macOS 机制见 `2026-10-18-installer-design.md`。macOS 安装版用 `SMAppService` 登记主程序，不再写 `~/Library/LaunchAgents/com.deskbaton.gui.plist`。Windows 安装器可在首次启动前写好 Run 键。`autostart_seeded` 语义不变。开发版做法仍以本文 5.4 为准。
+
 配对设计第 2 节「不做」中的「系统通知、开机自启」改由本文实现。
 
 ## 1. 目标

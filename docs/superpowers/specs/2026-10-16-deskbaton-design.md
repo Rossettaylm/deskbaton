@@ -19,6 +19,8 @@
 > 修订（2026-10-18）：剪贴板改为实时同步，对端离线进该对端发件箱，上线后按序送出；交棒不再附带。见 `2026-10-18-clipboard-realtime-design.md`，冲突时以该文为准。同日去掉面板「剪贴板」tab，同步与发件箱不变。
 >
 > 修订（2026-10-18）：离线的 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠。合盖 Mac 仍先唤醒再切。见 `2026-10-18-offline-switch-design.md`，冲突时以该文为准。
+>
+> 修订（2026-10-18）：用户分发改为 Mac `.dmg` + Windows NSIS 安装器，CI `pack` 出安装包，不再分发裸 exe。安装版 Mac 特权助手改 `SMAppService`。Linux 安装器留到两者定型之后。见 `2026-10-18-installer-design.md`，冲突时以该文为准。
 
 ## 1. 目标
 
@@ -169,8 +171,8 @@ pub trait Waker: Send + Sync {
 **Mac 的 `stay_awake`**：执行 `pmset -a disablesleep 1`（置 `SleepDisabled`）关闭包括合盖睡眠在内的所有睡眠，同时持有 `PreventUserIdleSystemSleep` 断言；恢复时执行 `pmset -a disablesleep 0`。已在 MacBook Pro + P275MV 上验证可挡住切回时的合盖睡眠。
 
 - 不使用 `IOPMrootDomain` 的 `kPMSetClamshellSleepState`：它写的是 powerd 自己管理的位，外接屏消失时 powerd 会把它改写回 0，内核随即判定合盖睡眠。能被 powerd 计入的 `AppliesOnLidClose` 断言需要 Apple 私有 entitlement。
-- 特权来源（首版）：一次性写入 `/etc/sudoers.d/deskbaton`，只允许当前用户免密码执行 `/usr/bin/pmset -a disablesleep 1` 和 `/usr/bin/pmset -a disablesleep 0` 两条完整命令；agent 用 `sudo -n` 调用。由 `deskbaton-cli sleep-helper install / uninstall / status` 管理，写入前用 `visudo -cf` 校验。M2 有 `.app` 后改为 `SMAppService` 注册的 LaunchDaemon。
-- 规则未安装或 `sudo -n` 失败时，`stay_awake` 只持有断言并记录警告，不阻断交棒；托盘提示留到 M2。
+- 特权来源：开发版一次性写入 `/etc/sudoers.d/deskbaton`，只允许当前用户免密码执行 `/usr/bin/pmset -a disablesleep 1` 和 `/usr/bin/pmset -a disablesleep 0` 两条完整命令；agent 用 `sudo -n` 调用。由 `deskbaton-cli sleep-helper install / uninstall / status` 管理，写入前用 `visudo -cf` 校验。安装版（`.app`）改为 `SMAppService` 登记的助手，只执行同一对命令，见 `2026-10-18-installer-design.md`。
+- 规则未安装、`sudo -n` 失败、或安装版助手未允许时，`stay_awake` 只持有断言并记录警告，不阻断交棒；托盘 / 底栏提示见安装器设计。
 - `SleepDisabled` 重启后仍然保留，所以标记文件放在 `~/Library/Application Support/DeskBaton/`，不放临时目录；只有标记存在时 `restore_sleep` 才执行 `disablesleep 0`，不改动用户自己设置的值。
 
 - 多个 guard 可以重叠，按引用计数共用一个系统级开关，最后一个释放或到期时恢复；释放会等待正在进行的恢复完成，保证进程正常退出前已恢复。
@@ -383,7 +385,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 - **baton-core**：用假实现驱动协调器和唤醒链，覆盖正常交棒、各类超时、掉线、唤醒失败、并发热键。
 - **baton-net**：分帧编解码单测；`mux` 调度单测（大数据传输期间控制帧的等待不超过一个块）；两个 agent 在本机回环地址上跑通配对、心跳、交棒消息和一次剪贴板 transfer。
 - **baton-clipboard**：用假的 `ClipboardAccess` 测防回传、超限跳过、敏感内容跳过。
-- **CI**：macOS / Windows / Linux 三平台跑 `fmt`、`clippy -D warnings`、`test`。
+- **CI**：macOS / Windows / Linux 三平台跑 `fmt`、`clippy -D warnings`、`test`（Linux 排除 `baton-gui`）。`main` 或手动触发时，Mac / Windows 再打安装包（`.dmg` / NSIS），见 `2026-10-18-installer-design.md`。不上传裸 exe。
 - **硬件验收清单**（手动）：
   1. 合盖 Mac 切到 Windows 后，5 分钟内切回，不需要开盖；
   2. 合盖 Mac 切走并睡眠超过 1 小时后，从 Windows 交棒，Mac 被唤醒并接管键鼠，不需要开盖；
@@ -397,7 +399,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 |---|---|---|
 | M0 原型 | ① Mac 端 DDC 读写；② Windows 端 DDC 读写；③ 实测 P275MV 的输入源编码和 KVM 跟随；④ Mac `stay_awake` 两种机制；⑤ 实测不需要配件的唤醒路径（已确认 Wi-Fi 魔术包可行） | `deskbaton-cli` 在两端完成切换；验收清单第 1 项通过；明确合盖睡眠 Mac 的可行唤醒方式 |
 | M1 命令行交棒 | 无界面 agent，写死对端地址，用预共享令牌代替配对；多通道帧格式与 `mux`；`peer_offline` 保持唤醒策略 | 热键完成双向交棒；验收清单第 1、3、4 项通过 |
-| M2 可用版本 | 剪贴板实时同步；agent 并入面板进程；mDNS 发现、面板配对、设备档案；开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项、配对设计验收清单、剪贴板实时设计验收清单通过 |
+| M2 可用版本 | 剪贴板实时同步；agent 并入面板进程；mDNS 发现、面板配对、设备档案；开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒；Mac / Windows 安装器 | 验收清单第 1–5 项、配对 / 剪贴板实时 / 安装器设计验收清单通过；能用安装包装上，登录后面板自起 |
 | M3 扩展 | HID 唤醒配件（魔术包不可用时的备选）、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
 
 ## 11. 风险
