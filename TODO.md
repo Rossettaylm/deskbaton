@@ -64,6 +64,7 @@
   - [x] macOS 安装版首次启动用 `SMAppService` 登记登录项；开发版维持 LaunchAgent
   - [x] `baton-sleep-helper` + 安装版经助手执行 pmset；开发版维持 sudoers
   - [x] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
+  - [x] CI：非 macOS clippy 不再因 `SleepPrivileges` 死代码失败；`beforeBundleCommand` 按仓库根找脚本，Windows 打包装时去掉该钩子
   - [ ] 🔧 安装器设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
@@ -81,6 +82,9 @@
 - [ ] 🔧 P275MV + 本机配置（USB-C `0x0F`）下面板显示「USB-C · 本机」；与 Windows 配对后，其输入口标出设备名和 Windows
 - [x] 设备上线、下线或档案变化时刷新输入源按钮上的设备（随零配置「电脑」卡片一起完成：`devices-changed` 后合并刷新）
 - [ ] 读取 capabilities 字符串自动识别输入口
+- [x] Windows 任务栏浮层 + 共享主题 token（[设计](docs/superpowers/specs/2026-10-18-panel-platform-chrome-design.md)）
+  - [ ] 🔧 Windows：面板贴任务栏上方、距右缘 12px，打开无 480 高闪帧
+  - [ ] 🔧 Windows：切分页或展开「⋯」时底边不动、只往上长
 
 ## P3 · M3 扩展（另立设计文档）
 

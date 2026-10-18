@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 
 use crate::agent::AgentSlot;
 use crate::view::{self, DisplayView, Machines, PeerMachine};
-use crate::{PANEL, PANEL_WIDTH, place_panel};
+use crate::{PANEL, PANEL_WIDTH, PendingOpen, place_panel};
 
 /// 接棒后 CoreGraphics 往往晚于 IOKit，过一会儿再读一次屏幕模式。
 const SCREEN_RETRY_AFTER: Duration = Duration::from_millis(800);
@@ -215,7 +215,29 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
         .set_size(LogicalSize::new(PANEL_WIDTH, height.ceil()))
         .map_err(|e| e.to_string())?;
     place_panel(&window);
+    let pending = app.state::<PendingOpen>();
+    if let Some(generation) = pending.take()
+        && !window.is_visible().unwrap_or(false)
+    {
+        if let Err(e) = window.show() {
+            pending.restore(generation);
+            return Err(e.to_string());
+        }
+        if let Err(e) = window.set_focus() {
+            log::warn!("面板已显示，但聚焦失败：{e}");
+        }
+        let _ = app.emit_to(PANEL, "panel-shown", ());
+    }
     Ok(())
+}
+
+#[tauri::command]
+pub fn host_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "windows"
+    }
 }
 
 #[tauri::command]

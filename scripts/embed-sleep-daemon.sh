@@ -2,6 +2,10 @@
 # 把 SMAppService 用的 LaunchDaemon plist 放进 .app 的 Contents/Library/LaunchDaemons/。
 set -euo pipefail
 
+if [[ "$(uname -s)" != Darwin ]]; then
+	exit 0
+fi
+
 root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 plist="$root/crates/baton-gui/macos/LaunchDaemons/io.github.rossettaylm.deskbaton.sleep.plist"
 app=""

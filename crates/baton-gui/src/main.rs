@@ -30,10 +30,57 @@ pub(crate) const PANEL_WIDTH: f64 = 360.0;
 /// 点托盘图标时，面板会先因失焦被隐藏，紧接着收到点击；这段时间内的点击视为「关闭」而不是「重新打开」。
 const BLUR_CLICK_GRACE: Duration = Duration::from_millis(300);
 /// 面板与托盘图标、屏幕边缘的间距（逻辑像素）。
+#[cfg(target_os = "macos")]
 const GAP: f64 = 6.0;
+#[cfg(not(target_os = "macos"))]
+const GAP: f64 = 12.0;
+
+#[cfg(target_os = "macos")]
+const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::CenterOnTray;
+#[cfg(not(target_os = "macos"))]
+const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::WorkAreaEnd;
 
 #[derive(Default)]
 struct LastHidden(Mutex<Option<Instant>>);
+
+#[derive(Default)]
+struct PendingOpenState {
+    generation: u64,
+    pending: Option<u64>,
+}
+
+#[derive(Default)]
+pub(crate) struct PendingOpen(Mutex<PendingOpenState>);
+
+impl PendingOpen {
+    #[cfg(any(not(target_os = "macos"), test))]
+    fn request(&self) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
+        state.pending = Some(state.generation);
+    }
+
+    pub(crate) fn take(&self) -> Option<u64> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending
+            .take()
+    }
+
+    pub(crate) fn restore(&self, generation: u64) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.generation == generation && state.pending.is_none() {
+            state.pending = Some(generation);
+        }
+    }
+
+    fn clear(&self) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
+        state.pending = None;
+    }
+}
 
 /// 最近一次点击时托盘图标的位置，用来摆放面板。
 #[derive(Default)]
@@ -44,11 +91,13 @@ fn main() -> ExitCode {
     let app = tauri::Builder::default()
         .manage(commands::Panel::load())
         .manage(LastHidden::default())
+        .manage(PendingOpen::default())
         .manage(TrayRect::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_displays,
             commands::switch_input,
             commands::fit_panel,
+            commands::host_platform,
             commands::quit,
             commands::app_version,
             devices::agent_status,
@@ -164,11 +213,7 @@ fn toggle_panel(app: &AppHandle) {
     if just_hidden {
         return;
     }
-    place_panel(&window);
-    if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-        log::warn!("显示面板失败：{e}");
-    }
-    let _ = app.emit_to(PANEL, "panel-shown", ());
+    reveal_or_request(app, &window);
 }
 
 /// 有配对请求时主动弹出面板；已显示时不动。
@@ -179,14 +224,30 @@ pub(crate) fn show_panel(app: &AppHandle) {
     if window.is_visible().unwrap_or(false) {
         return;
     }
-    place_panel(&window);
-    if let Err(e) = window.show().and_then(|()| window.set_focus()) {
-        log::warn!("显示面板失败：{e}");
+    reveal_or_request(app, &window);
+}
+
+fn reveal_or_request(
+    app: &AppHandle,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] window: &WebviewWindow,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        place_panel(window);
+        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+            log::warn!("显示面板失败：{e}");
+        }
+        let _ = app.emit_to(PANEL, "panel-shown", ());
     }
-    let _ = app.emit_to(PANEL, "panel-shown", ());
+    #[cfg(not(target_os = "macos"))]
+    {
+        app.state::<PendingOpen>().request();
+        let _ = app.emit_to(PANEL, "panel-will-show", ());
+    }
 }
 
 fn hide_panel(app: &AppHandle) {
+    app.state::<PendingOpen>().clear();
     let Some(window) = app.get_webview_window(PANEL) else {
         return;
     };
@@ -209,10 +270,7 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
         .0
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
-    let Some(rect) = live.or(stored) else {
-        return;
-    };
-    if let Err(e) = try_place(window, rect) {
+    if let Err(e) = try_place(window, live.or(stored)) {
         log::warn!("摆放面板失败：{e}");
     }
 }
@@ -220,61 +278,86 @@ pub(crate) fn place_panel(window: &WebviewWindow) {
 /// 托盘矩形和显示器位置都是「各屏逻辑坐标 × 该屏缩放比例」，不能跨屏直接比较；
 /// 先按各屏比例换回逻辑坐标找出图标所在的屏幕，再在该屏的逻辑坐标里计算。
 /// 对不上时退到主屏，没有主屏则退到第一块。
-fn try_place(window: &WebviewWindow, rect: Rect) -> tauri::Result<()> {
-    let window_scale = window.scale_factor()?;
-    let position = rect.position.to_physical::<f64>(window_scale);
-    let size = rect.size.to_physical::<f64>(window_scale);
+fn try_place(window: &WebviewWindow, rect: Option<Rect>) -> tauri::Result<()> {
     let monitors = window.available_monitors()?;
     if monitors.is_empty() {
         return Ok(());
     }
-    let found = monitors.iter().find_map(|m| {
-        let scale = m.scale_factor();
-        let screen = logical_bounds(m);
-        screen
-            .contains(position.x / scale, position.y / scale)
-            .then_some((screen, scale))
-    });
-    let (screen, scale) = match found {
-        Some(hit) => hit,
-        None => {
-            let screens: Vec<Bounds> = monitors.iter().map(logical_bounds).collect();
-            let screen = window
-                .primary_monitor()?
-                .map(|m| logical_bounds(&m))
-                .or_else(|| {
-                    placement::screen_for_point(
-                        position.x / window_scale,
-                        position.y / window_scale,
-                        &screens,
-                    )
-                });
-            let Some(screen) = screen else {
-                return Ok(());
+    let window_scale = window.scale_factor()?;
+    let (screen, scale, tray) = match rect {
+        Some(rect) => {
+            let position = rect.position.to_physical::<f64>(window_scale);
+            let size = rect.size.to_physical::<f64>(window_scale);
+            let found = monitors.iter().find_map(|m| {
+                let scale = m.scale_factor();
+                let screen = logical_bounds(m);
+                screen
+                    .contains(position.x / scale, position.y / scale)
+                    .then_some((screen, scale))
+            });
+            let (screen, scale) = match found {
+                Some(hit) => hit,
+                None => {
+                    let screens: Vec<Bounds> = monitors.iter().map(logical_bounds).collect();
+                    let screen = window
+                        .primary_monitor()?
+                        .map(|m| logical_bounds(&m))
+                        .or_else(|| {
+                            placement::screen_for_point(
+                                position.x / window_scale,
+                                position.y / window_scale,
+                                &screens,
+                            )
+                        });
+                    let Some(screen) = screen else {
+                        return Ok(());
+                    };
+                    let scale = monitors
+                        .iter()
+                        .find(|m| logical_bounds(m) == screen)
+                        .map_or(window_scale, tauri::Monitor::scale_factor);
+                    (screen, scale)
+                }
             };
-            let scale = monitors
-                .iter()
-                .find(|m| logical_bounds(m) == screen)
-                .map_or(window_scale, tauri::Monitor::scale_factor);
-            (screen, scale)
+            let tray = Bounds {
+                x: position.x / scale,
+                y: position.y / scale,
+                width: size.width / scale,
+                height: size.height / scale,
+            };
+            (screen, scale, tray)
+        }
+        None => {
+            #[cfg(target_os = "macos")]
+            return Ok(());
+            #[cfg(not(target_os = "macos"))]
+            {
+                let primary = window.primary_monitor()?;
+                let monitor = primary.as_ref().unwrap_or(&monitors[0]);
+                let screen = logical_bounds(monitor);
+                (
+                    screen,
+                    monitor.scale_factor(),
+                    placement::work_area_end_tray(screen),
+                )
+            }
         }
     };
-    let tray = Bounds {
-        x: position.x / scale,
-        y: position.y / scale,
-        width: size.width / scale,
-        height: size.height / scale,
-    };
     let panel = window.outer_size()?.to_logical::<f64>(window_scale);
-    let (x, y) = placement::panel_origin(tray, (panel.width, panel.height), screen, GAP);
+    let (x, y) =
+        placement::panel_origin(tray, (panel.width, panel.height), screen, GAP, PANEL_ALIGN);
     // macOS 窗口坐标本身就是全局逻辑坐标；Windows 是全局物理坐标。
     #[cfg(target_os = "macos")]
-    return window.set_position(tauri::LogicalPosition::new(x, y));
+    let result = {
+        let _ = scale;
+        window.set_position(tauri::LogicalPosition::new(x, y))
+    };
     #[cfg(not(target_os = "macos"))]
-    window.set_position(tauri::PhysicalPosition::new(
+    let result = window.set_position(tauri::PhysicalPosition::new(
         (x * scale).round() as i32,
         (y * scale).round() as i32,
-    ))
+    ));
+    result
 }
 
 fn logical_bounds(monitor: &tauri::Monitor) -> Bounds {
@@ -284,5 +367,53 @@ fn logical_bounds(monitor: &tauri::Monitor) -> Bounds {
         y: f64::from(monitor.position().y) / scale,
         width: f64::from(monitor.size().width) / scale,
         height: f64::from(monitor.size().height) / scale,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PendingOpen;
+
+    #[test]
+    fn pending_open_is_consumed_once() {
+        let pending = PendingOpen::default();
+
+        pending.request();
+
+        assert!(pending.take().is_some());
+        assert!(pending.take().is_none());
+    }
+
+    #[test]
+    fn clearing_pending_open_cancels_request() {
+        let pending = PendingOpen::default();
+
+        pending.request();
+        pending.clear();
+
+        assert!(pending.take().is_none());
+    }
+
+    #[test]
+    fn failed_open_can_restore_pending_request() {
+        let pending = PendingOpen::default();
+        pending.request();
+        let generation = pending.take().unwrap();
+
+        pending.restore(generation);
+
+        assert_eq!(pending.take(), Some(generation));
+    }
+
+    #[test]
+    fn clearing_pending_open_prevents_failed_request_restore() {
+        let pending = PendingOpen::default();
+        pending.request();
+        let generation = pending.take().unwrap();
+
+        pending.clear();
+        pending.restore(generation);
+
+        assert!(pending.take().is_none());
     }
 }

@@ -20,6 +20,15 @@ mod tests {
         );
         let bins = v["bundle"]["externalBin"].as_array().unwrap();
         assert!(bins.iter().any(|b| b == "binaries/deskbaton-sleep-helper"));
+        let cmd = v["build"]["beforeBundleCommand"].as_str().unwrap();
+        assert!(
+            cmd.contains("git rev-parse --show-toplevel"),
+            "Tauri 钩子的 cwd 不是 crates/baton-gui，相对路径会 127"
+        );
+        assert!(cmd.contains("scripts/embed-sleep-daemon.sh"));
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/embed-sleep-daemon.sh");
+        assert!(script.is_file(), "{}", script.display());
     }
 
     #[test]
@@ -45,5 +54,6 @@ mod tests {
         assert!(yml.contains("DeskBaton-0.0.1-windows-x64-setup.exe"));
         assert!(yml.contains("tauri-apps/tauri-action"));
         assert!(yml.contains("crates/baton-gui"));
+        assert!(yml.contains("beforeBundleCommand"));
     }
 }

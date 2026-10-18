@@ -1,0 +1,54 @@
+:root {
+  --bg: #121315;
+  --card: #1a1b1e;
+  --card-inset: #141517;
+  --menu: #1e1f23;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.12);
+  --line-hover: rgba(255, 255, 255, 0.16);
+  --line-focus: rgba(255, 255, 255, 0.22);
+  --ink: #eceae6;
+  --mute: #8a8781;
+  --signal: #ff6a1a;
+  --signal-hot: #ff7a2e;
+  --signal-deep: #e2520c;
+  --signal-dim: rgba(255, 106, 26, 0.16);
+  --signal-glow: rgba(255, 106, 26, 0.28);
+  --signal-line: rgba(255, 106, 26, 0.55);
+  --signal-fill: rgba(255, 106, 26, 0.25);
+  --signal-pending: rgba(255, 106, 26, 0.4);
+  --ok: #3ddc84;
+  --ok-dim: #24352c;
+  --ok-line: rgba(61, 220, 132, 0.5);
+  --ok-line-dim: rgba(61, 220, 132, 0.4);
+  --ok-wash: rgba(61, 220, 132, 0.1);
+  --ok-glow: rgba(61, 220, 132, 0.6);
+  --err: #ff5a4e;
+  --err-ink: #e9a19b;
+  --err-line: rgba(255, 90, 78, 0.4);
+  --bezel: #2a2b2f;
+  --screen: #0b0b0c;
+  --led-off: #3a3b40;
+  --led-port: #2c2d31;
+  --logo-ink: #ffffff;
+  --hover: rgba(255, 255, 255, 0.04);
+  --hover-strong: rgba(255, 255, 255, 0.06);
+  --scanline: rgba(255, 255, 255, 0.05);
+  --menu-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.8);
+  --radius-card: 12px;
+  --radius-port: 9px;
+  --panel-width: 360px;
+  --radius-shell: 18px;
+  --edge-gap: 6px;
+  --reveal-shift: 8px;
+  --reveal-ms: 500ms;
+  --mono: "Martian Mono", -apple-system, "PingFang SC", "Microsoft YaHei", monospace;
+  --sans: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+html.platform-windows {
+  --radius-shell: 12px;
+  --edge-gap: 12px;
+  --reveal-shift: 12px;
+  --reveal-ms: 220ms;
+}

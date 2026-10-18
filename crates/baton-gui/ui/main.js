@@ -751,14 +751,31 @@ function closeMenu() {
 }
 
 let fitFrame = 0;
-function fit() {
+
+function applyPlatform(p) {
+  document.documentElement.classList.add(`platform-${p}`);
+}
+
+invoke("host_platform").then(applyPlatform).catch(() => {});
+
+function requestFit() {
   cancelAnimationFrame(fitFrame);
   fitFrame = requestAnimationFrame(() => {
-    const panel = $("panel").getBoundingClientRect();
+    const panelRect = $("panel").getBoundingClientRect();
     const menu = $("menu");
-    const bottom = menu.hidden ? panel.bottom : Math.max(panel.bottom, menu.getBoundingClientRect().bottom);
-    invoke("fit_panel", { height: Math.ceil(bottom) }).catch(() => {});
+    const menuRect = menu.getBoundingClientRect();
+    const bottom = menu.hidden
+      ? panelRect.height
+      : Math.max(panelRect.height, menuRect.bottom - panelRect.top);
+    const height = Math.ceil(bottom) || 480;
+    invoke("fit_panel", { height }).catch(() => {
+      invoke("fit_panel", { height }).catch(() => {});
+    });
   });
+}
+
+function fit() {
+  requestFit();
 }
 
 function reveal() {
@@ -827,12 +844,22 @@ window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();
 });
 
-tauri.event.listen("panel-shown", () => {
+tauri.event.listen("panel-will-show", () => {
   closeMenu();
-  reveal();
+  requestFit();
   if (state.pending == null) refresh();
   refreshDevices();
   refreshPrefs();
+});
+
+tauri.event.listen("panel-shown", () => {
+  closeMenu();
+  reveal();
+  if (!document.documentElement.classList.contains("platform-windows")) {
+    if (state.pending == null) refresh();
+    refreshDevices();
+    refreshPrefs();
+  }
 });
 
 let displaysTimer = 0;
