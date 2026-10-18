@@ -33,8 +33,9 @@ pub fn screen_for_point(x: f64, y: f64, screens: &[Bounds]) -> Option<Bounds> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelAlign {
+    #[cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
     CenterOnTray,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
     WorkAreaEnd,
 }
 

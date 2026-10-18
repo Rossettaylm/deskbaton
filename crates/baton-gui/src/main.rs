@@ -227,7 +227,10 @@ pub(crate) fn show_panel(app: &AppHandle) {
     reveal_or_request(app, &window);
 }
 
-fn reveal_or_request(app: &AppHandle, window: &WebviewWindow) {
+fn reveal_or_request(
+    app: &AppHandle,
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] window: &WebviewWindow,
+) {
     #[cfg(target_os = "macos")]
     {
         place_panel(window);
