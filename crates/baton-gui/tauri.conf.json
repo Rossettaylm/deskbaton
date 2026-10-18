@@ -35,7 +35,8 @@
     "icon": ["icons/icon.png", "icons/icon.ico"],
     "externalBin": ["binaries/deskbaton-sleep-helper"],
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": "-"
     },
     "windows": {
       "nsis": {
