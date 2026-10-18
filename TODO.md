@@ -81,7 +81,9 @@
 - [ ] 🔧 P275MV + 本机配置（USB-C `0x0F`）下面板显示「USB-C · 本机」；与 Windows 配对后，其输入口标出设备名和 Windows
 - [x] 设备上线、下线或档案变化时刷新输入源按钮上的设备（随零配置「电脑」卡片一起完成：`devices-changed` 后合并刷新）
 - [ ] 读取 capabilities 字符串自动识别输入口
-- [ ] Windows 任务栏浮层 + 共享主题 token（[设计](docs/superpowers/specs/2026-10-18-panel-platform-chrome-design.md)）
+- [x] Windows 任务栏浮层 + 共享主题 token（[设计](docs/superpowers/specs/2026-10-18-panel-platform-chrome-design.md)）
+  - [ ] 🔧 Windows：面板贴任务栏上方、距右缘 12px，打开无 480 高闪帧
+  - [ ] 🔧 Windows：切分页或展开「⋯」时底边不动、只往上长
 
 ## P3 · M3 扩展（另立设计文档）
 
