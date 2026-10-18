@@ -8,6 +8,20 @@ pub(crate) use imp::{set_sleep_disabled, sleep_disabled};
 #[cfg(any(target_os = "macos", test))]
 use baton_core::{Error, Result};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SleepPrivileges {
+    Helper,
+    Sudoers,
+}
+
+pub(crate) fn privileges_for(bundled: bool) -> SleepPrivileges {
+    if bundled {
+        SleepPrivileges::Helper
+    } else {
+        SleepPrivileges::Sudoers
+    }
+}
+
 pub const SUDOERS_PATH: &str = "/etc/sudoers.d/deskbaton";
 #[cfg(any(target_os = "macos", test))]
 const PMSET: &str = "/usr/bin/pmset";
@@ -57,6 +71,7 @@ mod imp {
     use std::process::{Command, Stdio};
 
     use baton_core::{Error, Result};
+    use baton_macos_sys as sys;
 
     use super::{PMSET, SUDOERS_PATH, parse_sleep_disabled, pmset_args, sudoers_rule};
 
@@ -114,8 +129,34 @@ mod imp {
         sudo(&["/bin/rm", "-f", SUDOERS_PATH, STAGED_PATH], "删除规则")
     }
 
-    /// 经规则免密码切换 `SleepDisabled`；规则缺失时立即失败，不会等待输入密码。
+    /// 安装版经特权助手，开发版经 sudoers；都失败时立即返回，不会等待输入密码。
     pub(crate) fn set_sleep_disabled(disabled: bool) -> Result<()> {
+        match super::privileges_for(bundled()) {
+            super::SleepPrivileges::Helper => set_via_helper(disabled),
+            super::SleepPrivileges::Sudoers => set_via_sudo(disabled),
+        }
+    }
+
+    fn bundled() -> bool {
+        std::env::current_exe().ok().is_some_and(|p| {
+            p.ancestors()
+                .any(|a| a.extension().is_some_and(|e| e.eq_ignore_ascii_case("app")))
+        })
+    }
+
+    fn set_via_helper(disabled: bool) -> Result<()> {
+        // SAFETY: 只传 0/1。
+        let rc = unsafe { sys::deskbaton_helper_set_sleep_disabled(i32::from(disabled)) };
+        if rc == sys::OK {
+            Ok(())
+        } else {
+            Err(Error::Power(
+                "执行 pmset 失败，请在系统设置 → 登录项与扩展里允许 DeskBaton".into(),
+            ))
+        }
+    }
+
+    fn set_via_sudo(disabled: bool) -> Result<()> {
         let output = Command::new(SUDO)
             .arg("-n")
             .arg(PMSET)
@@ -211,5 +252,11 @@ mod tests {
     fn pmset_args_toggle_disablesleep() {
         assert_eq!(pmset_args(true), ["-a", "disablesleep", "1"]);
         assert_eq!(pmset_args(false), ["-a", "disablesleep", "0"]);
+    }
+
+    #[test]
+    fn installed_app_uses_helper_not_sudoers() {
+        assert_eq!(privileges_for(true), SleepPrivileges::Helper);
+        assert_eq!(privileges_for(false), SleepPrivileges::Sudoers);
     }
 }

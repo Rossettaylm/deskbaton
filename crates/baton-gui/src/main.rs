@@ -72,6 +72,16 @@ fn main() -> ExitCode {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             build_tray(app.handle())?;
             crate::prefs::apply_autostart_on_launch();
+            #[cfg(target_os = "macos")]
+            if crate::startup::running_bundled() {
+                // SAFETY: 无参数。
+                let rc = unsafe { baton_macos_sys::deskbaton_helper_register() };
+                if rc != baton_macos_sys::OK {
+                    log::warn!(
+                        "未能登记睡眠助手，合盖切回时可能睡眠。请在系统设置 → 登录项与扩展里允许 DeskBaton"
+                    );
+                }
+            }
             app.manage(AgentSlot::start(app.handle()));
             let handle = app.handle().clone();
             if let Err(e) = ctrlc::set_handler(move || handle.exit(0)) {

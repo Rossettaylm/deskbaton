@@ -11,5 +11,8 @@ repository.workspace = true
 name = "deskbaton-sleep-helper"
 path = "src/main.rs"
 
+[build-dependencies]
+cc.workspace = true
+
 [lints]
 workspace = true

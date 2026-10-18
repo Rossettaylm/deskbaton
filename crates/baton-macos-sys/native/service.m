@@ -1,5 +1,6 @@
 #import "deskbaton_native.h"
 #import <ServiceManagement/ServiceManagement.h>
+#include <dispatch/dispatch.h>
 #include <xpc/xpc.h>
 
 int32_t deskbaton_login_item_status(void) {
@@ -35,6 +36,11 @@ int32_t deskbaton_helper_register(void) {
 }
 
 int32_t deskbaton_helper_set_sleep_disabled(int32_t disabled) {
+    SMAppService *svc =
+        [SMAppService daemonServiceWithPlistName:@"io.github.rossettaylm.deskbaton.sleep.plist"];
+    if (svc.status != SMAppServiceStatusEnabled) {
+        return DESKBATON_ERR_IO;
+    }
     xpc_connection_t conn = xpc_connection_create_mach_service(
         "io.github.rossettaylm.deskbaton.sleep", NULL, XPC_CONNECTION_MACH_SERVICE_PRIVILEGED);
     if (!conn) {
@@ -46,10 +52,17 @@ int32_t deskbaton_helper_set_sleep_disabled(int32_t disabled) {
     xpc_connection_resume(conn);
     xpc_object_t req = xpc_dictionary_create(NULL, NULL, 0);
     xpc_dictionary_set_int64(req, "disablesleep", disabled ? 1 : 0);
-    xpc_object_t reply = xpc_connection_send_message_with_reply_sync(conn, req);
-    int32_t rc = DESKBATON_ERR_IO;
-    if (reply && xpc_get_type(reply) == XPC_TYPE_DICTIONARY) {
-        rc = (int32_t)xpc_dictionary_get_int64(reply, "rc");
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    __block int32_t rc = DESKBATON_ERR_IO;
+    xpc_connection_send_message_with_reply(
+        conn, req, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(xpc_object_t incoming) {
+            if (incoming && xpc_get_type(incoming) == XPC_TYPE_DICTIONARY) {
+                rc = (int32_t)xpc_dictionary_get_int64(incoming, "rc");
+            }
+            dispatch_semaphore_signal(done);
+        });
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)) != 0) {
+        return DESKBATON_ERR_IO;
     }
     return rc;
 }
