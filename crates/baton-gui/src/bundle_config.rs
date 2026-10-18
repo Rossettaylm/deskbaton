@@ -172,6 +172,10 @@ mod tests {
             js.contains("e.message") && js.contains("check_update"),
             "invoke 失败不能把 [object Object] 写到 底栏"
         );
+        assert!(
+            js.contains("NOTICE_TTL_MS = 3000") && js.contains("updateNoticeTtl"),
+            "已是最新 / 检查失败约 3 秒后消失，不能一直占着底栏"
+        );
     }
 
     #[test]

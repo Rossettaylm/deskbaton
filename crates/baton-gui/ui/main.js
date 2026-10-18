@@ -32,6 +32,7 @@ const tauri = /** @type {any} */ (window).__TAURI__;
 const invoke = tauri.core.invoke;
 
 const SELECTED_KEY = "deskbaton.display";
+const NOTICE_TTL_MS = 3000;
 
 /** @typedef {"handoff" | "devices" | "local"} TabId */
 
@@ -307,7 +308,41 @@ function invokeErrorText(e) {
 
 /** @param {unknown} e */
 function logUpdateError(e) {
-  state.notice = { tone: "err", text: invokeErrorText(e), keep: true };
+  const text = invokeErrorText(e);
+  setNotice({ tone: "err", text, keep: true }, updateNoticeTtl(text));
+}
+
+let noticeTimer = 0;
+let noticeGen = 0;
+
+/**
+ * @param {{ tone: "idle" | "ok" | "err", text: string, keep?: boolean }} notice
+ * @param {number} [ttlMs]
+ */
+function setNotice(notice, ttlMs) {
+  noticeGen += 1;
+  const gen = noticeGen;
+  clearTimeout(noticeTimer);
+  state.notice = notice;
+  if (ttlMs) {
+    noticeTimer = setTimeout(() => {
+      if (noticeGen !== gen) return;
+      state.notice = null;
+      render();
+    }, ttlMs);
+  }
+}
+
+/** @param {string} text */
+function updateNoticeTtl(text) {
+  if (
+    text.includes("已是最新版本") ||
+    text.includes("检查失败") ||
+    text.includes("无法检查更新")
+  ) {
+    return NOTICE_TTL_MS;
+  }
+  return 0;
 }
 
 /** @param {string} text */
@@ -341,14 +376,18 @@ async function onUpdateClick() {
     return;
   }
   state.update.checking = true;
-  state.notice = { tone: "idle", text: "正在检查更新…", keep: true };
+  setNotice({ tone: "idle", text: "正在检查更新…", keep: true });
   render();
   try {
     applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("check_update")));
     if (state.update.kind === "idle") {
-      state.notice = { tone: "idle", text: "已是最新版本", keep: true };
+      setNotice({ tone: "idle", text: "已是最新版本", keep: true }, NOTICE_TTL_MS);
     } else if (state.update.kind === "available" && state.update.version) {
-      state.notice = { tone: "idle", text: `发现新版本 v${state.update.version}`, keep: true };
+      setNotice({
+        tone: "idle",
+        text: `发现新版本 v${state.update.version}`,
+        keep: true,
+      });
     }
   } catch (e) {
     logUpdateError(e);
@@ -983,7 +1022,8 @@ tauri.event.listen("devices-changed", () => {
 });
 
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
-  state.notice = { tone: "idle", text: e.payload, keep: isUpdateNoticeText(e.payload) };
+  const text = e.payload;
+  setNotice({ tone: "idle", text, keep: isUpdateNoticeText(text) }, updateNoticeTtl(text));
   render();
 });
 
