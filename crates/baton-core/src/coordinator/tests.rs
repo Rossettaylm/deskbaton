@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::config::{PeerConfig, WakeMethod};
+use crate::ids::Platform;
 use crate::ports::Waker;
 
 const MAC: InputCode = InputCode(0x1B);
@@ -257,6 +258,20 @@ fn online(m: &mut Machine, peer: &Machine, now: Instant) {
         }),
         now,
     );
+}
+
+fn know_offline(m: &mut Machine, peer: &Machine, platform: Option<Platform>, now: Instant) {
+    m.c.handle(
+        Event::PeerOnline(PeerInfo {
+            device_id: peer.id.clone(),
+            platform,
+            input_code: Some(peer.code),
+            wol_mac: None,
+            ip: None,
+        }),
+        now,
+    );
+    m.c.handle(Event::PeerOffline(peer.id.clone()), now);
 }
 
 /// Mac 持棒、Windows 在线，两边都已握手。
@@ -662,6 +677,142 @@ fn needs_user_wake_only_notifies() {
     assert!(a.probe.notes().contains("请开盖"));
     assert_eq!(a.c.next_deadline(), None);
     assert_eq!(a.c.state(), AgentState::Holding);
+}
+
+#[test]
+fn switches_offline_is_windows_not_mac() {
+    assert!(switches_offline(Some(Platform::Windows)));
+    assert!(switches_offline(Some(Platform::Linux)));
+    assert!(!switches_offline(Some(Platform::Macos)));
+    assert!(!switches_offline(None));
+}
+
+#[test]
+fn offline_windows_switches_without_waiting() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine(
+        "mac",
+        MAC,
+        &monitor,
+        Setup {
+            wake: Some(WakeOutcome::Sent),
+            ..Setup::default()
+        },
+    );
+    let b = machine(
+        "win",
+        WIN,
+        &monitor,
+        Setup {
+            peer: "mac",
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    know_offline(&mut a, &b, Some(Platform::Windows), now);
+
+    a.c.handle(Event::Hotkey, now);
+    assert!(a.probe.take_sent().is_empty(), "离线 Windows 不发 prepare");
+    assert_eq!(monitor.current(), WIN);
+    assert_eq!(a.c.state(), AgentState::Idle);
+    assert_eq!(a.c.next_deadline(), None);
+    assert_eq!(a.probe.guards(), 0, "对端已离线，不持有长时保持唤醒");
+    assert!(a.probe.notes().contains("已切到 win（对方不在线"));
+    assert!(a.probe.calls().contains(&"release"));
+
+    a.c.tick(now + Duration::from_secs(8));
+    assert_eq!(monitor.current(), WIN, "没有 taken 也不切回");
+}
+
+#[test]
+fn offline_windows_switches_even_if_wake_needs_user() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine(
+        "mac",
+        MAC,
+        &monitor,
+        Setup {
+            wake: Some(WakeOutcome::NeedsUser("请开机".into())),
+            ..Setup::default()
+        },
+    );
+    let b = machine(
+        "win",
+        WIN,
+        &monitor,
+        Setup {
+            peer: "mac",
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    know_offline(&mut a, &b, Some(Platform::Windows), now);
+    a.c.handle(Event::Hotkey, now);
+    assert_eq!(monitor.current(), WIN);
+    assert_eq!(a.c.state(), AgentState::Idle);
+    assert!(a.probe.notes().contains("已切到 win（对方不在线"));
+    assert!(a.probe.notes().contains("请开机"));
+}
+
+#[test]
+fn offline_windows_without_input_code_does_not_switch() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine(
+        "mac",
+        MAC,
+        &monitor,
+        Setup {
+            wake: Some(WakeOutcome::Sent),
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    a.c.handle(
+        Event::PeerOnline(PeerInfo {
+            device_id: DeviceId("win".into()),
+            platform: Some(Platform::Windows),
+            input_code: None,
+            wol_mac: None,
+            ip: None,
+        }),
+        now,
+    );
+    a.c.handle(Event::PeerOffline(DeviceId("win".into())), now);
+    a.c.handle(Event::Hotkey, now);
+    assert_eq!(monitor.current(), MAC);
+    assert_eq!(a.c.state(), AgentState::Holding);
+    assert!(a.probe.notes().contains("还没识别接口"));
+}
+
+#[test]
+fn offline_macos_still_waits_for_wake() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine(
+        "mac",
+        MAC,
+        &monitor,
+        Setup {
+            wake: Some(WakeOutcome::Sent),
+            ..Setup::default()
+        },
+    );
+    let b = machine(
+        "win",
+        WIN,
+        &monitor,
+        Setup {
+            peer: "mac",
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    know_offline(&mut a, &b, Some(Platform::Macos), now);
+    a.c.handle(Event::Hotkey, now);
+    assert_eq!(monitor.current(), MAC);
+    assert_eq!(a.c.state(), AgentState::Holding);
+    assert!(a.probe.take_sent().is_empty());
+    assert!(a.probe.notes().contains("已发送唤醒信号"));
+    assert!(a.c.next_deadline().is_some());
 }
 
 #[test]

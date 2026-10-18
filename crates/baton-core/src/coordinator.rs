@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::channel::ChannelId;
 use crate::config::{Config, DisplayMode, StayAwakeUntil};
 use crate::event::{Event, PeerInfo};
-use crate::ids::{DeviceId, DisplayId, HandoffId, InputCode, MacAddr};
+use crate::ids::{DeviceId, DisplayId, HandoffId, InputCode, MacAddr, Platform};
 use crate::participant::{HandoffParticipant, Payload};
 use crate::ports::{
     AwakeGuard, DisplayControl, DisplayInfo, InputRouter, Notifier, PeerLink, PowerControl,
@@ -332,12 +332,12 @@ impl Coordinator {
             self.start_prepare(target, now);
             return;
         }
-        let wake_target = WakeTarget {
-            wol_mac: self.wol_mac(&target),
-            last_ip: self.known.get(&target).and_then(|p| p.ip),
-            device_id: target.clone(),
-        };
-        match self.ports.wake.wake(&wake_target) {
+        let platform = self.known.get(&target).and_then(|p| p.platform);
+        if switches_offline(platform) {
+            self.switch_offline(target);
+            return;
+        }
+        match self.wake_peer(&target) {
             Ok(WakeOutcome::Sent) => {
                 self.notify(&format!("{} 不在线，已发送唤醒信号", target.0));
                 self.pending = Some(Pending::Waking {
@@ -348,6 +348,44 @@ impl Coordinator {
             Ok(WakeOutcome::NeedsUser(message)) => self.notify(&message),
             Err(e) => self.notify(&format!("{} 不在线，且无法唤醒：{e}", target.0)),
         }
+    }
+
+    /// 非 Mac 离线对端：切输入源，不等待对方 agent。
+    fn switch_offline(&mut self, target: DeviceId) {
+        let Some(target_code) = self.known.get(&target).and_then(|p| p.input_code) else {
+            self.notify(&format!(
+                "{0} 还没识别接口：先用显示器菜单切到 {0}，在它上面操作一次键鼠",
+                target.0
+            ));
+            return;
+        };
+        let wake = self.wake_peer(&target);
+        if let Err(e) = self.ports.input.release(&target) {
+            self.notify(&format!("交出键鼠失败：{e}"));
+            return;
+        }
+        if let Err(e) = self.switch_input(target_code) {
+            let _ = self.ports.input.acquire();
+            self.notify(&format!("未能切换：{e}"));
+            return;
+        }
+        self.set_state(AgentState::Idle);
+        let message = match wake {
+            Ok(WakeOutcome::Sent) => format!("已切到 {}（对方不在线，已发送唤醒信号）", target.0),
+            Ok(WakeOutcome::NeedsUser(extra)) => {
+                format!("已切到 {}（对方不在线）。{extra}", target.0)
+            }
+            Err(e) => format!("已切到 {}（对方不在线）。无法唤醒：{e}", target.0),
+        };
+        self.notify(&message);
+    }
+
+    fn wake_peer(&self, target: &DeviceId) -> Result<WakeOutcome> {
+        self.ports.wake.wake(&WakeTarget {
+            wol_mac: self.wol_mac(target),
+            last_ip: self.known.get(target).and_then(|p| p.ip),
+            device_id: target.clone(),
+        })
     }
 
     fn on_peer_online(&mut self, info: PeerInfo, now: Instant) {
@@ -757,6 +795,14 @@ impl Coordinator {
         log::warn!("{message}");
         self.ports.notifier.notify(message);
     }
+}
+
+/// 合盖 Mac 必须先唤醒再切；档案里还没有系统类型时按 Mac 处理。
+fn switches_offline(platform: Option<Platform>) -> bool {
+    matches!(
+        platform,
+        Some(Platform::Windows | Platform::Linux | Platform::Other)
+    )
 }
 
 fn new_handoff_id() -> HandoffId {

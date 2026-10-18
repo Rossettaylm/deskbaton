@@ -55,6 +55,7 @@ impl SharedSwitch {
         }))
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn is_on(&self) -> bool {
         *self.lock() > 0
     }

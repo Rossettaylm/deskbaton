@@ -17,6 +17,8 @@
 > 修订（2026-10-17）：剪贴板同步改按 `2026-10-17-clipboard-design.md`：`clipboard-rs` 读写系统剪贴板，只在交棒时带走文本 / PNG；开关在面板「本机」卡片，写入 `state.toml`，不进 `config.toml`。冲突时以剪贴板设计为准。
 >
 > 修订（2026-10-18）：剪贴板改为实时同步，对端离线进该对端发件箱，上线后按序送出；交棒不再附带。见 `2026-10-18-clipboard-realtime-design.md`，冲突时以该文为准。
+>
+> 修订（2026-10-18）：离线的 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠。合盖 Mac 仍先唤醒再切。见 `2026-10-18-offline-switch-design.md`，冲突时以该文为准。
 
 ## 1. 目标
 
@@ -175,10 +177,12 @@ pub trait Waker: Send + Sync {
 - 开启时写标记文件，恢复后删除；agent 启动时发现标记就执行恢复（`restore_sleep`），处理崩溃或被强杀的情况。
 - `wake_display` 用 `IOPMAssertionDeclareUserActivity` 声明本地用户活动。
 
+**Windows 的 `stay_awake`**：`PowerRequestSystemRequired` 拦住系统睡眠，不拦显示器；进程退出即释放。人在 Mac 上时 Windows 不会因空闲睡着。详见 `2026-10-18-offline-switch-design.md`。
+
 使用场景：
 
-1. Mac 交出控制权后：默认 `stay_awake_until = "peer_offline"`，一直保持到对端心跳消失（Windows 关机或睡眠）为止；
-   设为 `"duration"` 时改为保持 `power.stay_awake_secs` 秒；
+1. 交出控制权后：默认 `stay_awake_until = "peer_offline"`，一直保持到对端心跳消失为止；
+   设为 `"duration"` 时改为保持 `power.stay_awake_secs` 秒；Mac 与 Windows 都执行。
 2. Mac 被唤醒后、交棒完成前（约 60 秒），防止它在显示器还没切过来时又因合盖睡回去。
 
 **唤醒链**（`WakeChain`，顺序由 `power.wake_chain` 配置）：
@@ -312,15 +316,15 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 ### 6.2 流程（持棒方 A 按下热键）
 
 1. A 检查 B 的心跳。
-2. B 离线时，A 运行唤醒链。结果为 `Sent` 就等 B 的心跳（最多 30 秒）；结果为 `NeedsUser` 就弹通知并结束。
-3. B 上线（或被唤醒）后，A 立即发 `prepare`。
-4. B 收到 `prepare` 后先 `stay_awake(60s)`（防止合盖的 Mac 睡回去；Windows 上为空操作），再调用 `wake_display()`，回 `ready`。A 等 `ready` 最多 3 秒。B 正在交棒或自己持棒时回 `abort`。
+2. B 离线时，A 运行唤醒链。B 是 Windows / Linux / 其它：有输入源编码就立刻 `set_input`，不等 `ready` / `taken`，超时不切回（见 `2026-10-18-offline-switch-design.md`）。B 是 Mac 或档案里还没有 `platform`：结果为 `Sent` 就等 B 的心跳（最多 30 秒）；结果为 `NeedsUser` 就弹通知并结束。
+3. B 上线（或被唤醒）后，A 立即发 `prepare`（上一步已经直接切走的除外）。
+4. B 收到 `prepare` 后先 `stay_awake(60s)`（防止合盖的 Mac 睡回去），再调用 `wake_display()`，回 `ready`。A 等 `ready` 最多 3 秒。B 正在交棒或自己持棒时回 `abort`。
 5. A 调用 `input.release(B)`，如果 A 是 Mac，再按 `stay_awake_until` 策略调用 `stay_awake`（`peer_offline` 时由协调器在 B 心跳消失时释放 guard）。
    同时并行调用各交棒参与者的 `pack`，经数据通道发给 B，不等待传输完成。
 6. A 调用 `set_input(B 的输入源编码)`；KVM 模式下，键鼠随之切给 B。
 7. B 每 300 毫秒轮询一次 `get_input`，读到自己的编码就调用 `input.acquire()`，回 `taken`，进入 `Holding`，并释放第 3 步拿到的 guard。最长等 8 秒。
 8. A 收到 `taken` 后进入 `Idle`。A 是 Mac 时，第 5 步的 guard 到期（或 `peer_offline` 下 B 离线）后，Mac 正常睡眠；A 之后重新接棒成为持棒方时也释放该 guard。
-9. A 超时没收到 `taken`（或 B 在此之前掉线、回 `abort`）：尝试 `set_input(自己的编码)` 切回、收回键鼠，再按 `get_input` 重新判定状态，并通知报错。B 轮询超时则回 `abort` 并进入 `Idle`。
+9. A 超时没收到 `taken`（或 B 在此之前掉线、回 `abort`）：尝试 `set_input(自己的编码)` 切回、收回键鼠，再按 `get_input` 重新判定状态，并通知报错。第 2 步对非 Mac 离线直接切的那次不走这一步。B 轮询超时则回 `abort` 并进入 `Idle`。
 10. B 收到完整的参与者数据后调用对应参与者的 `unpack`（可能早于或晚于 `taken`）。交棒被中止时，B 丢弃未交付的数据。
 
 ## 7. 错误处理
@@ -329,7 +333,7 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 |---|---|
 | DDC 写失败 | 重试 2 次，间隔 200 毫秒；仍失败就中止并通知 |
 | `stay_awake` 拿不到 `SleepDisabled`（特权助手未授权或执行失败） | 记录警告，继续交棒（合盖的 Mac 切回时会睡着，只能开盖）；托盘提示授权特权助手 |
-| 唤醒链全部失败 | 通知用户手动唤醒对端 |
+| 唤醒链全部失败 | 对端是 Mac：通知用户手动唤醒。对端是 Windows 等且已有输入源编码：仍切画面，通知里附上原因 |
 | 收到 `taken` 前对端掉线 | 按超时处理，尝试切回 |
 | agent 崩溃或退出 | `AwakeGuard` drop 时恢复；下次启动时检查并清理残留的 `SleepDisabled` |
 | 显示器"自动选择输入源"把画面跳回去 | 第 7 步超时后报错，提示关闭该选项 |

@@ -53,6 +53,9 @@
   - [x] 面板「电脑」卡片：按电脑列出、点对端交棒（`Event::HandoffTo`）、「重新识别本机接口」
   - [x] 面板随交棒刷新：本机或对端持棒状态落定时通知面板重读显示器，状态变化立即补发心跳；本机不持棒时按对端心跳高亮持棒的电脑（零配置设计 5.4）
   - [ ] 🔧 零配置设计验收清单第 1–5 项
+- [x] 离线 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠（[设计](docs/superpowers/specs/2026-10-18-offline-switch-design.md)）
+  - [ ] 🔧 关机后按电源、未进桌面时从 Mac 点 Windows，立刻看到开机或登录画面
+  - [ ] 🔧 人在 Mac 上超过 Windows 空闲睡眠时间，Windows 不睡，能切回去
 - [ ] Windows 远程调试脚本：经 SSH 部署 CI 产物、写配置、在登录会话里启动面板 / agent、取日志
 - [x] 托盘通知、开机自启（面板「本机」卡片，见 `docs/superpowers/specs/2026-10-17-panel-settings-design.md`）
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示

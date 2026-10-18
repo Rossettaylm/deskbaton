@@ -49,7 +49,7 @@ impl fmt::Display for InputCode {
     }
 }
 
-/// 设备的操作系统，只用于界面上标识设备。
+/// 设备的操作系统：面板标识，以及离线时是否直接切输入源（非 Mac 直接切）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Platform {
