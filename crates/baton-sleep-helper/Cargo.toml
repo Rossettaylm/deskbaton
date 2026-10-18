@@ -1,0 +1,15 @@
+[package]
+name = "baton-sleep-helper"
+description = "DeskBaton 特权助手：只执行两条 pmset disablesleep 命令"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "deskbaton-sleep-helper"
+path = "src/main.rs"
+
+[lints]
+workspace = true
