@@ -13,7 +13,6 @@ mod startup;
 mod view;
 
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -45,20 +44,41 @@ const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::WorkAreaEnd;
 struct LastHidden(Mutex<Option<Instant>>);
 
 #[derive(Default)]
-pub(crate) struct PendingOpen(AtomicBool);
+struct PendingOpenState {
+    generation: u64,
+    pending: Option<u64>,
+}
+
+#[derive(Default)]
+pub(crate) struct PendingOpen(Mutex<PendingOpenState>);
 
 impl PendingOpen {
     #[cfg(any(not(target_os = "macos"), test))]
     fn request(&self) {
-        self.0.store(true, Ordering::Release);
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
+        state.pending = Some(state.generation);
     }
 
-    pub(crate) fn take(&self) -> bool {
-        self.0.swap(false, Ordering::AcqRel)
+    pub(crate) fn take(&self) -> Option<u64> {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending
+            .take()
+    }
+
+    pub(crate) fn restore(&self, generation: u64) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.generation == generation && state.pending.is_none() {
+            state.pending = Some(generation);
+        }
     }
 
     fn clear(&self) {
-        self.0.store(false, Ordering::Release);
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.generation = state.generation.wrapping_add(1);
+        state.pending = None;
     }
 }
 
@@ -357,8 +377,8 @@ mod tests {
 
         pending.request();
 
-        assert!(pending.take());
-        assert!(!pending.take());
+        assert!(pending.take().is_some());
+        assert!(pending.take().is_none());
     }
 
     #[test]
@@ -368,6 +388,29 @@ mod tests {
         pending.request();
         pending.clear();
 
-        assert!(!pending.take());
+        assert!(pending.take().is_none());
+    }
+
+    #[test]
+    fn failed_open_can_restore_pending_request() {
+        let pending = PendingOpen::default();
+        pending.request();
+        let generation = pending.take().unwrap();
+
+        pending.restore(generation);
+
+        assert_eq!(pending.take(), Some(generation));
+    }
+
+    #[test]
+    fn clearing_pending_open_prevents_failed_request_restore() {
+        let pending = PendingOpen::default();
+        pending.request();
+        let generation = pending.take().unwrap();
+
+        pending.clear();
+        pending.restore(generation);
+
+        assert!(pending.take().is_none());
     }
 }

@@ -215,8 +215,16 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
         .set_size(LogicalSize::new(PANEL_WIDTH, height.ceil()))
         .map_err(|e| e.to_string())?;
     place_panel(&window);
-    if app.state::<PendingOpen>().take() && !window.is_visible().unwrap_or(false) {
-        if let Err(e) = window.show().and_then(|()| window.set_focus()) {
+    let pending = app.state::<PendingOpen>();
+    if let Some(generation) = pending.take()
+        && !window.is_visible().unwrap_or(false)
+    {
+        if let Err(e) = window.show() {
+            pending.restore(generation);
+            return Err(e.to_string());
+        }
+        if let Err(e) = window.set_focus() {
+            let _ = app.emit_to(PANEL, "panel-shown", ());
             return Err(e.to_string());
         }
         let _ = app.emit_to(PANEL, "panel-shown", ());

@@ -139,7 +139,7 @@ Windows 11 任务栏只在底部。顶栏或不在底部的任务栏不单独处
 1. 点托盘：若面板已可见则隐藏（现状）。
 2. 若面板隐藏：设置一次性待打开标记，发 `panel-will-show`，**不** `show`。
 3. 前端刷新并 `fit()`。`fit_panel` 失败则用当前窗口高度再调用一次（没有当前高度则用 480），避免永远不出现。
-4. `fit_panel`：`set_size` → `place_panel` → 仅在待打开标记存在且窗口尚未可见时消费标记、`show` + `focus`，再发 `panel-shown`。
+4. `fit_panel`：`set_size` → `place_panel` → 仅在待打开标记存在且窗口尚未可见时消费标记、`show` + `focus`，再发 `panel-shown`；显示失败时若该请求尚未被隐藏操作取消，则恢复标记供备用 `fit_panel` 重试。
 5. 普通后台 `fit_panel` 只改尺寸和位置，不得显示隐藏窗口；隐藏面板时清除待打开标记，避免延迟的 `fit_panel` 再次弹出。
 6. `panel-shown` 只播 `reveal`。已可见时的 `fit_panel` 不再发 `panel-shown`。
 
