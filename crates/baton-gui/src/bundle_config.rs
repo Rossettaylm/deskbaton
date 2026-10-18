@@ -55,5 +55,9 @@ mod tests {
         assert!(yml.contains("tauri-apps/tauri-action"));
         assert!(yml.contains("crates/baton-gui"));
         assert!(yml.contains("beforeBundleCommand"));
+        assert!(
+            yml.contains("target/release/bundle/dmg") && yml.contains("|| true"),
+            "产物在 workspace target 下；find 缺目录时不能让 pipefail 失败"
+        );
     }
 }
