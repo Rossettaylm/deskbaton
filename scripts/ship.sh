@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 提交、推送到远端，并触发 Windows 发行构建。agent 只需传入 Conventional Commits 信息。
+# 提交、推送到远端，并触发安装包构建。agent 只需传入 Conventional Commits 信息。
 set -euo pipefail
 
 usage() {
@@ -72,16 +72,16 @@ if ((ahead == 0)); then
 	exit 1
 fi
 
-before=$(gh run list --workflow=windows-build.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+before=$(gh run list --workflow=pack.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
 git push -u origin HEAD
-gh workflow run windows-build.yml --ref "$branch"
+gh workflow run pack.yml --ref "$branch"
 for _ in 1 2 3 4 5 6 7 8; do
 	sleep 2
-	id=$(gh run list --workflow=windows-build.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+	id=$(gh run list --workflow=pack.yml --branch "$branch" --limit 1 --json databaseId --jq '.[0].databaseId // empty')
 	if [[ -n $id && $id != "$before" ]]; then
-		gh run list --workflow=windows-build.yml --branch "$branch" --limit 1
+		gh run list --workflow=pack.yml --branch "$branch" --limit 1
 		exit 0
 	fi
 done
-echo "已 push，但未能确认 windows-build.yml 已排队。" >&2
+echo "已 push，但未能确认 pack.yml 已排队。" >&2
 exit 1

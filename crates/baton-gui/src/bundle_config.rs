@@ -33,4 +33,17 @@ mod tests {
         assert!(hooks.contains("WriteRegStr HKCU"));
         assert!(hooks.contains("DeleteRegValue HKCU"));
     }
+
+    #[test]
+    fn pack_workflow_builds_named_installers() {
+        let yml = include_str!("../../../.github/workflows/pack.yml");
+        assert!(yml.contains("workflow_dispatch"));
+        assert!(yml.contains("macos-latest"));
+        assert!(yml.contains("windows-latest"));
+        assert!(!yml.contains("\n  pull_request:"), "PR 不打安装包");
+        assert!(yml.contains("DeskBaton-0.0.1-macos-aarch64.dmg"));
+        assert!(yml.contains("DeskBaton-0.0.1-windows-x64-setup.exe"));
+        assert!(yml.contains("tauri-apps/tauri-action"));
+        assert!(yml.contains("crates/baton-gui"));
+    }
 }

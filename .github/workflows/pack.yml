@@ -1,0 +1,66 @@
+name: Pack
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  pack:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            bundle: dmg
+            artifact: DeskBaton-0.0.1-macos-aarch64.dmg
+          - os: windows-latest
+            bundle: nsis
+            artifact: DeskBaton-0.0.1-windows-x64-setup.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Prepare macOS helper
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release -p baton-sleep-helper
+          mkdir -p crates/baton-gui/binaries
+          cp target/release/deskbaton-sleep-helper \
+            crates/baton-gui/binaries/deskbaton-sleep-helper-aarch64-apple-darwin
+      - name: Strip externalBin on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $conf = 'crates/baton-gui/tauri.conf.json'
+          $j = Get-Content $conf -Raw | ConvertFrom-Json
+          $j.bundle.externalBin = @()
+          $j | ConvertTo-Json -Depth 20 | Set-Content $conf
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: crates/baton-gui
+          args: --bundles ${{ matrix.bundle }}
+      - name: Rename artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ matrix.bundle }}" = "dmg" ]; then
+            src=$(find crates/baton-gui/target/release/bundle/dmg target/release/bundle/dmg \
+              -name '*.dmg' 2>/dev/null | head -n 1)
+          else
+            src=$(find crates/baton-gui/target/release/bundle/nsis target/release/bundle/nsis \
+              -name '*.exe' 2>/dev/null | head -n 1)
+          fi
+          test -n "$src"
+          cp "$src" "dist/${{ matrix.artifact }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 7

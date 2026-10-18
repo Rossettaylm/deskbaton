@@ -56,7 +56,7 @@ EOF
 )"
 ```
 
-脚本会：`cargo fmt --all`、`clippy -D warnings`、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `windows-build.yml`，确认 artifact `deskbaton-windows`（`deskbaton-cli.exe`、`deskbaton.exe`、`deskbaton-gui.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
+脚本会：`cargo fmt --all`、`clippy -D warnings`、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `pack.yml`，确认安装包 artifact（`DeskBaton-0.0.1-macos-aarch64.dmg`、`DeskBaton-0.0.1-windows-x64-setup.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
 
 ## Git
 

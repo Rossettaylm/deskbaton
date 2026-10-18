@@ -59,11 +59,11 @@
 - [ ] Windows 远程调试脚本：经 SSH 部署 CI 安装包（落地前仍是裸 exe）、写配置、在登录会话里启动面板 / agent、取日志
 - [x] 托盘通知、开机自启（面板「本机」卡片，见 `docs/superpowers/specs/2026-10-17-panel-settings-design.md`）
 - 安装器（[设计](docs/superpowers/specs/2026-10-18-installer-design.md)），按顺序推进：
-  - [ ] `tauri.conf.json` 打开 bundle：`productName` 改为 DeskBaton，`targets` 为 dmg + nsis，Windows `currentUser`
-  - [ ] NSIS 钩子写入 / 删除 HKCU Run 键
-  - [ ] macOS 安装版首次启动用 `SMAppService` 登记登录项；开发版维持 LaunchAgent
-  - [ ] `baton-sleep-helper` + 安装版经助手执行 pmset；开发版维持 sudoers
-  - [ ] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
+  - [x] `tauri.conf.json` 打开 bundle：`productName` 改为 DeskBaton，`targets` 为 dmg + nsis，Windows `currentUser`
+  - [x] NSIS 钩子写入 / 删除 HKCU Run 键
+  - [x] macOS 安装版首次启动用 `SMAppService` 登记登录项；开发版维持 LaunchAgent
+  - [x] `baton-sleep-helper` + 安装版经助手执行 pmset；开发版维持 sudoers
+  - [x] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
   - [ ] 🔧 安装器设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 测魔术包触发的暗唤醒在无人干预时能持续多久；不够 agent 重连并回心跳时，`kern.wakereason` 含 `wifibt` 就短暂保持唤醒、等 `prepare`
