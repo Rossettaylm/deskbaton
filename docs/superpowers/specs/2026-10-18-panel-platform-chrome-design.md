@@ -137,10 +137,11 @@ Windows 11 任务栏只在底部。顶栏或不在底部的任务栏不单独处
 改为：
 
 1. 点托盘：若面板已可见则隐藏（现状）。
-2. 若面板隐藏：发 `panel-will-show`，**不** `show`。
+2. 若面板隐藏：设置一次性待打开标记，发 `panel-will-show`，**不** `show`。
 3. 前端刷新并 `fit()`。`fit_panel` 失败则用当前窗口高度再调用一次（没有当前高度则用 480），避免永远不出现。
-4. `fit_panel`：`set_size` → `place_panel` → 若尚未可见则 `show` + `focus`，再发 `panel-shown`。
-5. `panel-shown` 只播 `reveal`。已可见时的 `fit_panel` 只改尺寸和位置，不再发 `panel-shown`。
+4. `fit_panel`：`set_size` → `place_panel` → 仅在待打开标记存在且窗口尚未可见时消费标记、`show` + `focus`，再发 `panel-shown`。
+5. 普通后台 `fit_panel` 只改尺寸和位置，不得显示隐藏窗口；隐藏面板时清除待打开标记，避免延迟的 `fit_panel` 再次弹出。
+6. `panel-shown` 只播 `reveal`。已可见时的 `fit_panel` 不再发 `panel-shown`。
 
 macOS 保持先 `show` 再 `fit`，避免改一条已经验收过的路径。
 
@@ -153,7 +154,7 @@ baton-gui/ui/theme.css     :root 与 html.platform-windows 的变量；style.css
 baton-gui/ui/style.css     组件只引用 var(--…)
 baton-gui/src/placement.rs panel_origin 增加 PanelAlign；单测分平台
 baton-gui/src/main.rs      启动时给 html 加 platform-*；Windows 摆放用 WorkAreaEnd 与 gap 12
-baton-gui/src/commands.rs  fit_panel：Windows 在尚未可见时量完再 show
+baton-gui/src/commands.rs  fit_panel：Windows 仅消费待打开标记后量完再 show
 ```
 
 不把主题放进 `baton-core`，不进 toml。

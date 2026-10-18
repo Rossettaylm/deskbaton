@@ -13,6 +13,7 @@ mod startup;
 mod view;
 
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -43,6 +44,24 @@ const PANEL_ALIGN: placement::PanelAlign = placement::PanelAlign::WorkAreaEnd;
 #[derive(Default)]
 struct LastHidden(Mutex<Option<Instant>>);
 
+#[derive(Default)]
+pub(crate) struct PendingOpen(AtomicBool);
+
+impl PendingOpen {
+    #[cfg(any(not(target_os = "macos"), test))]
+    fn request(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn take(&self) -> bool {
+        self.0.swap(false, Ordering::AcqRel)
+    }
+
+    fn clear(&self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
 /// 最近一次点击时托盘图标的位置，用来摆放面板。
 #[derive(Default)]
 struct TrayRect(Mutex<Option<Rect>>);
@@ -52,6 +71,7 @@ fn main() -> ExitCode {
     let app = tauri::Builder::default()
         .manage(commands::Panel::load())
         .manage(LastHidden::default())
+        .manage(PendingOpen::default())
         .manage(TrayRect::default())
         .invoke_handler(tauri::generate_handler![
             commands::list_displays,
@@ -198,11 +218,13 @@ fn reveal_or_request(app: &AppHandle, window: &WebviewWindow) {
     }
     #[cfg(not(target_os = "macos"))]
     {
+        app.state::<PendingOpen>().request();
         let _ = app.emit_to(PANEL, "panel-will-show", ());
     }
 }
 
 fn hide_panel(app: &AppHandle) {
+    app.state::<PendingOpen>().clear();
     let Some(window) = app.get_webview_window(PANEL) else {
         return;
     };
@@ -322,5 +344,30 @@ fn logical_bounds(monitor: &tauri::Monitor) -> Bounds {
         y: f64::from(monitor.position().y) / scale,
         width: f64::from(monitor.size().width) / scale,
         height: f64::from(monitor.size().height) / scale,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PendingOpen;
+
+    #[test]
+    fn pending_open_is_consumed_once() {
+        let pending = PendingOpen::default();
+
+        pending.request();
+
+        assert!(pending.take());
+        assert!(!pending.take());
+    }
+
+    #[test]
+    fn clearing_pending_open_cancels_request() {
+        let pending = PendingOpen::default();
+
+        pending.request();
+        pending.clear();
+
+        assert!(!pending.take());
     }
 }

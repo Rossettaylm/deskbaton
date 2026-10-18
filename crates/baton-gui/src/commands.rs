@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 
 use crate::agent::AgentSlot;
 use crate::view::{self, DisplayView, Machines, PeerMachine};
-use crate::{PANEL, PANEL_WIDTH, place_panel};
+use crate::{PANEL, PANEL_WIDTH, PendingOpen, place_panel};
 
 /// 接棒后 CoreGraphics 往往晚于 IOKit，过一会儿再读一次屏幕模式。
 const SCREEN_RETRY_AFTER: Duration = Duration::from_millis(800);
@@ -215,7 +215,7 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
         .set_size(LogicalSize::new(PANEL_WIDTH, height.ceil()))
         .map_err(|e| e.to_string())?;
     place_panel(&window);
-    if !window.is_visible().unwrap_or(false) {
+    if app.state::<PendingOpen>().take() && !window.is_visible().unwrap_or(false) {
         if let Err(e) = window.show().and_then(|()| window.set_focus()) {
             return Err(e.to_string());
         }
