@@ -34,6 +34,13 @@ fn local() -> SocketAddr {
     "127.0.0.1:0".parse().unwrap()
 }
 
+fn addr_in_use(err: &baton_core::Error) -> bool {
+    let text = err.to_string();
+    text.contains("Address already in use")
+        || text.contains("os error 98")
+        || text.contains("os error 10048")
+}
+
 /// 一台测试设备的持久部分：身份与档案在重启之间保留。
 struct Device {
     name: &'static str,
@@ -72,7 +79,22 @@ impl Device {
 
 fn start(config: LinkConfig) -> (TcpPeerLink, mpsc::Receiver<Event>) {
     let (tx, rx) = mpsc::channel();
-    (TcpPeerLink::start(config, tx).unwrap(), rx)
+    if config.listen.port() == 0 {
+        return (TcpPeerLink::start(config, tx).unwrap(), rx);
+    }
+    // 指定端口：`free_addr` 放掉后可能被并行测试抢走；同端口重启还会撞 TIME_WAIT。
+    let mut last = None;
+    for attempt in 0..40 {
+        match TcpPeerLink::start(config.clone(), tx.clone()) {
+            Ok(link) => return (link, rx),
+            Err(err) if addr_in_use(&err) => {
+                last = Some(err);
+                std::thread::sleep(Duration::from_millis(15 + attempt * 5));
+            }
+            Err(err) => panic!("{err}"),
+        }
+    }
+    panic!("{}", last.unwrap());
 }
 
 fn with_token(mut config: LinkConfig, token: &str) -> LinkConfig {
@@ -229,16 +251,17 @@ fn handshakes_and_exchanges_messages_and_data() {
 #[test]
 fn token_pairs_once_and_later_connects_without_it() {
     let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
-    let win_addr = free_addr();
-    {
-        let (_b, b_rx) = start(with_token(win_dev.config(win_addr, &[]), "token"));
+    let win_addr = {
+        let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+        let win_addr = b.local_addr();
         let (_a, a_rx) = start(with_token(
             mac_dev.config(local(), &[("win", win_addr)]),
             "token",
         ));
         expect(&a_rx, "win 上线", is_online("win"));
         expect(&b_rx, "mac 上线", is_online("mac"));
-    }
+        win_addr
+    };
     assert!(mac_dev.store.find(&win_dev.identity.fingerprint).is_some());
     let pinned = win_dev.store.find(&mac_dev.identity.fingerprint).unwrap();
     assert_eq!(pinned.name, "mac");

@@ -1,6 +1,6 @@
 //! 两个已配对的 agent 在本机回环地址上经真实 TLS 链路完成双向交棒；显示器、电源为假实现。
 
-use std::net::{SocketAddr, TcpListener};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -229,11 +229,8 @@ impl Agent {
     }
 }
 
-fn free_addr() -> SocketAddr {
-    TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
+fn local() -> SocketAddr {
+    "127.0.0.1:0".parse().unwrap()
 }
 
 fn identity() -> Arc<TlsIdentity> {
@@ -263,20 +260,27 @@ fn wait_until(what: &str, cond: impl Fn() -> bool) {
 #[test]
 fn two_agents_hand_off_both_ways_over_tls() {
     let monitor: Monitor = Arc::new(Mutex::new(MAC));
-    let win_addr = free_addr();
     let (mac_id, win_id) = (identity(), identity());
     let mac_store = pinned("win", &win_id);
     let win_store = pinned("mac", &mac_id);
     let mut win = Agent::start(
-        "win", WIN, win_id, win_store, "mac", win_addr, None, &monitor,
+        "win",
+        WIN,
+        win_id,
+        win_store,
+        "mac",
+        local(),
+        None,
+        &monitor,
     );
+    let win_addr = win.link.local_addr();
     let mut mac = Agent::start(
         "mac",
         MAC,
         mac_id,
         mac_store,
         "win",
-        free_addr(),
+        local(),
         Some(win_addr),
         &monitor,
     );
@@ -366,20 +370,27 @@ impl ClipboardAccess for FakeClip {
 #[test]
 fn clipboard_outbox_flushes_after_fake_offline() {
     let monitor: Monitor = Arc::new(Mutex::new(MAC));
-    let win_addr = free_addr();
     let (mac_id, win_id) = (identity(), identity());
     let mac_store = pinned("win", &win_id);
     let win_store = pinned("mac", &mac_id);
     let mut win = Agent::start(
-        "win", WIN, win_id, win_store, "mac", win_addr, None, &monitor,
+        "win",
+        WIN,
+        win_id,
+        win_store,
+        "mac",
+        local(),
+        None,
+        &monitor,
     );
+    let win_addr = win.link.local_addr();
     let mut mac = Agent::start(
         "mac",
         MAC,
         mac_id,
         mac_store,
         "win",
-        free_addr(),
+        local(),
         Some(win_addr),
         &monitor,
     );

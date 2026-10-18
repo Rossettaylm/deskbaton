@@ -52,11 +52,11 @@ jobs:
         run: |
           mkdir -p dist
           if [ "${{ matrix.bundle }}" = "dmg" ]; then
-            src=$(find crates/baton-gui/target/release/bundle/dmg target/release/bundle/dmg \
-              -name '*.dmg' 2>/dev/null | head -n 1)
+            src=$(find target/release/bundle/dmg crates/baton-gui/target/release/bundle/dmg \
+              -name '*.dmg' 2>/dev/null | head -n 1 || true)
           else
-            src=$(find crates/baton-gui/target/release/bundle/nsis target/release/bundle/nsis \
-              -name '*.exe' 2>/dev/null | head -n 1)
+            src=$(find target/release/bundle/nsis crates/baton-gui/target/release/bundle/nsis \
+              -name '*.exe' 2>/dev/null | head -n 1 || true)
           fi
           test -n "$src"
           cp "$src" "dist/${{ matrix.artifact }}"
