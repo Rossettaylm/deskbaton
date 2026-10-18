@@ -761,12 +761,15 @@ invoke("host_platform").then(applyPlatform).catch(() => {});
 function requestFit() {
   cancelAnimationFrame(fitFrame);
   fitFrame = requestAnimationFrame(() => {
-    const panel = $("panel").getBoundingClientRect();
+    const panelRect = $("panel").getBoundingClientRect();
     const menu = $("menu");
-    const bottom = menu.hidden ? panel.bottom : Math.max(panel.bottom, menu.getBoundingClientRect().bottom);
+    const menuRect = menu.getBoundingClientRect();
+    const bottom = menu.hidden
+      ? panelRect.height
+      : Math.max(panelRect.height, menuRect.bottom - panelRect.top);
     const height = Math.ceil(bottom) || 480;
     invoke("fit_panel", { height }).catch(() => {
-      invoke("fit_panel", { height: 480 }).catch(() => {});
+      invoke("fit_panel", { height }).catch(() => {});
     });
   });
 }

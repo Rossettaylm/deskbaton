@@ -224,8 +224,7 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
             return Err(e.to_string());
         }
         if let Err(e) = window.set_focus() {
-            let _ = app.emit_to(PANEL, "panel-shown", ());
-            return Err(e.to_string());
+            log::warn!("面板已显示，但聚焦失败：{e}");
         }
         let _ = app.emit_to(PANEL, "panel-shown", ());
     }
