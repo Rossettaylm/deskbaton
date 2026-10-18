@@ -54,7 +54,7 @@
 
 ## 4. Windows `stay_awake`
 
-交出控制权后，Windows 按与 Mac 相同的 `stay_awake_until` 策略保持唤醒，避免人在 Mac 上用的时候 Windows 空闲睡死。
+对端在线期间，Windows 按与 Mac 相同的 `stay_awake_until` 策略保持唤醒，避免人在 Mac 上用的时候 Windows 空闲睡死。`peer_offline` 下自己持棒也不释放，直到对端离线。
 
 - 用 `PowerCreateRequest` + `PowerSetRequest(PowerRequestSystemRequired)`，不要 `PowerRequestDisplayRequired`（共用屏已经在显示另一台）。
 - 多个 guard 走现有 `SharedSwitch`；最后一个释放时 `PowerClearRequest` 并关掉句柄。

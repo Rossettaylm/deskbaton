@@ -13,7 +13,7 @@
 - [x] Mac `stay_awake` 主路径：经 sudoers 规则执行 `sudo -n pmset -a disablesleep 1/0`，去掉 IOKit 合盖控制；规则缺失时只记警告；标记文件挪到 `~/Library/Application Support/DeskBaton/`；`deskbaton-cli sleep-helper install / uninstall / status`
 - [x] 🔧 装好 sudoers 规则后用 `deskbaton-cli stay-awake` 复测合盖切走再切回：Mac 不睡，不开盖画面恢复（2026-10-16 用户确认）
 - [x] 收到 SIGTERM / SIGHUP / Ctrl+C 时释放 `AwakeGuard`：agent 的 `ctrlc` 开 `termination` 特性；CLI `stay-awake` 等待信号或到期后再释放。否则 `SleepDisabled` 残留到下次启动
-- [ ] 🔧 在 Windows 上停留超过 Mac 的 `displaysleep`（显示器已关、系统醒着）后切回：已实测失败两次（按键和 `caffeinate -u` 都没能恢复，推断 KVM 要等 USB-C 有视频信号才交出键鼠，见 P275MV 调研）。下一步用 `caffeinate -d` + `stay-awake` 验证「交出控制权期间防止显示器睡眠」，通过后再改设计文档和 `stay_awake`
+- [ ] 🔧 在 Windows 上停留超过 Mac 的 `displaysleep` 后切回：`stay_awake` 已在对端在线期间持 `PreventUserIdleDisplaySleep`，待合盖实测 USB-C 仍有视频、KVM 交键鼠
 - [x] Mac `stay_awake`：IOKit 合盖睡眠控制 + 防空闲睡眠断言
 - [x] Mac 启动时检查并清理残留的睡眠设置
 - [ ] 🔧 验收清单第 1 项：合盖 Mac 切到 Windows，5 分钟内切回不用开盖
@@ -66,7 +66,7 @@
   - [x] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
   - [ ] 🔧 安装器设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
-- [ ] 🔧 测魔术包触发的暗唤醒在无人干预时能持续多久；不够 agent 重连并回心跳时，`kern.wakereason` 含 `wifibt` 就短暂保持唤醒、等 `prepare`
+- [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
 - [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电
 - [ ] 🔧 验收清单第 1–5 项
 

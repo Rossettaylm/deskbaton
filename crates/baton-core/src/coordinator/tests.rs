@@ -467,19 +467,94 @@ fn hands_off_both_ways() {
     assert_eq!(b.c.state(), AgentState::Holding);
     assert_eq!(a.probe.calls(), ["release"]);
     assert_eq!(b.probe.calls(), ["wake_display", "acquire"]);
-    assert_eq!(
-        *b.probe.awake_requests.lock().unwrap(),
-        [Duration::from_secs(60)]
+    assert!(
+        b.probe
+            .awake_requests
+            .lock()
+            .unwrap()
+            .contains(&Duration::from_secs(60))
     );
-    assert_eq!(b.probe.guards(), 0, "接棒完成后释放接棒前的短时 guard");
+    assert_eq!(b.probe.guards(), 1, "接棒后对端仍在线，长时 guard 不释放");
 
     let later = now + Duration::from_secs(60);
     hand_off(&mut b, &mut a, later);
     assert_eq!(monitor.current(), MAC);
     assert_eq!(a.c.state(), AgentState::Holding);
     assert_eq!(b.c.state(), AgentState::Idle);
-    assert_eq!(a.probe.guards(), 0, "重新持棒后释放交棒后的 guard");
+    assert_eq!(
+        a.probe.guards(),
+        1,
+        "重新持棒时对端仍在线，不释放长时 guard"
+    );
     assert_eq!(b.probe.guards(), 1);
+}
+
+#[test]
+fn peer_online_holds_awake_without_handoff() {
+    let monitor = Monitor::new(MAC, false);
+    let (a, _b, _now) = pair(&monitor, Setup::default(), Setup::default());
+    assert_eq!(*a.probe.awake_requests.lock().unwrap(), [Duration::MAX]);
+    assert_eq!(a.probe.guards(), 1);
+}
+
+#[test]
+fn taken_keeps_awake_while_peer_online() {
+    let monitor = Monitor::new(MAC, false);
+    let (mut a, mut b, now) = pair(&monitor, Setup::default(), Setup::default());
+    hand_off(&mut a, &mut b, now);
+    assert_eq!(a.probe.guards(), 1, "交出后对端在线");
+    assert_eq!(b.probe.guards(), 1, "接棒后对端在线");
+
+    a.c.handle(Event::PeerOffline(b.id.clone()), now);
+    assert_eq!(a.probe.guards(), 0, "最后一个对端离线才释放");
+    assert_eq!(b.probe.guards(), 1);
+}
+
+#[test]
+fn network_wake_holds_briefly_and_lights_display() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine("mac", MAC, &monitor, Setup::default());
+    let now = Instant::now();
+    a.c.handle(Event::NetworkWake, now);
+    assert_eq!(a.probe.calls(), ["wake_display"]);
+    assert_eq!(
+        *a.probe.awake_requests.lock().unwrap(),
+        [Duration::from_secs(60)]
+    );
+    assert_eq!(a.probe.guards(), 1);
+}
+
+#[test]
+fn network_wake_then_peer_online_upgrades_to_max() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine("mac", MAC, &monitor, Setup::default());
+    let b = machine(
+        "win",
+        WIN,
+        &monitor,
+        Setup {
+            peer: "mac",
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    a.c.handle(Event::NetworkWake, now);
+    online(&mut a, &b, now);
+    assert_eq!(
+        *a.probe.awake_requests.lock().unwrap(),
+        [Duration::from_secs(60), Duration::MAX]
+    );
+    assert_eq!(a.probe.guards(), 1, "短时 guard 并入长时后只剩一把");
+}
+
+#[test]
+fn network_wake_while_peer_online_only_lights_display() {
+    let monitor = Monitor::new(MAC, false);
+    let (mut a, _b, now) = pair(&monitor, Setup::default(), Setup::default());
+    a.c.handle(Event::NetworkWake, now);
+    assert_eq!(a.probe.calls(), ["wake_display"]);
+    assert_eq!(*a.probe.awake_requests.lock().unwrap(), [Duration::MAX]);
+    assert_eq!(a.probe.guards(), 1);
 }
 
 #[test]
@@ -548,7 +623,7 @@ fn taken_timeout_switches_back_when_monitor_allows() {
     a.c.tick(now + Duration::from_secs(8));
     assert_eq!(monitor.current(), MAC);
     assert_eq!(a.c.state(), AgentState::Holding);
-    assert_eq!(a.probe.guards(), 0, "交棒失败时释放交棒后的 guard");
+    assert_eq!(a.probe.guards(), 1, "交棒失败但对端仍在线，长时 guard 保留");
     assert_eq!(a.probe.calls(), ["release", "acquire"]);
     assert!(a.probe.notes().contains("已尝试切回本机"));
 }
@@ -589,7 +664,7 @@ fn receiver_gives_up_when_picture_never_arrives() {
 
     b.c.tick(now + Duration::from_secs(8));
     assert_eq!(b.c.state(), AgentState::Idle);
-    assert_eq!(b.probe.guards(), 0);
+    assert_eq!(b.probe.guards(), 1, "画面没到，对端仍在线，长时 guard 保留");
     assert_eq!(
         kinds(
             &b.probe

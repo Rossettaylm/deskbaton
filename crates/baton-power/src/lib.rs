@@ -2,6 +2,7 @@
 
 pub mod sleep_helper;
 pub mod wake;
+pub mod wake_reason;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -10,7 +11,18 @@ mod switch;
 #[cfg(target_os = "windows")]
 mod windows;
 
+use std::sync::mpsc::Sender;
+
+use baton_core::event::Event;
 use baton_core::ports::{PowerControl, Waker};
+
+/// macOS 上订阅系统唤醒：`kern.wakereason` 含 `wifibt` 时向协调器发 [`Event::NetworkWake`]。
+pub fn spawn_network_wake_watch(events: Sender<Event>) {
+    #[cfg(target_os = "macos")]
+    macos::spawn_network_wake_watch(events);
+    #[cfg(not(target_os = "macos"))]
+    drop(events);
+}
 
 pub fn platform_power() -> Box<dyn PowerControl> {
     #[cfg(target_os = "macos")]

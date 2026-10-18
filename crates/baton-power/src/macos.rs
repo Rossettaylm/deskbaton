@@ -1,18 +1,64 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
+use std::sync::mpsc::{self, Sender};
+use std::thread;
 use std::time::Duration;
 
+use baton_core::event::Event;
 use baton_core::ports::{AwakeGuard, PowerControl};
 use baton_core::{Error, Result};
 use baton_macos_sys as sys;
 
 use crate::sleep_helper;
 use crate::switch::SharedSwitch;
+use crate::wake_reason::is_network_wake_reason;
+
+static WAKE_TX: Mutex<Option<Sender<()>>> = Mutex::new(None);
 
 static STAY_AWAKE: SharedSwitch = SharedSwitch::new(begin, end);
 
-/// 合盖 MacBook 的睡眠控制：经 sudoers 规则置 `SleepDisabled` 并持有防空闲睡眠断言，guard 释放或到期后恢复。
+/// 合盖 MacBook 的睡眠控制：经 sudoers 规则置 `SleepDisabled`，并持有防空闲睡眠与防显示器睡眠断言。
 pub struct MacPower;
+
+/// IOKit 在专用线程的 CFRunLoop 上调用；只向通道发信号。
+unsafe extern "C" fn on_system_wake() {
+    if let Ok(guard) = WAKE_TX.lock()
+        && let Some(tx) = guard.as_ref()
+    {
+        let _ = tx.send(());
+    }
+}
+
+pub(crate) fn spawn_network_wake_watch(events: Sender<Event>) {
+    let (tx, rx) = mpsc::channel();
+    *WAKE_TX.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
+    thread::spawn(|| {
+        // SAFETY: 回调只向通道发信号。
+        let rc = unsafe { sys::deskbaton_watch_wake(Some(on_system_wake)) };
+        if rc != sys::OK {
+            log::warn!("无法订阅系统唤醒：原生错误码 {rc}");
+        }
+    });
+    thread::spawn(move || {
+        while rx.recv().is_ok() {
+            if is_network_wake_reason(&kern_wakereason())
+                && events.send(Event::NetworkWake).is_err()
+            {
+                break;
+            }
+        }
+    });
+}
+
+fn kern_wakereason() -> String {
+    Command::new("/usr/sbin/sysctl")
+        .args(["-n", "kern.wakereason"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        .unwrap_or_default()
+}
 
 impl PowerControl for MacPower {
     fn stay_awake(&self, duration: Duration) -> Result<AwakeGuard> {

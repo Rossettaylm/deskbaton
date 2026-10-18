@@ -86,6 +86,7 @@ impl Agent {
         let my_code = lock(&learner).current();
 
         let (events, events_rx) = mpsc::channel();
+        baton_power::spawn_network_wake_watch(events.clone());
         let mut link_config = link_config(&me, &config, identity, store);
         link_config.me.input_code = my_code;
         link_config.observer = observer;

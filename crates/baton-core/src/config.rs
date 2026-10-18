@@ -170,7 +170,7 @@ pub enum SoftwareBackend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PowerConfig {
-    /// 交出控制权后保持唤醒到什么时候。
+    /// 何时停止保持唤醒。
     #[serde(default)]
     pub stay_awake_until: StayAwakeUntil,
     /// `duration` 模式下交棒后本机保持唤醒的秒数；0 表示立即允许系统睡眠。
@@ -194,7 +194,7 @@ impl Default for PowerConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StayAwakeUntil {
-    /// 一直保持到接棒方离线（关机、睡眠）。
+    /// 任一已配对对端在线就保持，自己持棒也不释放；最后一个对端离线才恢复睡眠。
     #[default]
     PeerOffline,
     /// 保持 `stay_awake_secs` 秒。

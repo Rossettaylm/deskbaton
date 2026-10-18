@@ -21,6 +21,8 @@
 > 修订（2026-10-18）：离线的 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠。合盖 Mac 仍先唤醒再切。见 `2026-10-18-offline-switch-design.md`，冲突时以该文为准。
 >
 > 修订（2026-10-18）：用户分发改为 Mac `.dmg` + Windows NSIS 安装器，CI `pack` 出安装包，不再分发裸 exe。安装版 Mac 特权助手改 `SMAppService`。Linux 安装器留到两者定型之后。见 `2026-10-18-installer-design.md`，冲突时以该文为准。
+>
+> 修订（2026-10-18）：`peer_offline` 按字面执行——任一已配对对端在线即 `stay_awake`，自己持棒（`taken`）不释放；Mac 同时拦住显示器空闲睡眠。`kern.wakereason` 含 `wifibt` 的暗唤醒发 `Event::NetworkWake`，短时保持并 `wake_display`，等对端上线并入长时 guard。
 
 ## 1. 目标
 
@@ -34,7 +36,7 @@
 - 两台机器：Windows ×1 + Apple Silicon Mac ×1
 - 单台显示器，通过 DDC/CI 写 VCP `0x60` 切输入源
 - 键鼠由显示器内置 KVM 跟随输入源（`InputRouting::MonitorKvm`）
-- Mac 交棒后保持唤醒，释放条件可配置：`peer_offline`（默认，对端心跳消失即释放）/ `duration`（按 `stay_awake_secs` 计时）
+- Mac / Windows 在对端在线期间保持唤醒，释放条件可配置：`peer_offline`（默认，最后一个对端心跳消失才释放，自己持棒不释放）/ `duration`（交出控制权后按 `stay_awake_secs` 计时）
 - 接棒方已经睡着时，按配置依次尝试唤醒方式：WoL（有线的 Windows、Wi-Fi 的 Mac）→ HID 唤醒配件（备选，第二期）→ 提示用户
 - 局域网发现 + 面板上核对 6 位数字配对 + 加密通信，一条连接上多条逻辑通道；设备档案记下对端的 MAC 和 IP，供唤醒使用
 - 剪贴板同步：实时把文本 / 图片发给已配对对端；对端离线时进发件箱
@@ -168,7 +170,7 @@ pub trait Waker: Send + Sync {
 }
 ```
 
-**Mac 的 `stay_awake`**：执行 `pmset -a disablesleep 1`（置 `SleepDisabled`）关闭包括合盖睡眠在内的所有睡眠，同时持有 `PreventUserIdleSystemSleep` 断言；恢复时执行 `pmset -a disablesleep 0`。已在 MacBook Pro + P275MV 上验证可挡住切回时的合盖睡眠。
+**Mac 的 `stay_awake`**：执行 `pmset -a disablesleep 1`（置 `SleepDisabled`）关闭包括合盖睡眠在内的所有睡眠，同时持有 `PreventUserIdleSystemSleep` 和 `PreventUserIdleDisplaySleep` 断言（后者等价 `caffeinate -d`，避免交出控制权期间显示器空闲关掉、切回时 USB-C 无视频）；恢复时执行 `pmset -a disablesleep 0` 并释放断言。`SleepDisabled` 已在 MacBook Pro + P275MV 上验证可挡住切回时的合盖睡眠。
 
 - 不使用 `IOPMrootDomain` 的 `kPMSetClamshellSleepState`：它写的是 powerd 自己管理的位，外接屏消失时 powerd 会把它改写回 0，内核随即判定合盖睡眠。能被 powerd 计入的 `AppliesOnLidClose` 断言需要 Apple 私有 entitlement。
 - 特权来源：开发版一次性写入 `/etc/sudoers.d/deskbaton`，只允许当前用户免密码执行 `/usr/bin/pmset -a disablesleep 1` 和 `/usr/bin/pmset -a disablesleep 0` 两条完整命令；agent 用 `sudo -n` 调用。由 `deskbaton-cli sleep-helper install / uninstall / status` 管理，写入前用 `visudo -cf` 校验。安装版（`.app`）改为 `SMAppService` 登记的助手，只执行同一对命令，见 `2026-10-18-installer-design.md`。
@@ -183,9 +185,9 @@ pub trait Waker: Send + Sync {
 
 使用场景：
 
-1. 交出控制权后：默认 `stay_awake_until = "peer_offline"`，一直保持到对端心跳消失为止；
-   设为 `"duration"` 时改为保持 `power.stay_awake_secs` 秒；Mac 与 Windows 都执行。
-2. Mac 被唤醒后、交棒完成前（约 60 秒），防止它在显示器还没切过来时又因合盖睡回去。
+1. 默认 `stay_awake_until = "peer_offline"`：任一已配对对端在线就持有长时 guard（`Duration::MAX`），**自己变成持棒方（`taken`）也不释放**；最后一个对端心跳消失才释放。设为 `"duration"` 时仍只在交出控制权后保持 `power.stay_awake_secs` 秒。Mac 与 Windows 都执行。
+2. 收到 `prepare` 时再叠一把约 60 秒的短时 guard 并 `wake_display`，防止合盖 Mac 在画面切过来前睡回去。短时 guard 随接棒结束而释放，长时 guard 仍按上一条。
+3. Mac 从睡眠醒来且 `kern.wakereason` 含 `wifibt`：发 `Event::NetworkWake`，`wake_display` 并短时 `stay_awake`（约 60 秒），等对端上线后并入第 1 条。`rtc` 定时暗唤醒不发该事件，不当成交棒。
 
 **唤醒链**（`WakeChain`，顺序由 `power.wake_chain` 配置）：
 
@@ -200,8 +202,8 @@ pub trait Waker: Send + Sync {
 - 前提：「唤醒以供网络访问」开启（`pmset womp 1`），入睡前内核有 `MAGICWAKE en0` 断言。airportd 的「WoW is not active」不代表收不到魔术包，不作判据。
 - 目标 MAC：`en0` 当前在用的地址。启用私有 Wi-Fi 地址时它不等于硬件地址，所以由 agent 在 `hello.wol_mac` 上报承载该连接的网卡当前 MAC，对端写入设备档案；配置里的 `peers[].wol_mac` 只作兜底。该网络的私有地址须为「固定」，「轮换」会让档案里的地址失效。
 - 发送：同时发往 `255.255.255.255`、本机各网卡的子网广播和对端最后已知的单播 IP（取自设备档案）的 UDP 9。
-- 魔术包只把 Mac 唤到暗唤醒，收到 `prepare` 后的 `wake_display` 把它转为完整唤醒。暗唤醒在无人干预时能持续多久未测；若短于 agent 重连并回心跳所需时间，Mac 要在 `kern.wakereason` 含 `wifibt` 时自行短暂保持唤醒，等待 `prepare`。
-- 系统约每 15 分钟会因 `rtc` 定时任务暗唤醒一次，持续几十秒后自行睡回。agent 不能把醒来本身当作交棒信号。
+- 魔术包只把 Mac 唤到暗唤醒。平台在醒来时读 `kern.wakereason`，含 `wifibt` 则发 `Event::NetworkWake`：协调器立刻 `wake_display` 并短时 `stay_awake`，等对端心跳后并入「对端在线」长时 guard。
+- 系统约每 15 分钟会因 `rtc` 定时任务暗唤醒一次，持续几十秒后自行睡回。agent 不能把醒来本身当作交棒信号，也不为 `rtc` 发 `NetworkWake`。
 
 USB-C 链路上的 KVM 键盘、蓝牙 HID 两条路径不再作为 M0 必测项。
 
@@ -320,12 +322,12 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 1. A 检查 B 的心跳。
 2. B 离线时，A 运行唤醒链。B 是 Windows / Linux / 其它：有输入源编码就立刻 `set_input`，不等 `ready` / `taken`，超时不切回（见 `2026-10-18-offline-switch-design.md`）。B 是 Mac 或档案里还没有 `platform`：结果为 `Sent` 就等 B 的心跳（最多 30 秒）；结果为 `NeedsUser` 就弹通知并结束。
 3. B 上线（或被唤醒）后，A 立即发 `prepare`（上一步已经直接切走的除外）。
-4. B 收到 `prepare` 后先 `stay_awake(60s)`（防止合盖的 Mac 睡回去），再调用 `wake_display()`，回 `ready`。A 等 `ready` 最多 3 秒。B 正在交棒或自己持棒时回 `abort`。
-5. A 调用 `input.release(B)`，如果 A 是 Mac，再按 `stay_awake_until` 策略调用 `stay_awake`（`peer_offline` 时由协调器在 B 心跳消失时释放 guard）。
+4. B 收到 `prepare` 后先 `stay_awake(60s)`（叠在「对端在线」长时 guard 上，不是唯一挡板），再调用 `wake_display()`，回 `ready`。A 等 `ready` 最多 3 秒。B 正在交棒或自己持棒时回 `abort`。
+5. A 调用 `input.release(B)`，再按 `stay_awake_until` 同步保持唤醒（`peer_offline` 下对端已在线则长时 guard 早已持有；`duration` 从此时计时）。
    同时并行调用各交棒参与者的 `pack`，经数据通道发给 B，不等待传输完成。
 6. A 调用 `set_input(B 的输入源编码)`；KVM 模式下，键鼠随之切给 B。
-7. B 每 300 毫秒轮询一次 `get_input`，读到自己的编码就调用 `input.acquire()`，回 `taken`，进入 `Holding`，并释放第 3 步拿到的 guard。最长等 8 秒。
-8. A 收到 `taken` 后进入 `Idle`。A 是 Mac 时，第 5 步的 guard 到期（或 `peer_offline` 下 B 离线）后，Mac 正常睡眠；A 之后重新接棒成为持棒方时也释放该 guard。
+7. B 每 300 毫秒轮询一次 `get_input`，读到自己的编码就调用 `input.acquire()`，回 `taken`，进入 `Holding`。第 4 步的 60 秒短时 guard 随接棒结束释放；`peer_offline` 的长时 guard 不释放。最长等 8 秒。
+8. A 收到 `taken` 后进入 `Idle`。`peer_offline` 下长时 guard 仍保持到 B 离线；A 重新接棒成为持棒方时也不释放。`duration` 下第 5 步的 guard 到期后恢复睡眠。
 9. A 超时没收到 `taken`（或 B 在此之前掉线、回 `abort`）：尝试 `set_input(自己的编码)` 切回、收回键鼠，再按 `get_input` 重新判定状态，并通知报错。第 2 步对非 Mac 离线直接切的那次不走这一步。B 轮询超时则回 `abort` 并进入 `Idle`。
 10. B 收到完整的参与者数据后调用对应参与者的 `unpack`（可能早于或晚于 `taken`）。交棒被中止时，B 丢弃未交付的数据。
 

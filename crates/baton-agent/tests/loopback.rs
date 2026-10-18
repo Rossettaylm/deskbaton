@@ -313,11 +313,15 @@ fn two_agents_hand_off_both_ways_over_tls() {
             && win.state() == AgentState::Holding
             && mac.state() == AgentState::Idle
     });
-    assert_eq!(mac.guards.load(Ordering::SeqCst), 1, "交出控制权后保持唤醒");
+    assert_eq!(
+        mac.guards.load(Ordering::SeqCst),
+        1,
+        "交出后对端在线，保持唤醒"
+    );
     assert_eq!(
         win.guards.load(Ordering::SeqCst),
-        0,
-        "接棒完成后释放短时 guard"
+        1,
+        "接棒后对端仍在线，长时 guard 不释放"
     );
 
     win.events.send(Event::Hotkey).unwrap();
@@ -341,7 +345,7 @@ fn two_agents_hand_off_both_ways_over_tls() {
         mac.received.lock().unwrap().as_slice() == ["来自 win"]
     });
     assert_eq!(win.guards.load(Ordering::SeqCst), 1);
-    assert_eq!(mac.guards.load(Ordering::SeqCst), 0, "重新持棒后释放");
+    assert_eq!(mac.guards.load(Ordering::SeqCst), 1, "重新持棒时对端仍在线");
 
     mac.shutdown();
     win.shutdown();

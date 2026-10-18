@@ -40,11 +40,14 @@ typedef struct {
 /* display_index 同 deskbaton_ddc_list；显示器不在 CoreGraphics 的在线列表中时返回 NOT_FOUND。 */
 int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out);
 
-/* 电源：begin 持有防空闲睡眠断言，end 释放；两者都可重复调用。合盖睡眠由 Rust 侧经 pmset 控制。 */
+/* 电源：begin 持有防空闲睡眠与防显示器睡眠断言，end 释放；两者都可重复调用。合盖睡眠由 Rust 侧经 pmset 控制。 */
 int32_t deskbaton_stay_awake_begin(void);
 int32_t deskbaton_stay_awake_end(void);
 /* 声明一次本地用户活动，点亮显示输出。 */
 int32_t deskbaton_wake_display(void);
+/* 在当前线程跑 CFRunLoop，系统从睡眠醒来时调用 cb。不返回。 */
+typedef void (*deskbaton_wake_cb)(void);
+int32_t deskbaton_watch_wake(deskbaton_wake_cb cb);
 
 /* 在主线程运行 NSApplication 事件循环（不显示 Dock 图标），全局热键依赖它分发事件；不返回。 */
 void deskbaton_run_app_loop(void);

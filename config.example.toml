@@ -23,7 +23,7 @@ port = 47800
 # token = "change-me"
 
 [power]
-# peer_offline：交出控制权后一直保持唤醒，直到对端离线；duration：保持 stay_awake_secs 秒。
+# peer_offline：对端在线期间保持唤醒（自己持棒也不释放）；duration：交出后保持 stay_awake_secs 秒。
 stay_awake_until = "peer_offline"
 
 # 可选的兜底：配对后档案会记下对端的地址和 MAC，这里可以不写。

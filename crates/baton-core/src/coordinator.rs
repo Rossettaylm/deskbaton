@@ -92,8 +92,12 @@ pub struct Coordinator {
     /// 本机输入源编码：配置值，或自动学到的值。
     my_code: Option<InputCode>,
     pending: Option<Pending>,
-    /// 交出控制权后保持唤醒的 guard；`peer_offline` 策略下在该对端离线时释放。
+    /// `peer_offline`：任一对端在线期间持有的长时 guard。
+    awake_for_peers: Option<AwakeGuard>,
+    /// `duration`：交出控制权后按秒数计时的 guard。
     awake_after_handoff: Option<(DeviceId, AwakeGuard)>,
+    /// 网络暗唤醒后、对端尚未上线时的短时 guard。
+    dark_wake: Option<AwakeGuard>,
     /// 已中止的接棒，迟到的随身数据直接丢弃。
     discarded: Option<HandoffId>,
 }
@@ -110,7 +114,9 @@ impl Coordinator {
             known: HashMap::new(),
             online: HashSet::new(),
             pending: None,
+            awake_for_peers: None,
             awake_after_handoff: None,
+            dark_wake: None,
             discarded: None,
         }
     }
@@ -206,6 +212,7 @@ impl Coordinator {
                 self.on_peer_offline(&peer);
                 self.known.remove(&peer);
             }
+            Event::NetworkWake => self.on_network_wake(),
             Event::Message { from, message } => self.on_message(from, message, now),
             Event::Data {
                 from,
@@ -251,7 +258,7 @@ impl Coordinator {
                     }
                     self.send(&from, Message::Taken { handoff_id: id });
                     self.set_state(AgentState::Holding);
-                    self.awake_after_handoff = None;
+                    self.sync_awake();
                     log::info!("已从 {} 接棒", from.0);
                 } else if now >= deadline {
                     self.send(
@@ -403,6 +410,7 @@ impl Coordinator {
             None => info,
         };
         self.known.insert(peer.clone(), merged);
+        self.sync_awake();
         if matches!(&self.pending, Some(Pending::Waking { target, .. }) if *target == peer) {
             self.pending = None;
             self.start_prepare(peer, now);
@@ -434,12 +442,7 @@ impl Coordinator {
     fn on_peer_offline(&mut self, peer: &DeviceId) {
         log::info!("{} 离线", peer.0);
         self.online.remove(peer);
-        if self.config.power.stay_awake_until == StayAwakeUntil::PeerOffline
-            && matches!(&self.awake_after_handoff, Some((holder, _)) if holder == peer)
-        {
-            self.awake_after_handoff = None;
-            log::info!("接棒方离线，恢复系统睡眠");
-        }
+        self.sync_awake();
         match self.pending.take() {
             Some(Pending::AwaitReady { id, target, .. }) if target == *peer => {
                 self.abort_before_switch(&target, id, "对方已离线");
@@ -558,7 +561,13 @@ impl Coordinator {
             self.abort_before_switch(&from, id, &format!("交出键鼠失败：{e}"));
             return;
         }
-        let awake = self.stay_awake_after_handoff();
+        let awake = match self.config.power.stay_awake_until {
+            StayAwakeUntil::PeerOffline => {
+                self.sync_awake();
+                None
+            }
+            StayAwakeUntil::Duration => self.stay_awake_after_handoff(),
+        };
         self.send_participant_data(&from, id);
         if let Err(e) = self.switch_input(target_code) {
             let _ = self.ports.input.acquire();
@@ -671,17 +680,44 @@ impl Coordinator {
     }
 
     fn stay_awake_after_handoff(&self) -> Option<AwakeGuard> {
-        let duration = match self.config.power.stay_awake_until {
-            StayAwakeUntil::PeerOffline => Duration::MAX,
-            StayAwakeUntil::Duration => Duration::from_secs(self.config.power.stay_awake_secs),
-        };
+        self.hold_awake(Duration::from_secs(self.config.power.stay_awake_secs))
+    }
+
+    fn hold_awake(&self, duration: Duration) -> Option<AwakeGuard> {
         match self.ports.power.stay_awake(duration) {
             Ok(guard) => Some(guard),
             Err(e) => {
-                log::warn!("保持唤醒失败，继续交棒：{e}");
+                log::warn!("保持唤醒失败：{e}");
                 None
             }
         }
+    }
+
+    fn sync_awake(&mut self) {
+        if self.config.power.stay_awake_until != StayAwakeUntil::PeerOffline {
+            return;
+        }
+        if self.online.is_empty() {
+            if self.awake_for_peers.is_some() {
+                self.awake_for_peers = None;
+                log::info!("对端离线，恢复系统睡眠");
+            }
+            return;
+        }
+        if self.awake_for_peers.is_none() {
+            self.awake_for_peers = self.hold_awake(Duration::MAX);
+        }
+        self.dark_wake = None;
+    }
+
+    fn on_network_wake(&mut self) {
+        if let Err(e) = self.ports.power.wake_display() {
+            log::warn!("点亮显示失败：{e}");
+        }
+        if self.awake_for_peers.is_some() {
+            return;
+        }
+        self.dark_wake = self.hold_awake(self.timings.receiver_awake);
     }
 
     /// 每个参与者在独立线程里打包并排队发送，不阻塞交棒。
