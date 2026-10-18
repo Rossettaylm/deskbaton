@@ -10,14 +10,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use baton_clipboard::{ClipboardSync, SystemClipboard};
+use baton_clipboard::{ClipboardBridge, ClipboardSync, EchoSet, SystemClipboard};
+use baton_core::channel::ChannelId;
 use baton_core::config::{Config, DisplayMode};
 use baton_core::coordinator::{Coordinator, Ports};
 use baton_core::event::{Event, PeerInfo};
-use baton_core::ids::{DeviceId, InputCode, Platform};
+use baton_core::ids::{DeviceId, HandoffId, InputCode, Platform};
 use baton_core::learn::InputCodeLearner;
-use baton_core::ports::{ClipboardAccess, DisplayInfo, Notifier};
-use baton_core::state_file::LocalState;
+use baton_core::outbox::{OutboxViewItem, PeerRef};
+use baton_core::ports::{ClipboardAccess, DisplayInfo, Notifier, PeerLink};
+use baton_core::state_file::{LocalState, clamp_outbox_limit};
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
 use baton_net::{
@@ -47,6 +49,10 @@ pub struct Agent {
     stop_learning: Option<Sender<()>>,
     learning: Option<JoinHandle<()>>,
     clipboard_sync: Arc<AtomicBool>,
+    bridge: Arc<ClipboardBridge>,
+    /// 丢弃即通知剪贴板线程退出。
+    stop_clipboard: Option<Sender<()>>,
+    clipboard_thread: Option<JoinHandle<()>>,
 }
 
 impl Agent {
@@ -111,11 +117,30 @@ impl Agent {
         };
         let clipboard_sync = Arc::new(AtomicBool::new(local.clipboard_sync));
         let notifier: Arc<dyn Notifier> = Arc::from(notifier);
+        let access: Arc<dyn ClipboardAccess> = Arc::new(SystemClipboard::new());
+        let echoes = Arc::new(Mutex::new(EchoSet::new()));
         let clipboard = Arc::new(ClipboardSync::new(
-            Arc::new(SystemClipboard::new()) as Arc<dyn ClipboardAccess>,
+            Arc::clone(&access),
             Arc::clone(&clipboard_sync),
             Arc::clone(&notifier),
+            Arc::clone(&echoes),
         ));
+        let bridge = Arc::new(ClipboardBridge::new(
+            access,
+            Arc::clone(&clipboard_sync),
+            Arc::clone(&notifier),
+            echoes,
+            clamp_outbox_limit(local.clipboard_outbox_limit),
+        ));
+        let (stop_clipboard, clipboard_stopped) = mpsc::channel();
+        let clipboard_loop = ClipboardLoop {
+            bridge: Arc::clone(&bridge),
+            link: Arc::clone(&link),
+        };
+        let clipboard_thread = thread::Builder::new()
+            .name("clipboard".into())
+            .spawn(move || clipboard_loop.run(&clipboard_stopped))
+            .map_err(|e| Error::Config(format!("无法启动剪贴板线程：{e}")))?;
         let ports = Ports {
             display: baton_display::platform_display(),
             power,
@@ -147,6 +172,9 @@ impl Agent {
             stop_learning,
             learning,
             clipboard_sync,
+            bridge,
+            stop_clipboard: Some(stop_clipboard),
+            clipboard_thread: Some(clipboard_thread),
         })
     }
 
@@ -193,6 +221,18 @@ impl Agent {
         self.clipboard_sync.store(on, Ordering::SeqCst);
     }
 
+    pub fn clipboard_outbox(&self) -> Vec<OutboxViewItem> {
+        self.bridge.snapshot(self.link.snapshot().paired.len())
+    }
+
+    pub fn set_outbox_limit(&self, limit: u32) {
+        self.bridge.set_limit(clamp_outbox_limit(limit));
+    }
+
+    pub fn set_on_outbox_change(&self, f: impl Fn() + Send + Sync + 'static) {
+        self.bridge.set_on_change(f);
+    }
+
     /// 本机名称立刻用于展示、mDNS 和之后的握手；不断开已有连接。
     pub fn set_name(&mut self, name: String) -> Result<()> {
         let id = DeviceId(name);
@@ -214,10 +254,16 @@ impl Agent {
     /// 通知协调器退出并等它结束，保证 `AwakeGuard` 已释放。可重复调用。
     pub fn shutdown(&mut self) {
         self.stop_learning = None;
+        self.stop_clipboard = None;
         if let Some(learning) = self.learning.take()
             && learning.join().is_err()
         {
             log::warn!("输入源学习线程异常退出");
+        }
+        if let Some(clipboard) = self.clipboard_thread.take()
+            && clipboard.join().is_err()
+        {
+            log::warn!("剪贴板线程异常退出");
         }
         let _ = self.events.send(Event::Shutdown);
         if let Some(coordinator) = self.coordinator.take()
@@ -244,6 +290,41 @@ struct Learning {
 }
 
 const LEARN_INTERVAL: Duration = Duration::from_secs(2);
+const CLIPBOARD_POLL: Duration = Duration::from_millis(500);
+
+struct ClipboardLoop {
+    bridge: Arc<ClipboardBridge>,
+    link: Arc<TcpPeerLink>,
+}
+
+impl ClipboardLoop {
+    fn run(self, stopped: &Receiver<()>) {
+        while let Err(RecvTimeoutError::Timeout) = stopped.recv_timeout(CLIPBOARD_POLL) {
+            let peers = clipboard_peers(&self.link);
+            self.bridge.tick(&peers, |to, payload| {
+                self.link
+                    .send_data(to, ChannelId::CLIPBOARD, HandoffId::REALTIME, payload)
+            });
+        }
+    }
+}
+
+fn clipboard_peers(link: &TcpPeerLink) -> Vec<PeerRef> {
+    link.snapshot()
+        .paired
+        .into_iter()
+        .map(|p| PeerRef {
+            key: if p.peer.fingerprint.is_empty() {
+                p.peer.name.clone()
+            } else {
+                p.peer.fingerprint.clone()
+            },
+            name: p.peer.name.clone(),
+            to: p.peer.device_id(),
+            online: p.online,
+        })
+        .collect()
+}
 
 impl Learning {
     fn run(self, stopped: &Receiver<()>) {

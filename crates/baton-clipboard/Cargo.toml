@@ -1,6 +1,6 @@
 [package]
 name = "baton-clipboard"
-description = "DeskBaton 系统剪贴板访问与交棒同步"
+description = "DeskBaton 系统剪贴板访问与实时同步"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

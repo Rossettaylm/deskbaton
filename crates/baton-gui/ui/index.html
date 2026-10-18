@@ -55,15 +55,7 @@
       </div>
 
       <div class="pane" id="pane-clipboard" role="tabpanel" aria-labelledby="tab-clipboard" data-pane="clipboard" hidden>
-        <section class="card soon">
-          <svg viewBox="0 0 32 32" aria-hidden="true">
-            <rect x="8" y="6" width="16" height="22" rx="2.5"/>
-            <rect x="11" y="3.5" width="10" height="5" rx="1.5"/>
-            <path d="M12 14h8M12 18h8M12 22h5"/>
-          </svg>
-          <b>切换时同步</b>
-          <p>文本和图片会在切换电脑时同步到另一台电脑的系统剪贴板。可在「设置」关闭。</p>
-        </section>
+        <section class="card outbox" id="clipboard-list"></section>
       </div>
 
       <div class="pane" id="pane-local" role="tabpanel" aria-labelledby="tab-local" data-pane="local" hidden>
@@ -88,8 +80,20 @@
             <span>剪贴板</span>
             <input id="pref-clipboard" type="checkbox">
           </label>
+          <label class="pref">
+            <span>剪贴板页</span>
+            <input id="pref-clipboard-tab" type="checkbox">
+          </label>
+          <label class="pref">
+            <span>未发上限</span>
+            <input id="pref-outbox-limit" type="number" min="1" max="50">
+          </label>
         </section>
       </div>
+    </div>
+
+    <div class="lightbox" id="clipboard-lightbox" hidden>
+      <img id="clipboard-lightbox-img" alt="">
     </div>
 
     <footer class="foot">

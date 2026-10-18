@@ -15,6 +15,8 @@
 > 修订（2026-10-17）：配对、设备档案、mDNS 发现与面板配对改按 `2026-10-17-pairing-design.md`；agent 并入面板进程；协议升到 v3。
 >
 > 修订（2026-10-17）：剪贴板同步改按 `2026-10-17-clipboard-design.md`：`clipboard-rs` 读写系统剪贴板，只在交棒时带走文本 / PNG；开关在面板「本机」卡片，写入 `state.toml`，不进 `config.toml`。冲突时以剪贴板设计为准。
+>
+> 修订（2026-10-18）：剪贴板改为实时同步，对端离线进该对端发件箱，上线后按序送出；交棒不再附带。见 `2026-10-18-clipboard-realtime-design.md`，冲突时以该文为准。
 
 ## 1. 目标
 
@@ -31,14 +33,14 @@
 - Mac 交棒后保持唤醒，释放条件可配置：`peer_offline`（默认，对端心跳消失即释放）/ `duration`（按 `stay_awake_secs` 计时）
 - 接棒方已经睡着时，按配置依次尝试唤醒方式：WoL（有线的 Windows、Wi-Fi 的 Mac）→ HID 唤醒配件（备选，第二期）→ 提示用户
 - 局域网发现 + 面板上核对 6 位数字配对 + 加密通信，一条连接上多条逻辑通道；设备档案记下对端的 MAC 和 IP，供唤醒使用
-- 剪贴板同步：交棒时把文本 / 图片带给接棒方
+- 剪贴板同步：实时把文本 / 图片发给已配对对端；对端离线时进发件箱
 
 **预留扩展点，首版不实现**
 
 - 纯软件键鼠模式（`InputRouting::Software`，后端为 Deskflow 进程或自研）
 - 不切屏模式（`DisplayMode::None`，每台电脑各有显示器）
 - 三台及以上机器（配置和协议里的对端都是列表）
-- 剪贴板实时同步模式（`clipboard.sync = "realtime"`）
+- 剪贴板 HTML / RTF / 文件列表 / 视频；应用层 ACK 与发件箱落盘
 - 更多互联能力（文件快传、远程电源与状态等）：新增通道 + 交棒参与者即可接入
 
 **不做**
@@ -296,14 +298,7 @@ pub enum Event { Hotkey, PeerOnline(PeerInfo), PeerOffline(DeviceId),
 
 **协调器**在交棒第 5 步并行调用所有参与者的 `pack`，结果经各自的通道发送。参与者失败只记日志，**不影响交棒**。
 
-**ClipboardSync**（`baton-clipboard`，第一个参与者）：
-
-- **读写**：用 `clipboard-rs`（MIT）读写系统剪贴板的文本和图片，图片统一为 PNG；见 `2026-10-17-clipboard-design.md`；
-- **同步时机**：只在交棒时带走当前剪贴板；
-- **防回传**：记录最近一次收到或发出的内容哈希，剪贴板内容没变就不再发送；
-- **敏感内容**：带约定标记的内容不同步（macOS `org.nspasteboard.ConcealedType`，Windows `ExcludeClipboardContentFromMonitorProcessing`）；
-- **上限**：超过 32 MiB 就跳过，并经 `Notifier` 提示；
-- **开关**：面板「设置」，写入 `state.toml` 的 `clipboard_sync`，默认开。
+**ClipboardSync / ClipboardBridge**（`baton-clipboard`）：见 `2026-10-18-clipboard-realtime-design.md`。实时经通道 `1` 发送，`handoff_id = 0`；`pack` 不再带数据。失败仍不得阻断交棒。
 
 ## 6. 交棒流程
 
@@ -390,7 +385,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
   2. 合盖 Mac 切走并睡眠超过 1 小时后，从 Windows 交棒，Mac 被唤醒并接管键鼠，不需要开盖；
   3. Windows 睡眠时从 Mac 切过去，WoL 生效；
   4. 关闭 Mac 上的 agent 后，系统睡眠策略恢复正常；
-  5. 在 Windows 复制一段文字和一张截图，交棒到 Mac 后能直接粘贴；从密码管理器复制的密码不会被同步。
+  5. 在 Windows 复制一段文字和一张截图，Mac 在线时立刻能粘贴、不必先切换；从密码管理器复制的密码不会被同步。
 
 ## 10. 里程碑
 
@@ -398,8 +393,8 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 |---|---|---|
 | M0 原型 | ① Mac 端 DDC 读写；② Windows 端 DDC 读写；③ 实测 P275MV 的输入源编码和 KVM 跟随；④ Mac `stay_awake` 两种机制；⑤ 实测不需要配件的唤醒路径（已确认 Wi-Fi 魔术包可行） | `deskbaton-cli` 在两端完成切换；验收清单第 1 项通过；明确合盖睡眠 Mac 的可行唤醒方式 |
 | M1 命令行交棒 | 无界面 agent，写死对端地址，用预共享令牌代替配对；多通道帧格式与 `mux`；`peer_offline` 保持唤醒策略 | 热键完成双向交棒；验收清单第 1、3、4 项通过 |
-| M2 可用版本 | 剪贴板同步；agent 并入面板进程；mDNS 发现、面板配对、设备档案；开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项、配对设计验收清单通过 |
-| M3 扩展 | HID 唤醒配件（魔术包不可用时的备选）、剪贴板实时模式、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
+| M2 可用版本 | 剪贴板实时同步；agent 并入面板进程；mDNS 发现、面板配对、设备档案；开机自启、通知；Mac 经 Wi-Fi 魔术包被唤醒后接棒 | 验收清单第 1–5 项、配对设计验收清单、剪贴板实时设计验收清单通过 |
+| M3 扩展 | HID 唤醒配件（魔术包不可用时的备选）、文件快传、软件键鼠模式、不切屏模式、多机器、Linux | 另立设计文档 |
 
 ## 11. 风险
 

@@ -13,6 +13,11 @@ pub struct DeviceId(pub String);
 #[serde(transparent)]
 pub struct HandoffId(pub u64);
 
+impl HandoffId {
+    /// 不绑某次交棒的实时数据（如剪贴板）。
+    pub const REALTIME: Self = Self(0);
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct DisplayId(pub String);

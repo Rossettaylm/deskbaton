@@ -90,6 +90,11 @@ const state = {
   tab: "handoff",
   /** @type {Set<number>} 已经提示过的配对请求，避免用户切回交棒后又被拽走 */
   seenPairing: new Set(),
+  clipboardTab: true,
+  /** @type {OutboxItem[]} */
+  outbox: [],
+  /** @type {number | null} */
+  expandedSeq: null,
 };
 
 /** @param {string} id */
@@ -229,7 +234,14 @@ function setTab(next) {
   fit();
 }
 
+function visibleTabs() {
+  return state.clipboardTab ? TABS : TABS.filter((id) => id !== "clipboard");
+}
+
 function applyTab() {
+  const tabs = visibleTabs();
+  if (!tabs.includes(state.tab)) state.tab = "handoff";
+  $("tab-clipboard").hidden = !state.clipboardTab;
   for (const id of TABS) {
     const selected = state.tab === id;
     const tab = $(`tab-${id}`);
@@ -247,13 +259,16 @@ function render() {
   renderScreen(d);
   renderPorts(d);
   renderDevices();
+  renderClipboard();
   renderFoot(d);
   renderMenu();
   fit();
 }
 
 /**
- * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, clipboard_sync: boolean, autostart: boolean }} PrefsView
+ * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, clipboard_sync: boolean,
+ *             clipboard_tab: boolean, clipboard_outbox_limit: number, autostart: boolean }} PrefsView
+ * @typedef {{ seq: number, peer: string, format: string, text: string | null, png_base64: string | null }} OutboxItem
  */
 
 let recordingHotkey = false;
@@ -279,6 +294,11 @@ async function refreshPrefs() {
     autostart.checked = prefs.autostart;
     notify.checked = prefs.notify;
     clipboard.checked = prefs.clipboard_sync;
+    /** @type {HTMLInputElement} */ ($("pref-clipboard-tab")).checked = prefs.clipboard_tab;
+    /** @type {HTMLInputElement} */ ($("pref-outbox-limit")).value = String(prefs.clipboard_outbox_limit);
+    const tabWas = state.clipboardTab;
+    state.clipboardTab = prefs.clipboard_tab;
+    if (tabWas !== state.clipboardTab) applyTab();
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -317,6 +337,107 @@ async function saveClipboard() {
     render();
     refreshPrefs();
   }
+}
+
+async function saveClipboardTab() {
+  const on = /** @type {HTMLInputElement} */ ($("pref-clipboard-tab")).checked;
+  try {
+    await invoke("set_clipboard_tab", { clipboardTab: on });
+    state.clipboardTab = on;
+    if (!on) closeLightbox();
+    applyTab();
+    fit();
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+async function saveOutboxLimit() {
+  const input = /** @type {HTMLInputElement} */ ($("pref-outbox-limit"));
+  try {
+    const n = await invoke("set_clipboard_outbox_limit", { limit: Number(input.value) });
+    input.value = String(n);
+    refreshClipboard();
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+async function refreshClipboard() {
+  try {
+    state.outbox = await invoke("clipboard_outbox");
+    if (state.expandedSeq != null && !state.outbox.some((i) => i.seq === state.expandedSeq)) {
+      state.expandedSeq = null;
+    }
+    renderClipboard();
+    fit();
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+}
+
+function renderClipboard() {
+  const list = $("clipboard-list");
+  list.replaceChildren();
+  if (!state.outbox.length) {
+    list.append(h("p", { class: "empty" }, "没有未发送的内容"));
+    return;
+  }
+  for (const item of state.outbox) {
+    const expanded = state.expandedSeq === item.seq;
+    const thumb = item.png_base64
+      ? h("img", {
+          class: "clip-thumb",
+          src: `data:image/png;base64,${item.png_base64}`,
+          alt: "",
+          onclick: (/** @type {MouseEvent} */ e) => {
+            e.stopPropagation();
+            openLightbox(`data:image/png;base64,${item.png_base64}`);
+          },
+        })
+      : null;
+    list.append(
+      h(
+        "div",
+        {
+          class: `clip-item${expanded ? " expanded" : ""}`,
+          onclick: () => {
+            if (item.text == null) return;
+            state.expandedSeq = expanded ? null : item.seq;
+            renderClipboard();
+            fit();
+          },
+        },
+        h(
+          "div",
+          { class: "meta" },
+          item.peer ? h("span", { class: "peer" }, item.peer) : null,
+          h("div", { class: "clip-text" }, item.text ?? "图片"),
+        ),
+        thumb,
+      ),
+    );
+  }
+}
+
+function openLightbox(src) {
+  const img = /** @type {HTMLImageElement} */ ($("clipboard-lightbox-img"));
+  img.src = src;
+  $("clipboard-lightbox").hidden = false;
+}
+
+function closeLightbox() {
+  $("clipboard-lightbox").hidden = true;
+  /** @type {HTMLImageElement} */ ($("clipboard-lightbox-img")).src = "";
+}
+
+function lightboxOpen() {
+  return !$("clipboard-lightbox").hidden;
 }
 
 async function saveAutostart() {
@@ -769,8 +890,9 @@ $("tabs").addEventListener("click", (e) => {
 
 $("tabs").addEventListener("keydown", (e) => {
   if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-  const i = TABS.indexOf(state.tab);
-  const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
+  const tabs = visibleTabs();
+  const i = tabs.indexOf(state.tab);
+  const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
   setTab(next);
   $(`tab-${next}`).focus();
   e.preventDefault();
@@ -800,7 +922,13 @@ document.addEventListener("keydown", (e) => {
     if (combo) commitHotkey(combo);
     return;
   }
-  if (e.key === "Escape") closeMenu();
+  if (e.key === "Escape") {
+    if (lightboxOpen()) {
+      closeLightbox();
+      return;
+    }
+    closeMenu();
+  }
 });
 
 $("pref-name").addEventListener("change", saveName);
@@ -813,7 +941,10 @@ $("pref-name").addEventListener("keydown", (e) => {
 $("pref-hotkey").addEventListener("click", startHotkeyRecord);
 $("pref-notify").addEventListener("change", saveNotify);
 $("pref-clipboard").addEventListener("change", saveClipboard);
+$("pref-clipboard-tab").addEventListener("change", saveClipboardTab);
+$("pref-outbox-limit").addEventListener("change", saveOutboxLimit);
 $("pref-autostart").addEventListener("change", saveAutostart);
+$("clipboard-lightbox").addEventListener("click", closeLightbox);
 window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();
 });
@@ -824,6 +955,7 @@ tauri.event.listen("panel-shown", () => {
   if (state.pending == null) refresh();
   refreshDevices();
   refreshPrefs();
+  refreshClipboard();
 });
 
 let displaysTimer = 0;
@@ -842,6 +974,10 @@ tauri.event.listen("devices-changed", () => {
   scheduleDisplays();
 });
 
+tauri.event.listen("clipboard-changed", () => {
+  refreshClipboard();
+});
+
 tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
   state.notice = { tone: "idle", text: e.payload };
   render();
@@ -857,3 +993,4 @@ invoke("agent_status")
 refresh();
 refreshDevices();
 refreshPrefs();
+refreshClipboard();

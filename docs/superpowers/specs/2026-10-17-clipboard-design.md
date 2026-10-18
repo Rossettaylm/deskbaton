@@ -1,10 +1,11 @@
 # DeskBaton 剪贴板同步设计
 
-日期：2026-10-17　状态：已确认
+日期：2026-10-17　状态：部分被取代
 
-主设计见 `2026-10-16-deskbaton-design.md`。本机设置见 `2026-10-17-panel-settings-design.md`。冲突时以本文为准。
+主设计见 `2026-10-16-deskbaton-design.md`。本机设置见 `2026-10-17-panel-settings-design.md`。
+同步时机与是否参与交棒以 `2026-10-18-clipboard-realtime-design.md` 为准。本文仍约束内容格式、敏感标记、32 MiB 上限、不进 `config.toml`。
 
-本文落实 M2 的「交棒时同步系统剪贴板」。实时同步、文件列表、视频、HTML / RTF 仍属 M3，另立文档。
+本文原落实 M2 的「交棒时同步系统剪贴板」。实时同步已提前，见 2026-10-18。文件列表、视频、HTML / RTF 仍属 M3。
 
 ## 1. 目标
 

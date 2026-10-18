@@ -25,7 +25,7 @@
 **不做**
 
 - 回写或扩展 `config.toml`（含通知开关、开机自启字段）
-- 保持唤醒、端口、输入口编码等其它配置项的面板编辑（剪贴板开关见 `2026-10-17-clipboard-design.md`）
+- 保持唤醒、端口、输入口编码等其它配置项的面板编辑（剪贴板见 `2026-10-18-clipboard-realtime-design.md`）
 - 改名称时主动断开已有连接
 - 独立设置窗口；`⋯` 菜单不承担这四项
 - Linux 开机自启（面板本就不在 Linux 分发）
@@ -35,7 +35,7 @@
 | 项 | 真相 | 读取顺序 |
 |---|---|---|
 | 开机自启 | 系统登录项 | 打开面板时问系统 |
-| 名称、热键、通知、剪贴板同步 | `state.toml` | 名称/热键：`state.toml` > `config.toml`（只读）> 默认值；通知与剪贴板：`state.toml`（缺省为开） |
+| 名称、热键、通知、剪贴板 | `state.toml` | 名称/热键：`state.toml` > `config.toml`（只读）> 默认值；通知、剪贴板同步、剪贴板页：`state.toml`（缺省为开）；未发上限缺省 10 |
 | 是否已种过登录项 | `state.toml` 的 `autostart_seeded` | 仅程序使用 |
 
 与输入源编码相反：编码仍是配置优先于学到的值（零配置设计第 4.3 节）；名称和热键是 `state.toml` 优先，因为面板是今后的写入入口。
@@ -51,7 +51,9 @@ input_code = 16                 # 已有：学到的本机输入源编码
 name = "macbook"                # 可选；字段不存在 = 未在面板保存过
 hotkey = "Ctrl+Alt+B"           # 可选；字段不存在 = 未在面板保存过
 notify = true                   # 缺省 true
-clipboard_sync = true           # 缺省 true；见剪贴板设计
+clipboard_sync = true           # 缺省 true；见剪贴板实时设计
+clipboard_tab = true            # 缺省 true；只控制 tab 显隐
+clipboard_outbox_limit = 10     # 缺省 10；每端发件箱上限，1–50
 autostart_seeded = true         # 缺省 false
 ```
 
@@ -82,7 +84,9 @@ autostart_seeded = true         # 缺省 false
 | 切换热键 | 显示当前组合；点一下进入录制 | 按下新组合即保存；Esc 取消录制，保持原值 |
 | 开机自启 | 开关 | 反映系统登录项是否指向本程序 |
 | 通知 | 开关 | 反映 `state.toml` 的 `notify` |
-| 剪贴板 | 开关 | 反映 `state.toml` 的 `clipboard_sync`；见剪贴板设计 |
+| 剪贴板 | 开关 | 反映 `state.toml` 的 `clipboard_sync`；见实时设计 |
+| 剪贴板页 | 开关 | 反映 `clipboard_tab`；关掉只藏 tab |
+| 未发上限 | 数字 | 反映 `clipboard_outbox_limit` |
 
 录制热键期间，这次按键不得触发交棒。格式与现有 `hotkey::parse` 相同，例如 `Ctrl+Alt+Space`。
 

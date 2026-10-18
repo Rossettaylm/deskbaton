@@ -1,20 +1,23 @@
 //! 两个已配对的 agent 在本机回环地址上经真实 TLS 链路完成双向交棒；显示器、电源为假实现。
 
 use std::net::{SocketAddr, TcpListener};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use baton_clipboard::{ClipboardBridge, EchoSet};
 use baton_core::channel::ChannelId;
 use baton_core::config::{Config, PeerConfig};
 use baton_core::coordinator::{Coordinator, Ports, Timings};
 use baton_core::event::{Event, PeerInfo};
 use baton_core::ids::{DeviceId, DisplayId, HandoffId, InputCode};
+use baton_core::outbox::PeerRef;
 use baton_core::participant::{HandoffParticipant, Payload};
 use baton_core::ports::{
-    AwakeGuard, DisplayControl, DisplayInfo, Notifier, PeerLink, PowerControl,
+    AwakeGuard, ClipboardAccess, ClipboardContent, ClipboardRead, DisplayControl, DisplayInfo,
+    Notifier, PeerLink, PowerControl,
 };
 use baton_core::protocol::Message;
 use baton_core::state::AgentState;
@@ -77,9 +80,8 @@ impl PowerControl for FakePower {
     }
 }
 
-/// 交出控制权时带上本机名称，接棒方记录收到的内容。
+/// 经通道 1 写入的剪贴板；交棒不再打包。
 struct Clipboard {
-    me: String,
     received: Arc<Mutex<Vec<String>>>,
 }
 
@@ -88,10 +90,7 @@ impl HandoffParticipant for Clipboard {
         ChannelId::CLIPBOARD
     }
     fn pack(&self, _: &DeviceId) -> Result<Option<Payload>> {
-        Ok(Some(Payload {
-            format: "text/plain".into(),
-            data: format!("来自 {}", self.me).into_bytes(),
-        }))
+        Ok(None)
     }
     fn unpack(&self, _: &DeviceId, payload: Payload) -> Result<()> {
         let text = String::from_utf8(payload.data).map_err(|e| Error::Net(e.to_string()))?;
@@ -197,7 +196,6 @@ impl Agent {
                 state: Arc::clone(&state),
             }),
             participants: vec![Arc::new(Clipboard {
-                me: name.into(),
                 received: Arc::clone(&received),
             })],
             notifier: Box::new(Quiet),
@@ -294,14 +292,26 @@ fn two_agents_hand_off_both_ways_over_tls() {
     });
     thread::sleep(Duration::from_millis(200));
 
+    mac.link
+        .send_data(
+            &DeviceId("win".into()),
+            ChannelId::CLIPBOARD,
+            HandoffId::REALTIME,
+            Payload {
+                format: "text/plain".into(),
+                data: "来自 mac".into(),
+            },
+        )
+        .unwrap();
+    wait_until("剪贴板到达 win", || {
+        win.received.lock().unwrap().as_slice() == ["来自 mac"]
+    });
+
     mac.events.send(Event::Hotkey).unwrap();
     wait_until("交棒给 win", || {
         *monitor.lock().unwrap() == WIN
             && win.state() == AgentState::Holding
             && mac.state() == AgentState::Idle
-    });
-    wait_until("剪贴板到达 win", || {
-        win.received.lock().unwrap().as_slice() == ["来自 mac"]
     });
     assert_eq!(mac.guards.load(Ordering::SeqCst), 1, "交出控制权后保持唤醒");
     assert_eq!(
@@ -316,6 +326,17 @@ fn two_agents_hand_off_both_ways_over_tls() {
             && mac.state() == AgentState::Holding
             && win.state() == AgentState::Idle
     });
+    win.link
+        .send_data(
+            &DeviceId("mac".into()),
+            ChannelId::CLIPBOARD,
+            HandoffId::REALTIME,
+            Payload {
+                format: "text/plain".into(),
+                data: "来自 win".into(),
+            },
+        )
+        .unwrap();
     wait_until("剪贴板到达 mac", || {
         mac.received.lock().unwrap().as_slice() == ["来自 win"]
     });
@@ -325,4 +346,75 @@ fn two_agents_hand_off_both_ways_over_tls() {
     mac.shutdown();
     win.shutdown();
     assert_eq!(win.guards.load(Ordering::SeqCst), 0, "退出时释放保持唤醒");
+}
+
+struct FakeClip(Mutex<ClipboardRead>);
+
+impl ClipboardAccess for FakeClip {
+    fn read(&self) -> Result<ClipboardRead> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn write(&self, _: &ClipboardContent) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn clipboard_outbox_flushes_after_fake_offline() {
+    let monitor: Monitor = Arc::new(Mutex::new(MAC));
+    let win_addr = free_addr();
+    let (mac_id, win_id) = (identity(), identity());
+    let mac_store = pinned("win", &win_id);
+    let win_store = pinned("mac", &mac_id);
+    let mut win = Agent::start(
+        "win", WIN, win_id, win_store, "mac", win_addr, None, &monitor,
+    );
+    let mut mac = Agent::start(
+        "mac",
+        MAC,
+        mac_id,
+        mac_store,
+        "win",
+        free_addr(),
+        Some(win_addr),
+        &monitor,
+    );
+    let heartbeat = Message::Heartbeat {
+        state: AgentState::Idle,
+    };
+    wait_until("建立连接", || {
+        mac.link.send(&DeviceId("win".into()), &heartbeat).is_ok()
+    });
+
+    let access = Arc::new(FakeClip(Mutex::new(ClipboardRead::Content(
+        ClipboardContent::Text("queued".into()),
+    ))));
+    let bridge = ClipboardBridge::new(
+        access,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(Quiet),
+        Arc::new(Mutex::new(EchoSet::new())),
+        10,
+    );
+    let mut peer = PeerRef {
+        key: "fp-win".into(),
+        name: "win".into(),
+        to: DeviceId("win".into()),
+        online: false,
+    };
+    bridge.tick(&[peer.clone()], |_, _| unreachable!());
+    assert_eq!(bridge.snapshot(1).len(), 1);
+
+    peer.online = true;
+    let link = Arc::clone(&mac.link);
+    bridge.tick(&[peer], |to, payload| {
+        link.send_data(to, ChannelId::CLIPBOARD, HandoffId::REALTIME, payload)
+    });
+    wait_until("冲刷到达 win", || {
+        win.received.lock().unwrap().as_slice() == ["queued"]
+    });
+    assert!(bridge.snapshot(1).is_empty());
+
+    mac.shutdown();
+    win.shutdown();
 }

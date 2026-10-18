@@ -24,9 +24,15 @@ pub struct LocalState {
     /// 是否弹出系统通知。
     #[serde(default = "default_notify")]
     pub notify: bool,
-    /// 交棒时是否同步系统剪贴板。
+    /// 是否同步系统剪贴板。
     #[serde(default = "default_clipboard_sync")]
     pub clipboard_sync: bool,
+    /// 面板是否显示「剪贴板」页；关掉不影响同步。
+    #[serde(default = "default_clipboard_tab")]
+    pub clipboard_tab: bool,
+    /// 每个对端发件箱最多几条。
+    #[serde(default = "default_clipboard_outbox_limit")]
+    pub clipboard_outbox_limit: u32,
     /// 面板已经成功种过一次登录项；之后不再擅自打开开机自启。
     #[serde(default)]
     pub autostart_seeded: bool,
@@ -40,6 +46,8 @@ impl Default for LocalState {
             hotkey: None,
             notify: default_notify(),
             clipboard_sync: default_clipboard_sync(),
+            clipboard_tab: default_clipboard_tab(),
+            clipboard_outbox_limit: default_clipboard_outbox_limit(),
             autostart_seeded: false,
         }
     }
@@ -51,6 +59,19 @@ fn default_notify() -> bool {
 
 fn default_clipboard_sync() -> bool {
     true
+}
+
+fn default_clipboard_tab() -> bool {
+    true
+}
+
+fn default_clipboard_outbox_limit() -> u32 {
+    10
+}
+
+/// 合法范围 1–50，其它值当 10。
+pub fn clamp_outbox_limit(n: u32) -> u32 {
+    if (1..=50).contains(&n) { n } else { 10 }
 }
 
 impl LocalState {
@@ -79,8 +100,12 @@ impl LocalState {
     /// 文件不存在时为空状态。
     pub fn load(path: &Path) -> Result<Self> {
         match fs::read_to_string(path) {
-            Ok(text) => toml::from_str(&text)
-                .map_err(|e| Error::Config(format!("{} 有误：{e}", path.display()))),
+            Ok(text) => {
+                let mut state: Self = toml::from_str(&text)
+                    .map_err(|e| Error::Config(format!("{} 有误：{e}", path.display())))?;
+                state.clipboard_outbox_limit = clamp_outbox_limit(state.clipboard_outbox_limit);
+                Ok(state)
+            }
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(io_error(path, e)),
         }
@@ -144,7 +169,26 @@ mod tests {
         assert_eq!(state.hotkey, None);
         assert!(state.notify);
         assert!(state.clipboard_sync);
+        assert!(state.clipboard_tab);
+        assert_eq!(state.clipboard_outbox_limit, 10);
         assert!(!state.autostart_seeded);
+    }
+
+    #[test]
+    fn clamp_outbox_limit_keeps_valid_and_defaults_invalid() {
+        assert_eq!(clamp_outbox_limit(1), 1);
+        assert_eq!(clamp_outbox_limit(10), 10);
+        assert_eq!(clamp_outbox_limit(50), 50);
+        assert_eq!(clamp_outbox_limit(0), 10);
+        assert_eq!(clamp_outbox_limit(51), 10);
+    }
+
+    #[test]
+    fn load_clamps_illegal_outbox_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.toml");
+        fs::write(&path, "clipboard_outbox_limit = 99\n").unwrap();
+        assert_eq!(LocalState::load(&path).unwrap().clipboard_outbox_limit, 10);
     }
 
     #[test]
@@ -190,6 +234,8 @@ mod tests {
             hotkey: Some("Ctrl+Alt+B".into()),
             notify: false,
             clipboard_sync: false,
+            clipboard_tab: false,
+            clipboard_outbox_limit: 3,
             autostart_seeded: true,
         }
         .save(&path)
@@ -203,6 +249,8 @@ mod tests {
         assert_eq!(loaded.hotkey.as_deref(), Some("Ctrl+Alt+B"));
         assert!(!loaded.notify);
         assert!(!loaded.clipboard_sync);
+        assert!(!loaded.clipboard_tab);
+        assert_eq!(loaded.clipboard_outbox_limit, 3);
         assert!(loaded.autostart_seeded);
     }
 }

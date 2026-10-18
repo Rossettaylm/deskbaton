@@ -37,8 +37,9 @@
 ## P2 · M2 可用版本
 
 - [x] `baton-clipboard`：`ClipboardAccess`（clipboard-rs）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过；本机开关写入 `state.toml`（[设计](docs/superpowers/specs/2026-10-17-clipboard-design.md)）
-- [ ] 🔧 剪贴板设计验收清单第 1–5 项
-- [ ] 剪贴板历史：面板列表、上限可配（默认 10）、交棒时同步最近 N 条（待改设计文档）
+- [ ] 🔧 剪贴板设计验收清单第 1–5 项（交棒时同步；已被实时设计取代，该项随实时验收一起勾）
+- [x] 剪贴板实时同步（[设计](docs/superpowers/specs/2026-10-18-clipboard-realtime-design.md)）：按对端发件箱、上线冲刷、tab 只显示未发、总开关与 tab 显隐分开
+- [ ] 🔧 剪贴板实时设计验收清单第 1–6 项
 - 配对与设备档案（[设计](docs/superpowers/specs/2026-10-17-pairing-design.md)），按顺序推进：
   - [x] 持久化 TLS 身份、`peers.toml` 设备档案、握手 v3（承诺式配对码、信任判定、令牌自动配对），`PROTOCOL_VERSION` 升到 3
   - [x] 档案驱动唤醒：启动时把档案设备交给协调器，`wol_mac` 档案优先，`WakeTarget.last_ip`；`hello.wol_mac` 上报承载连接的网卡当前 MAC；`WolWaker` 同时发往 `255.255.255.255`、子网广播和最后已知 IP
@@ -74,7 +75,7 @@
 ## P3 · M3 扩展（另立设计文档）
 
 - [ ] HID 唤醒配件（Wi-Fi 魔术包不可用时的备选）
-- [ ] 剪贴板实时模式、文件快传
+- [ ] 文件快传
 - [ ] 软件键鼠模式、不切屏模式、多机器、Linux
 
 ## 待定

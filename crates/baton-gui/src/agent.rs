@@ -92,6 +92,10 @@ impl AgentSlot {
         self.with_agent(|a| a.set_clipboard_sync(on));
     }
 
+    pub(crate) fn set_outbox_limit(&self, limit: u32) {
+        self.with_agent(|a| a.set_outbox_limit(limit));
+    }
+
     pub(crate) fn register_hotkey(&self, text: &str) -> Result<hotkey::Registration> {
         let parsed = hotkey::parse(text)?;
         let events = self
@@ -185,6 +189,12 @@ fn try_start(app: &AppHandle, exiting: &Arc<AtomicBool>, notify: Arc<AtomicBool>
         })),
         on_stopped,
     })?;
+    {
+        let app = app.clone();
+        agent.set_on_outbox_change(move || {
+            let _ = app.emit_to(PANEL, "clipboard-changed", ());
+        });
+    }
     match hotkey::register(hotkey, agent.events()) {
         Ok(registration) => HOTKEY.with(|h| *h.borrow_mut() = Some(registration)),
         Err(e) => {

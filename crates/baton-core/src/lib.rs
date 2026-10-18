@@ -11,6 +11,7 @@ pub mod error;
 pub mod event;
 pub mod ids;
 pub mod learn;
+pub mod outbox;
 pub mod participant;
 pub mod ports;
 pub mod protocol;
