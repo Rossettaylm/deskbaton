@@ -87,6 +87,15 @@ mod tests {
             yml.contains("target/release/bundle/dmg") && yml.contains("|| true"),
             "产物在 workspace target 下；find 缺目录时不能让 pipefail 失败"
         );
+        assert!(
+            yml.contains("updater_bundles: dmg,app"),
+            "tag 时 Mac 必须打 app，否则没有 .app.tar.gz，latest.json 缺 darwin-aarch64"
+        );
+        assert!(yml.contains("matrix.updater_bundles"));
+        assert!(
+            yml.contains(".app.tar.gz.sig") && yml.contains("tag 构建缺少更新器签名"),
+            "缺签名时 tag job 必须失败，不能静默跳过 latest.json"
+        );
     }
 
     fn pref_container_tag(html: &str, id: &str) -> &'static str {

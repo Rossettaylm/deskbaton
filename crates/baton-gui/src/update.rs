@@ -165,13 +165,21 @@ fn cmd_err(e: Error) -> String {
     }
 }
 
-fn updater_err(prefix: &str, e: tauri_plugin_updater::Error) -> Error {
-    let text = e.to_string();
-    if text.to_ascii_lowercase().contains("sign") {
-        Error::Config("更新包校验失败".into())
+fn updater_user_text(prefix: &str, text: &str) -> String {
+    let lower = text.to_ascii_lowercase();
+    if lower.contains("sign") {
+        "更新包校验失败".into()
+    } else if lower.contains("fallback platform")
+        || lower.contains("not found in the response `platforms`")
+    {
+        format!("{prefix}当前系统没有对应的更新包")
     } else {
-        Error::Config(format!("{prefix}{text}"))
+        format!("{prefix}{text}")
     }
+}
+
+fn updater_err(prefix: &str, e: tauri_plugin_updater::Error) -> Error {
+    Error::Config(updater_user_text(prefix, &e.to_string()))
 }
 
 async fn fetch_remote(app: &AppHandle) -> Result<Option<String>> {
@@ -298,7 +306,7 @@ async fn do_install(app: AppHandle) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{UpdateKind, UpdateSlot, check_with, progress_text};
+    use super::{UpdateKind, UpdateSlot, check_with, progress_text, updater_user_text};
 
     #[test]
     fn unsupported_does_not_call_fetch() {
@@ -360,6 +368,21 @@ mod tests {
         let status = slot.status();
         assert_eq!(status.kind, UpdateKind::Available);
         assert_eq!(status.version.as_deref(), Some("0.0.2"));
+    }
+
+    #[test]
+    fn updater_user_text_maps_missing_platform() {
+        assert_eq!(
+            updater_user_text(
+                "无法检查更新：",
+                r#"None of the fallback platforms ["darwin-aarch64-app", "darwin-aarch64"] were found in the response `platforms` object"#
+            ),
+            "无法检查更新：当前系统没有对应的更新包"
+        );
+        assert_eq!(
+            updater_user_text("无法检查更新：", "timeout"),
+            "无法检查更新：timeout"
+        );
     }
 
     #[test]

@@ -20,9 +20,11 @@ jobs:
         include:
           - os: macos-latest
             bundle: dmg
+            updater_bundles: dmg,app
             artifact_suffix: macos-aarch64.dmg
           - os: windows-latest
             bundle: nsis
+            updater_bundles: nsis
             artifact_suffix: windows-x64-setup.exe
     runs-on: ${{ matrix.os }}
     steps:
@@ -80,13 +82,28 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: crates/baton-gui
-          args: '--bundles ${{ matrix.bundle }} --config {"bundle":{"createUpdaterArtifacts":true}}'
+          args: '--bundles ${{ matrix.updater_bundles }} --config {"bundle":{"createUpdaterArtifacts":true}}'
           tagName: ${{ github.ref_name }}
           releaseName: DeskBaton ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+      - name: Require updater signature
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          if [ "${{ matrix.bundle }}" = "dmg" ]; then
+            sig=$(find target/release/bundle/macos crates/baton-gui/target/release/bundle/macos \
+              -name '*.app.tar.gz.sig' 2>/dev/null | head -n 1 || true)
+          else
+            sig=$(find target/release/bundle/nsis crates/baton-gui/target/release/bundle/nsis \
+              -name '*.sig' 2>/dev/null | head -n 1 || true)
+          fi
+          if [ -z "$sig" ]; then
+            echo "tag 构建缺少更新器签名，latest.json 不会包含本平台" >&2
+            exit 1
+          fi
       - name: Rename artifact
         shell: bash
         run: |

@@ -108,7 +108,7 @@ macOS 没有卸载程序。用户把 `DeskBaton.app` 丢进废纸篓。丢进废
 |---|---|
 | 触发 | `main` 的 `push`；`workflow_dispatch`；tag `vX.Y.Z`（Release 见程序内更新设计） |
 | 不触发 | pull request |
-| 矩阵 | `macos-latest` → `--bundles dmg`（aarch64）；`windows-latest` → `--bundles nsis`（x64） |
+| 矩阵 | `macos-latest` → `--bundles dmg`（aarch64）；`windows-latest` → `--bundles nsis`（x64）。tag 发更新通道时 Mac 改为 `--bundles dmg,app`，见程序内更新设计第 6 节 |
 | 构建 | `tauri-apps/tauri-action`，`projectPath` 为 `crates/baton-gui` |
 | 上传 | `main` / 手动：第 3 节两个文件名，保留 7 天；tag：另发 GitHub Release |
 

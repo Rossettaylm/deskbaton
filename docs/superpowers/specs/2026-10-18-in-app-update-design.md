@@ -106,6 +106,8 @@
 
 安装包文件名带 workspace 版本，不再写死 `0.0.1`。Windows 更新清单优先 NSIS。Linux 仍不打包。
 
+macOS 更新器要 `.app.tar.gz`，不是 `.dmg`。Tauri 2 把 `app` 算更新器目标，`dmg` 不算：tag 时 Mac 必须 `--bundles dmg,app`，否则会警告 `no updater-enabled targets`、不写 `.sig`，`latest.json` 没有 `darwin-aarch64` / `darwin-aarch64-app`，安装版检查更新报 fallback platform。Windows 的 `nsis` 本身就是更新器目标，保持 `--bundles nsis`。tag job 若找不到本平台 `.sig` 必须失败，不能只打出安装包。
+
 仓库里 `bundle.createUpdaterArtifacts` 为 `false`，日常 pack 和本地打安装包不需要私钥。仅 tag job 用 `--config` 打开它，并注入：
 
 - `TAURI_SIGNING_PRIVATE_KEY`
@@ -138,7 +140,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 - 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\Programs\DeskBaton\DeskBaton.exe` 为真，`target\release\deskbaton-gui.exe` 为假
 - 开发版检查直接返回不支持，不发网络
 - `tauri.conf.json`：有 endpoint 与公钥字段、`createUpdaterArtifacts` 为 false
-- `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包
+- `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败
 
 **CI**
 
