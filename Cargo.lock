@@ -322,6 +322,9 @@ dependencies = [
 [[package]]
 name = "baton-sleep-helper"
 version = "0.0.1"
+dependencies = [
+ "cc",
+]
 
 [[package]]
 name = "bit-set"
