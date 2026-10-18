@@ -13,7 +13,7 @@
 **首期做**
 
 - 列出支持 DDC/CI 的外接显示器，标题栏「⋯」菜单里切换当前控制的显示器
-- 显示器信息：厂商 + 型号、序列号、当前输入源、分辨率、刷新率；macOS 另有渲染分辨率与是否 HiDPI，Windows 另有系统缩放比例
+- 显示器信息：厂商 + 型号、当前输入源、分辨率、刷新率；macOS 另有渲染分辨率与是否 HiDPI，Windows 另有系统缩放比例。序列号不在状态行展示（P275MV 等机型 EDID 序列号全零，无辨识度），只在「⋯」菜单用末 6 位区分同型号多台
 - 输入源按钮：按配置列出，高亮当前输入源，点击后经 DDC 切换
 - macOS 与 Windows 同一套代码
 
@@ -40,7 +40,7 @@ crates/
   baton-gui/                 Tauri 2 应用，可执行文件 deskbaton-gui
     src/main.rs              Tauri 启动、托盘图标、显示 / 隐藏面板；退出时等 agent 结束
     src/agent.rs             进程内 agent（baton_agent::Agent）与热键注册
-    src/commands.rs          Tauri 命令：list_displays / switch_input / fit_panel / quit
+    src/commands.rs          Tauri 命令：list_displays / switch_input / fit_panel / quit / app_version
     src/devices.rs           Tauri 命令：agent_status 及设备配对（见配对设计第 10 节）
     src/view.rs              显示器视图组装、输入源名称查找、副标题拼接（纯逻辑，可单测）
     src/placement.rs         面板相对托盘图标的摆放计算（纯逻辑，可单测）
@@ -203,7 +203,7 @@ code = 0x11
 
 **字体**
 
-- 数字、接口名、技术参数（分辨率、`VCP 0x60`、序列号）：Martian Mono（SIL OFL 1.1），只打包 Latin 子集的 woff2，放 `ui/fonts/`，附带 `OFL.txt`；不从网络加载。
+- 数字、接口名、技术参数（分辨率、`VCP 0x60`、版本号）：Martian Mono（SIL OFL 1.1），只打包 Latin 子集的 woff2，放 `ui/fonts/`，附带 `OFL.txt`；不从网络加载。
 - 中文与普通文字：系统字体，`-apple-system, "PingFang SC", "Microsoft YaHei", sans-serif`。
 - 字号：分辨率 26px / 600；显示器名称 17px / 600；卡片标题 13px / 600；接口名 10px / 600；参数行 9.5–10px。
 
@@ -215,7 +215,7 @@ code = 0x11
 - 预览卡片：16:9 屏幕框（3px 深灰边框），屏内为自上而下的橙色径向辉光 + 极淡扫描线，中央是分辨率；下方底座短横线；最下一行「● 当前画面 …… DP」，信号灯带发光。
 - 输入源：一行四格；每格为接口轮廓图标（DP 缺角矩形、HDMI 梯形、USB-C 胶囊、未知编码用普通矩形）+ 名称 + 右上角 4px 指示灯。有设备占用时名称下方再加两行 9px 小字：设备名（本机写「本机」，过长省略，完整名放 `title`）和系统名（macOS / Windows / Linux，未知不写）；多台设备时设备名用「、」连接。没有设备的格子不加这两行，各格顶端对齐。
 - 「当前画面」一行右侧：接口名后接占用设备，如「USB-C · 本机」。
-- 状态行：左侧状态点 + 文案，右侧等宽序列号。
+- 状态行：左侧状态点 + 文案，右侧等宽应用版本号（`v` + workspace `version`，如 `v0.0.1`）。
 
 **状态**
 
@@ -242,7 +242,7 @@ code = 0x11
 - CI：Linux 不是目标平台且 Tauri 依赖 webkit2gtk，Linux 任务排除 `baton-gui`。
 - 硬件验收清单（手动）：
   1. 在接了两台 HP D27k 的 Mac mini 上，面板能列出两台并在「⋯」中切换；
-  2. 显示的型号、序列号、当前输入源与 `deskbaton-cli displays / get-input` 一致；分辨率、刷新率与「系统设置 → 显示器」一致；
+  2. 显示的型号、当前输入源与 `deskbaton-cli displays / get-input` 一致；分辨率、刷新率与「系统设置 → 显示器」一致；状态行右侧为应用版本号；
   3. 点击另一个输入源按钮，显示器切走，面板提示本机不再持有画面；切回后刷新，高亮正确；
   4. Windows 上重复第 1–3 项。
 

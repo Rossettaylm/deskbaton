@@ -222,3 +222,8 @@ pub fn fit_panel(app: AppHandle, height: f64) -> std::result::Result<(), String>
 pub fn quit(app: AppHandle) {
     app.exit(0);
 }
+
+#[tauri::command]
+pub fn app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}

@@ -76,6 +76,8 @@ const state = {
   notice: null,
   /** @type {AgentStatus | null} */
   agent: null,
+  /** @type {string | null} */
+  version: null,
   /** @type {Devices | null} */
   devices: null,
   /** @type {string | null} 读取设备失败的原因 */
@@ -698,7 +700,9 @@ function renderFoot(d) {
   status.dataset.tone = tone;
   status.textContent = text;
   status.title = text;
-  $("serial").textContent = d?.serial ? `SN ${d.serial}` : "";
+  const ver = $("version");
+  ver.textContent = state.version ? `v${state.version}` : "";
+  ver.title = state.version ? `DeskBaton ${state.version}` : "";
 }
 
 function renderMenu() {
@@ -855,6 +859,13 @@ tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
 invoke("agent_status")
   .then((/** @type {AgentStatus} */ status) => {
     state.agent = status;
+    render();
+  })
+  .catch(() => {});
+
+invoke("app_version")
+  .then((/** @type {string} */ v) => {
+    state.version = v;
     render();
   })
   .catch(() => {});

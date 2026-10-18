@@ -49,6 +49,7 @@ fn main() -> ExitCode {
             commands::switch_input,
             commands::fit_panel,
             commands::quit,
+            commands::app_version,
             devices::agent_status,
             devices::list_devices,
             devices::confirm_pairing,
