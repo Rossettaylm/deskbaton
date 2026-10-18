@@ -21,4 +21,16 @@ mod tests {
         let bins = v["bundle"]["externalBin"].as_array().unwrap();
         assert!(bins.iter().any(|b| b == "binaries/deskbaton-sleep-helper"));
     }
+
+    #[test]
+    fn nsis_hooks_write_current_user_run_key() {
+        let hooks = include_str!("../windows/hooks.nsh");
+        assert!(hooks.contains("NSIS_HOOK_POSTINSTALL"));
+        assert!(hooks.contains("NSIS_HOOK_PREUNINSTALL"));
+        assert!(hooks.contains("Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
+        assert!(hooks.contains("DeskBaton"));
+        assert!(hooks.contains("$INSTDIR\\DeskBaton.exe"));
+        assert!(hooks.contains("WriteRegStr HKCU"));
+        assert!(hooks.contains("DeleteRegValue HKCU"));
+    }
 }
