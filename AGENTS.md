@@ -45,24 +45,20 @@ DeskBaton（交棒）：一台显示器、多台电脑，一键把画面和键�
 
 ## 提交前
 
+用户说提交时，agent 只写 Conventional Commits 信息（前缀 + 中文，如 `feat: 实现 Windows DDC 读写`），然后跑 `scripts/ship.sh`。不要自己 `git add` / `git commit` / `git push` / `gh workflow run`。
+
 ```bash
-cargo fmt --all
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+scripts/ship.sh "$(cat <<'EOF'
+feat: 标题
+
+正文（可选）
+EOF
+)"
 ```
 
-CI 在 macOS / Windows / Linux 上执行同样的检查。
+脚本会：`cargo fmt --all`、`clippy -D warnings`、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `windows-build.yml`，确认 artifact `deskbaton-windows`（`deskbaton-cli.exe`、`deskbaton.exe`、`deskbaton-gui.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
 
 ## Git
 
-- 提交信息：Conventional Commits 前缀 + 中文描述，如 `feat: 实现 Windows DDC 读写`。
 - 身份只在仓库本地配置：`Rossettaylm <2441197035@qq.com>`。不修改全局 git 配置。
 - 调研结论放 `docs/research/`，设计放 `docs/superpowers/specs/`。
-- 每次 `git push` 之后立刻触发 Windows 发行构建，不得只推源码。用刚推上去的分支：
-
-  ```bash
-  gh workflow run windows-build.yml --ref "$(git rev-parse --abbrev-ref HEAD)"
-  gh run list --workflow=windows-build.yml --limit 1
-  ```
-
-  确认已排队。产物是 `deskbaton-cli.exe`、`deskbaton.exe`、`deskbaton-gui.exe`（artifact `deskbaton-windows`）。
