@@ -427,21 +427,47 @@ button { font: inherit; color: inherit; }
 
 .btn {
   flex: none;
-  padding: 5px 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: 7px;
-  background: transparent;
+  background: var(--bezel);
   color: var(--ink);
   font-size: 11px;
-  transition: border-color 0.2s, background 0.2s, color 0.2s;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.1s;
 }
 
-.btn:not(:disabled):hover { background: var(--hover); border-color: var(--line-hover); }
-.btn:disabled { opacity: 0.45; }
-.btn.primary { border-color: var(--ok-line); color: var(--ok); }
-.btn.primary:hover { background: var(--ok-wash); }
-.btn.ghost { border-color: transparent; color: var(--mute); }
-.btn.ghost.danger, .btn.ghost.danger:hover { color: var(--err); border-color: var(--err-line); }
+.btn:not(:disabled):hover { background: var(--led-port); border-color: var(--line-hover); }
+.btn:not(:disabled):active { transform: scale(0.97); }
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary {
+  border-color: var(--ok-line);
+  color: var(--ok);
+  background: var(--ok-wash);
+}
+.btn.primary:not(:disabled):hover { background: var(--ok-dim); }
+.btn.ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--mute);
+  font-weight: 500;
+}
+.btn.ghost:not(:disabled):hover {
+  background: var(--hover);
+  border-color: var(--line-hover);
+  color: var(--ink);
+}
+.btn.ghost.danger, .btn.ghost.danger:hover {
+  color: var(--err);
+  border-color: var(--err-line);
+  background: transparent;
+}
 
 .pair-request {
   margin-bottom: 8px;
@@ -603,6 +629,8 @@ button { font: inherit; color: inherit; }
   opacity: 0.55;
   cursor: default;
 }
+
+.pref .btn { max-width: none; }
 
 .pref input[type="checkbox"] {
   appearance: none;

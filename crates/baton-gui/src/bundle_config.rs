@@ -121,6 +121,31 @@ mod tests {
     }
 
     #[test]
+    fn pref_update_uses_action_button_not_hotkey() {
+        let html = include_str!("../ui/index.html");
+        let css = include_str!("../ui/style.css");
+        let js = include_str!("../ui/main.js");
+        assert!(
+            html.contains("class=\"btn\" id=\"pref-update\""),
+            "版本行用动作按钮 .btn"
+        );
+        assert!(
+            !html.contains("class=\"hotkey\" id=\"pref-update\""),
+            "检查更新不得套热键凹槽"
+        );
+        assert!(
+            css.contains(".pref .btn")
+                && !css.contains(".pref .hotkey,")
+                && !css.contains(", .pref .btn"),
+            ".btn 不得与名称输入、热键共用凹槽选择器"
+        );
+        assert!(
+            js.contains("class: \"btn primary\"") && js.contains("class: \"btn ghost\""),
+            "设备页同意 / 移除走同一套 .btn"
+        );
+    }
+
+    #[test]
     fn pref_buttons_are_not_wrapped_in_labels() {
         let html = include_str!("../ui/index.html");
         assert_eq!(pref_container_tag(html, "pref-hotkey"), "div");

@@ -271,6 +271,7 @@ function renderUpdateRow() {
   }
   row.hidden = false;
   btn.disabled = u.kind === "installing";
+  btn.classList.toggle("primary", u.kind === "available");
   if (u.kind === "installing") btn.textContent = "正在升级…";
   else if (u.kind === "available" && u.version) btn.textContent = `升级到 v${u.version}`;
   else btn.textContent = "检查更新";

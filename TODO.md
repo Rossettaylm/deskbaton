@@ -73,6 +73,7 @@
   - [x] `pack.yml`：tag `vX.Y.Z` 发 GitHub Release，安装包文件名随 workspace 版本
   - [x] 把 `TAURI_SIGNING_PRIVATE_KEY` 写入仓库 Secrets 后，打 tag 发可升级版本
   - [x] Mac tag 打 `dmg,app`：产出 `.app.tar.gz.sig`，`latest.json` 含 `darwin-aarch64`；缺签名则失败
+  - [x] 统一动作按钮 `.btn`：版本行不再套热键凹槽；设备页同意 / 连接 / 移除共用
   - [ ] 🔧 更新设计验收清单第 1–5 项
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
