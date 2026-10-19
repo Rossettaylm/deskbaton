@@ -16,7 +16,48 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # 两个打包 job 同时 createRelease 时，后到的会收到 already_exists。
+  # 这里先建好；打包 job 只传 releaseId 上传。非 tag 跳过，不挡住日常打包。
+  release:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      id: ${{ steps.create.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        id: create
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          version=$(awk '/^\[workspace.package\]/{p=1;next} /^\[/{p=0} p && /^version = /{gsub(/"/,"",$3); print $3; exit}' Cargo.toml)
+          test -n "$version"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$version" ]; then
+            echo "tag ${GITHUB_REF_NAME} 与 workspace version ${version} 不一致" >&2
+            exit 1
+          fi
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY}" ]; then
+            echo "缺少 TAURI_SIGNING_PRIVATE_KEY" >&2
+            exit 1
+          fi
+          if ! id=$(gh release view "${GITHUB_REF_NAME}" --json databaseId --jq .databaseId); then
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "DeskBaton ${GITHUB_REF_NAME}" \
+              --target "${GITHUB_SHA}" \
+              --verify-tag
+            id=$(gh release view "${GITHUB_REF_NAME}" --json databaseId --jq .databaseId)
+          fi
+          test -n "$id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
   pack:
+    needs: release
+    if: ${{ !cancelled() && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
     permissions:
       contents: write
     strategy:
@@ -89,6 +130,7 @@ jobs:
           projectPath: crates/baton-gui
           args: '--bundles ${{ matrix.updater_bundles }} --config {"bundle":{"createUpdaterArtifacts":true}}'
           tagName: ${{ github.ref_name }}
+          releaseId: ${{ needs.release.outputs.id }}
           releaseName: DeskBaton ${{ github.ref_name }}
           releaseDraft: false
           prerelease: false

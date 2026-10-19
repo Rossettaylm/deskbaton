@@ -6,6 +6,8 @@
 
 修订（2026-10-18）：检查更新 15 秒超时；手动检查先出「正在检查更新…」；显示器刷新不得清掉更新底栏；安装版日志写到数据目录 `logs/deskbaton.log`。清单拉取失败（HTTP 非 2xx / `ReleaseNotFound`）自动再试一次；底栏只写「检查失败，请稍后再试。」，不提清单、endpoint、GitHub JSON。已是最新 / 检查失败 / 超时底栏约 3 秒后恢复默认状态行。
 
+修订（2026-10-19）：tag 的 Mac / Windows 两个打包 job 不得各自 `createRelease`。v0.0.9 曾因此撞上 `already_exists`，Mac job 失败。先由单独 job 建好已发布的 Release，打包 job 传入 `releaseId`，只上传安装包和 `latest.json`。
+
 修订（2026-10-18）：Windows 安装版曾在本机仍是旧版本时底栏「已是最新版本」。浏览器打开同一 `latest.json` 已是新版本。插件默认带 `Accept: application/json`，部分路径会拿到另一份表示或缓存副本。检查与下载请求改为 `Accept: */*`、`Cache-Control: no-cache`，清单 URL 附加 `?t=<unix>`；日志写「本机 x.y.z / 清单 x.y.z」。旧 tag 上的 `latest.json` 与当前 latest 对齐，避免仍指向旧 tag 的缓存读到旧清单。
 
 ## 1. 目标
@@ -114,7 +116,7 @@
 | 触发 | 做什么 |
 |---|---|
 | `main` 推送、`workflow_dispatch` | 上传 7 天 artifact，不发 GitHub Release |
-| 推送 tag `vX.Y.Z`（`v` + 三段数字） | tag 去掉 `v` 后必须等于 workspace `version`；签名并上传更新器产物；同一 Release 挂 `.dmg`、NSIS、`latest.json`，直接发布（不当草稿） |
+| 推送 tag `vX.Y.Z`（`v` + 三段数字） | tag 去掉 `v` 后必须等于 workspace `version`；单独 job 先创建已发布的 Release（已存在则复用）；打包 job 传入 `releaseId`，只签名并上传。同一 Release 挂 `.dmg`、NSIS、`latest.json`，不当草稿 |
 
 安装包文件名带 workspace 版本，不再写死 `0.0.1`。Windows 更新清单优先 NSIS。Linux 仍不打包。
 
@@ -156,7 +158,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 - 日志路径为数据目录下 `logs/deskbaton.log`
 - `tauri.conf.json`：有 endpoint 与公钥字段、`createUpdaterArtifacts` 为 false
 - 清单 URL 带 `?t=` 时间戳；请求头含 `Accept: */*` 与 `Cache-Control: no-cache`；日志含「本机」与「清单」
-- `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败
+- `pack.yml`：有 `v*` tag 触发、版本一致性校验、文件名来自 workspace 版本而不是字面 `0.0.1`；PR 仍不打包；tag 的 Mac 参数含 `dmg,app`，缺 `.sig` 则失败；tag 时 `release` job 先建 Release，打包 job `needs: release` 并传 `releaseId`
 
 **CI**
 
@@ -181,6 +183,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 | Secrets 没配就把包发到 latest | tag job 没私钥则失败 |
 | 合盖 Mac 上升级松开 `AwakeGuard` | 文案写明会短暂退出 |
 | 矩阵两台机器抢着写 `latest.json` | 沿用 tauri-action 合并清单 |
+| 矩阵两个 job 同时 `createRelease`，后到的收到 `already_exists` | 单独 job 先建 Release；打包 job 传 `releaseId`，`tauri-action` 在已有 `releaseId` 时不再创建 |
 
 ## 10. 对既有设计的修订
 

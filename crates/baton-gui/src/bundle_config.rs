@@ -126,6 +126,10 @@ mod tests {
             "缺签名时 tag job 必须失败，不能静默跳过 latest.json"
         );
         assert!(
+            yml.contains("needs: release") && yml.contains("releaseId:"),
+            "tag 的两个打包 job 不得各自创建 Release，须先建好再只上传"
+        );
+        assert!(
             yml.contains("scripts/smoke-windows.ps1")
                 && yml.contains("startsWith(github.ref, 'refs/heads/agent/')"),
             "agent 验证分支上必须跑 Windows 安装冒烟测试"
