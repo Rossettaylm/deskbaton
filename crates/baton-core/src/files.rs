@@ -379,7 +379,7 @@ impl Sessions {
         ids
     }
 
-    /// 唤醒超时的会话判为失败并返回；清理结束超过 [`RECENT`] 的会话。
+    /// 唤醒超时的会话判为失败并返回。结束超过 [`RECENT`] 的会话清掉，失败的留下等面板收起。
     pub fn tick(&mut self, now: Instant) -> Vec<(DeviceId, SessionId)> {
         let expired: Vec<Key> = self
             .map
@@ -391,8 +391,10 @@ impl Sessions {
             let reason = format!("{} 未能唤醒，未发送", peer.0);
             self.finish(peer, *id, Phase::Failed { reason }, now);
         }
-        self.map
-            .retain(|_, s| s.ended_at.is_none_or(|at| now.duration_since(at) < RECENT));
+        self.map.retain(|_, s| {
+            matches!(s.view.phase, Phase::Failed { .. })
+                || s.ended_at.is_none_or(|at| now.duration_since(at) < RECENT)
+        });
         expired
     }
 
@@ -695,6 +697,21 @@ mod tests {
         s.receive(&win(), 2, summary(50));
         s.send(&win(), 3, summary(1000), true, now);
         assert_eq!(s.reserved_bytes(), 70);
+    }
+
+    #[test]
+    fn failed_sessions_stay_until_dismissed() {
+        let now = Instant::now();
+        let mut s = Sessions::default();
+        s.send(&win(), 1, summary(1), false, now);
+        assert_eq!(s.tick(now + WAKE_WAIT), [(win(), 1)]);
+        s.tick(now + WAKE_WAIT + RECENT);
+        assert!(matches!(
+            s.get(&win(), 1).map(|v| &v.phase),
+            Some(Phase::Failed { .. })
+        ));
+        s.dismiss(&win(), 1);
+        assert!(s.get(&win(), 1).is_none());
     }
 
     #[test]

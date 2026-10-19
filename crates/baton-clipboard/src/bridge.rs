@@ -57,6 +57,11 @@ impl ClipboardBridge {
         self.outbox().len()
     }
 
+    /// 每个对端还没送出的条数。键与入箱时相同，不含正文。
+    pub fn pending_counts(&self) -> Vec<(String, usize)> {
+        self.outbox().counts()
+    }
+
     fn read_new(&self) -> Option<(String, Vec<u8>)> {
         let content = match self.access.read() {
             Ok(ClipboardRead::Content(content)) => content,
@@ -193,6 +198,7 @@ mod tests {
         *access.read.lock().unwrap() = ClipboardRead::Content(ClipboardContent::Text("two".into()));
         b.tick(&[peer("win", false)], |_, _| unreachable!());
         assert_eq!(b.pending(), 2);
+        assert_eq!(b.pending_counts(), [("fp-win".into(), 2)]);
 
         let sent = Mutex::new(Vec::new());
         *access.read.lock().unwrap() = ClipboardRead::Empty;

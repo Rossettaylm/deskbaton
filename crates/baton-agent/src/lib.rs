@@ -53,6 +53,7 @@ pub struct Agent {
     stop_learning: Option<Sender<()>>,
     learning: Option<JoinHandle<()>>,
     clipboard_sync: Arc<AtomicBool>,
+    clipboard: Arc<ClipboardBridge>,
     /// 丢弃即通知剪贴板线程退出。
     stop_clipboard: Option<Sender<()>>,
     clipboard_thread: Option<JoinHandle<()>>,
@@ -131,16 +132,16 @@ impl Agent {
             Arc::clone(&notifier),
             Arc::clone(&echoes),
         ));
-        let bridge = ClipboardBridge::new(
+        let bridge = Arc::new(ClipboardBridge::new(
             access,
             Arc::clone(&clipboard_sync),
             Arc::clone(&notifier),
             echoes,
             clamp_outbox_limit(local.clipboard_outbox_limit),
-        );
+        ));
         let (stop_clipboard, clipboard_stopped) = mpsc::channel();
         let clipboard_loop = ClipboardLoop {
-            bridge,
+            bridge: Arc::clone(&bridge),
             link: Arc::clone(&link),
         };
         let clipboard_thread = thread::Builder::new()
@@ -191,6 +192,7 @@ impl Agent {
             stop_learning,
             learning,
             clipboard_sync,
+            clipboard: bridge,
             stop_clipboard: Some(stop_clipboard),
             clipboard_thread: Some(clipboard_thread),
             files,
@@ -246,6 +248,11 @@ impl Agent {
 
     pub fn set_clipboard_sync(&self, on: bool) {
         self.clipboard_sync.store(on, Ordering::SeqCst);
+    }
+
+    /// 每个已配对对端发件箱里的条数。键是证书指纹，没有档案时是设备名。不含正文。
+    pub fn clipboard_pending(&self) -> Vec<(String, usize)> {
+        self.clipboard.pending_counts()
     }
 
     /// 本机名称立刻用于展示、mDNS 和之后的握手；不断开已有连接。
@@ -309,7 +316,7 @@ const LEARN_INTERVAL: Duration = Duration::from_secs(2);
 const CLIPBOARD_POLL: Duration = Duration::from_millis(500);
 
 struct ClipboardLoop {
-    bridge: ClipboardBridge,
+    bridge: Arc<ClipboardBridge>,
     link: Arc<TcpPeerLink>,
 }
 

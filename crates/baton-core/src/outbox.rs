@@ -52,6 +52,18 @@ impl Outbox {
         self.len() == 0
     }
 
+    /// 每个还有内容的发件箱的条数。键是对端指纹，不含正文。
+    pub fn counts(&self) -> Vec<(String, usize)> {
+        let mut counts: Vec<_> = self
+            .queues
+            .iter()
+            .filter(|(_, queue)| !queue.is_empty())
+            .map(|(key, queue)| (key.clone(), queue.len()))
+            .collect();
+        counts.sort_by(|a, b| a.0.cmp(&b.0));
+        counts
+    }
+
     pub fn set_limit(&mut self, limit: u32) {
         self.limit = clamp_outbox_limit(limit) as usize;
         for queue in self.queues.values_mut() {
@@ -178,6 +190,7 @@ mod tests {
         box_.distribute(f1, d1, std::slice::from_ref(&win), |_, _| unreachable!());
         box_.distribute(f2, d2, std::slice::from_ref(&win), |_, _| unreachable!());
         assert_eq!(box_.len(), 2);
+        assert_eq!(box_.counts(), [("fp-win".into(), 2)]);
 
         let mut sent = Vec::new();
         let online = peer("win", true);

@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use baton_core::event::Event;
 use baton_core::files::{
-    OfferSummary, Phase, RejectReason, SessionId, SessionView, Sessions, has_room,
+    Direction, OfferSummary, Phase, RejectReason, SessionId, SessionView, Sessions, has_room,
 };
 use baton_core::ids::DeviceId;
 use baton_core::ports::{AwakeGuard, Notifier, PeerLink, PowerControl};
@@ -36,6 +36,13 @@ pub trait FileObserver: Send + Sync {
     fn offered(&self, from: &DeviceId);
     /// `location` 为收下的第一个顶层条目。
     fn received(&self, from: &DeviceId, files: u32, location: Option<&Path>);
+}
+
+/// 面板上的一条传输：会话视图，加上重试和「在访达中显示」。
+pub struct SessionCard {
+    pub view: SessionView,
+    pub can_retry: bool,
+    pub reveal: Option<String>,
 }
 
 pub struct FileSettings {
@@ -59,6 +66,8 @@ struct Inner {
     sessions: Mutex<Sessions>,
     /// 发送中会话的清单与来源，收到 `file_accept` 后交给上传线程。
     outgoing: Mutex<HashMap<Key, Vec<walk::Source>>>,
+    /// 用户选中的原始路径，失败后用来重试。成功、拒绝、取消时丢掉。
+    roots: Mutex<HashMap<Key, Vec<PathBuf>>>,
     cancels: Mutex<HashMap<Key, Arc<AtomicBool>>>,
     /// 释放 guard 可能执行 pmset，须在放开这把锁之后再析构。
     awake: Mutex<HashMap<Key, AwakeGuard>>,
@@ -85,6 +94,7 @@ impl FileService {
             observer,
             sessions: Mutex::new(Sessions::default()),
             outgoing: Mutex::new(HashMap::new()),
+            roots: Mutex::new(HashMap::new()),
             cancels: Mutex::new(HashMap::new()),
             awake: Mutex::new(HashMap::new()),
             auto_accept: AtomicBool::new(settings.auto_accept),
@@ -105,6 +115,7 @@ impl FileService {
         let online = self.inner.link.is_online(to);
         lock(&self.inner.sessions).send(to, id, summary.clone(), online, Instant::now());
         lock(&self.inner.outgoing).insert(key.clone(), sources);
+        lock(&self.inner.roots).insert(key.clone(), paths.to_vec());
         let cancel = self.inner.cancel_flag(&key);
         self.inner.changed();
         let inner = Arc::clone(&self.inner);
@@ -151,7 +162,30 @@ impl FileService {
 
     pub fn dismiss(&self, peer: &DeviceId, id: SessionId) {
         lock(&self.inner.sessions).dismiss(peer, id);
+        lock(&self.inner.roots).remove(&(peer.clone(), id));
         self.inner.changed();
+    }
+
+    /// 失败的发送按原来的路径再发一次。缺了任何一个路径就拒绝，原来的卡片还在。
+    pub fn retry(&self, peer: &DeviceId, id: SessionId) -> Result<SessionId> {
+        let view = lock(&self.inner.sessions).get(peer, id).cloned();
+        let Some(view) = view else {
+            return Err(Error::File("这条发送已经结束".into()));
+        };
+        if view.direction != Direction::Send || !matches!(view.phase, Phase::Failed { .. }) {
+            return Err(Error::File("这条发送不能重试".into()));
+        }
+        let paths = lock(&self.inner.roots)
+            .get(&(peer.clone(), id))
+            .cloned()
+            .unwrap_or_default();
+        let (can_retry, _) = send_failure_actions(&paths);
+        if !can_retry {
+            return Err(Error::File("原文件已经不在，无法重试".into()));
+        }
+        let new_id = self.send(peer, &paths)?;
+        self.dismiss(peer, id);
+        Ok(new_id)
     }
 
     pub fn mark_seen(&self) {
@@ -162,6 +196,31 @@ impl FileService {
         let mut sessions = lock(&self.inner.sessions);
         sessions.tick(Instant::now());
         sessions.views()
+    }
+
+    /// 面板卡片：在会话视图上加上能否重试、以及「在访达中显示」的路径。
+    pub fn cards(&self) -> Vec<SessionCard> {
+        let views = self.snapshot();
+        let roots = lock(&self.inner.roots);
+        views
+            .into_iter()
+            .map(|view| {
+                let key = (view.peer.clone(), view.id);
+                let (can_retry, reveal) = match (&view.phase, view.direction) {
+                    (Phase::Failed { .. }, Direction::Send) => roots
+                        .get(&key)
+                        .map(|paths| send_failure_actions(paths))
+                        .unwrap_or((false, None)),
+                    (Phase::Failed { .. }, Direction::Receive) => (false, view.location.clone()),
+                    _ => (false, None),
+                };
+                SessionCard {
+                    view,
+                    can_retry,
+                    reveal,
+                }
+            })
+            .collect()
     }
 
     /// 本机接棒时是否该弹出面板：有挂起的请求，或最近收到、还没看过的文件。
@@ -332,8 +391,12 @@ impl Inner {
 
     /// 进入终态并清理；已结束的返回 `false`。
     fn end(&self, peer: &DeviceId, id: SessionId, phase: Phase) -> bool {
+        let keep_roots = matches!(phase, Phase::Failed { .. });
         let ended = lock(&self.sessions).finish(peer, id, phase, Instant::now());
         if ended {
+            if !keep_roots {
+                lock(&self.roots).remove(&(peer.clone(), id));
+            }
             self.cleanup(&(peer.clone(), id));
             self.changed();
         }
@@ -543,4 +606,44 @@ fn hex(bytes: &[u8]) -> String {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// 发送失败后：全部原始路径都还在才能重试；「显示」用第一个还在的路径。
+fn send_failure_actions(paths: &[PathBuf]) -> (bool, Option<String>) {
+    if paths.is_empty() {
+        return (false, None);
+    }
+    let reveal = paths
+        .iter()
+        .find(|path| path.exists())
+        .map(|path| path.display().to_string());
+    let can_retry = paths.iter().all(|path| path.exists());
+    (can_retry, reveal)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retry_needs_every_original_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let kept = dir.path().join("kept.txt");
+        let gone = dir.path().join("gone.txt");
+        std::fs::write(&kept, b"a").unwrap();
+        std::fs::write(&gone, b"b").unwrap();
+        let (can_retry, reveal) = send_failure_actions(&[kept.clone(), gone.clone()]);
+        assert!(can_retry);
+        assert_eq!(reveal.as_deref(), Some(kept.to_str().unwrap()));
+
+        std::fs::remove_file(&gone).unwrap();
+        let (can_retry, reveal) = send_failure_actions(&[kept.clone(), gone]);
+        assert!(!can_retry);
+        assert_eq!(reveal.as_deref(), Some(kept.to_str().unwrap()));
+
+        std::fs::remove_file(&kept).unwrap();
+        let (can_retry, reveal) = send_failure_actions(std::slice::from_ref(&kept));
+        assert!(!can_retry);
+        assert!(reveal.is_none());
+    }
 }

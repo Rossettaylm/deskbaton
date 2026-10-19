@@ -49,6 +49,21 @@ fn link(slot: &AgentSlot) -> Result<&Arc<TcpPeerLink>, String> {
         .ok_or_else(|| slot.error.clone().unwrap_or_else(|| "未能启动".to_owned()))
 }
 
+#[derive(Serialize)]
+pub struct ClipboardPending {
+    key: String,
+    count: usize,
+}
+
+/// 各对端剪贴板发件箱里的条数。不含正文。
+#[tauri::command]
+pub fn clipboard_pending(slot: State<'_, AgentSlot>) -> Vec<ClipboardPending> {
+    slot.clipboard_pending()
+        .into_iter()
+        .map(|(key, count)| ClipboardPending { key, count })
+        .collect()
+}
+
 #[tauri::command]
 pub fn list_devices(slot: State<'_, AgentSlot>) -> Result<LinkSnapshot, String> {
     Ok(link(&slot)?.snapshot())
