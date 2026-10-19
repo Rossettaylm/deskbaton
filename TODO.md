@@ -85,6 +85,7 @@
   - [x] Windows 检查请求避开 `Accept: application/json` 并给清单 URL 加时间戳；旧 tag 的 `latest.json` 与 latest 对齐
   - [x] Windows 安装版路径忽略大小写 / `\\?\`；`.pref[hidden]` 真正隐藏；未安装版不得宣称已是最新
   - [ ] 🔧 更新设计验收清单第 1–6 项
+  - [ ] tag 构建两个 job 同时创建 Release 会撞 `already_exists`（v0.0.9 Mac job 因此失败，重跑后通过）：先由单独 job 建好 Release，打包 job 只上传
 - [ ] Mac 首次运行检查 `womp` 已开、当前网络的私有 Wi-Fi 地址为「固定」，不满足时提示
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
 - [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电

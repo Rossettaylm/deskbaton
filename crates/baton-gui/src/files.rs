@@ -309,8 +309,6 @@ pub struct ReceivePrefs {
     pub auto_accept: bool,
     /// 实际使用的接收位置。
     pub dir: String,
-    /// 用户改过接收位置。
-    pub custom: bool,
 }
 
 pub fn receive_prefs(slot: &AgentSlot) -> ReceivePrefs {
@@ -329,7 +327,6 @@ pub fn receive_prefs(slot: &AgentSlot) -> ReceivePrefs {
             .as_ref()
             .map_or(local.file_auto_accept, |f| f.auto_accept()),
         dir,
-        custom: local.file_receive_dir.is_some(),
     }
 }
 
@@ -345,46 +342,39 @@ pub fn set_file_auto_accept(
     Ok(())
 }
 
-/// 选新的接收位置；`reset` 时恢复为系统「下载」文件夹。返回实际位置，取消选择时为空。
+/// 选新的接收位置。返回实际位置，取消选择时为空。
 #[tauri::command]
-pub async fn set_receive_dir(
-    app: AppHandle,
-    reset: bool,
-) -> std::result::Result<Option<String>, String> {
-    let dir = if reset {
-        None
-    } else {
-        let picker = app.clone();
-        let picked = tauri::async_runtime::spawn_blocking(move || {
-            let ui = picker.state::<FilesUi>();
-            ui.picking.store(true, Ordering::SeqCst);
-            let dir = picker
-                .dialog()
-                .file()
-                .set_title("选择接收位置")
-                .blocking_pick_folder();
-            ui.picking.store(false, Ordering::SeqCst);
-            if let Some(window) = picker.get_webview_window(PANEL) {
-                let _ = window.set_focus();
-            }
-            dir
-        })
-        .await
-        .map_err(text)?;
-        match picked.map(|p| p.into_path()) {
-            Some(Ok(dir)) => Some(dir),
-            Some(Err(e)) => return Err(e.to_string()),
-            None => return Ok(None),
+pub async fn set_receive_dir(app: AppHandle) -> std::result::Result<Option<String>, String> {
+    let picker = app.clone();
+    let picked = tauri::async_runtime::spawn_blocking(move || {
+        let ui = picker.state::<FilesUi>();
+        ui.picking.store(true, Ordering::SeqCst);
+        let dir = picker
+            .dialog()
+            .file()
+            .set_title("选择接收位置")
+            .blocking_pick_folder();
+        ui.picking.store(false, Ordering::SeqCst);
+        if let Some(window) = picker.get_webview_window(PANEL) {
+            let _ = window.set_focus();
         }
+        dir
+    })
+    .await
+    .map_err(text)?;
+    let dir = match picked.map(|p| p.into_path()) {
+        Some(Ok(dir)) => dir,
+        Some(Err(e)) => return Err(e.to_string()),
+        None => return Ok(None),
     };
-    let stored = dir.as_ref().map(|d| d.display().to_string());
+    let stored = dir.display().to_string();
     LocalState::update(&state_path().map_err(text)?, |s| {
-        s.file_receive_dir.clone_from(&stored);
+        s.file_receive_dir = Some(stored);
     })
     .map_err(text)?;
     let slot = app.state::<AgentSlot>();
     let files = service(&slot)?;
-    files.set_receive_dir(dir);
+    files.set_receive_dir(Some(dir));
     files
         .receive_dir()
         .map(|d| Some(d.display().to_string()))

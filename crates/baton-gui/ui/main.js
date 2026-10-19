@@ -411,7 +411,7 @@ async function onUpdateClick() {
 
 /**
  * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, clipboard_sync: boolean,
- *             autostart: boolean, files: { auto_accept: boolean, dir: string, custom: boolean } }} PrefsView
+ *             autostart: boolean, files: { auto_accept: boolean, dir: string } }} PrefsView
  */
 
 let recordingHotkey = false;
@@ -438,7 +438,7 @@ async function refreshPrefs() {
     notify.checked = prefs.notify;
     clipboard.checked = prefs.clipboard_sync;
     /** @type {HTMLInputElement} */ ($("pref-auto-accept")).checked = prefs.files.auto_accept;
-    showReceiveDir(prefs.files.dir, prefs.files.custom);
+    showReceiveDir(prefs.files.dir);
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -479,12 +479,11 @@ async function saveClipboard() {
   }
 }
 
-/** @param {string} dir @param {boolean} custom */
-function showReceiveDir(dir, custom) {
+/** @param {string} dir */
+function showReceiveDir(dir) {
   const btn = $("pref-receive-dir");
   btn.textContent = dir ? dir.split(/[\\/]/).filter(Boolean).pop() ?? dir : "下载";
   btn.title = dir;
-  $("pref-receive-reset").hidden = !custom;
 }
 
 async function saveAutoAccept() {
@@ -498,12 +497,11 @@ async function saveAutoAccept() {
   }
 }
 
-/** @param {boolean} reset */
-async function changeReceiveDir(reset) {
+async function changeReceiveDir() {
   try {
     /** @type {string | null} */
-    const dir = await invoke("set_receive_dir", { reset });
-    if (dir != null) showReceiveDir(dir, !reset);
+    const dir = await invoke("set_receive_dir");
+    if (dir != null) showReceiveDir(dir);
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -1329,8 +1327,7 @@ $("pref-notify").addEventListener("change", saveNotify);
 $("pref-clipboard").addEventListener("change", saveClipboard);
 $("pref-autostart").addEventListener("change", saveAutostart);
 $("pref-auto-accept").addEventListener("change", saveAutoAccept);
-$("pref-receive-dir").addEventListener("click", () => changeReceiveDir(false));
-$("pref-receive-reset").addEventListener("click", () => changeReceiveDir(true));
+$("pref-receive-dir").addEventListener("click", changeReceiveDir);
 $("pref-update").addEventListener("click", onUpdateClick);
 window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();
