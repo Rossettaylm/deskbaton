@@ -53,7 +53,10 @@ mod tests {
         assert!(hooks.contains("NSIS_HOOK_PREUNINSTALL"));
         assert!(hooks.contains("Software\\Microsoft\\Windows\\CurrentVersion\\Run"));
         assert!(hooks.contains("DeskBaton"));
-        assert!(hooks.contains("$INSTDIR\\DeskBaton.exe"));
+        assert!(
+            hooks.contains("$INSTDIR\\deskbaton-gui.exe"),
+            "Tauri 按 Cargo 二进制名命名安装后的 exe，不随 productName"
+        );
         assert!(hooks.contains("WriteRegStr HKCU"));
         assert!(hooks.contains("DeleteRegValue HKCU"));
     }
@@ -96,6 +99,14 @@ mod tests {
             yml.contains(".app.tar.gz.sig") && yml.contains("tag 构建缺少更新器签名"),
             "缺签名时 tag job 必须失败，不能静默跳过 latest.json"
         );
+        assert!(
+            yml.contains("scripts/smoke-windows.ps1")
+                && yml.contains("startsWith(github.ref, 'refs/heads/agent/')"),
+            "agent 验证分支上必须跑 Windows 安装冒烟测试"
+        );
+        let smoke = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../scripts/smoke-windows.ps1");
+        assert!(smoke.is_file(), "{}", smoke.display());
     }
 
     fn pref_container_tag(html: &str, id: &str) -> &'static str {

@@ -16,7 +16,7 @@
 
 **做**
 
-- 仅安装版面板（Mac `.app`、Windows NSIS 装上的 `DeskBaton.exe`）
+- 仅安装版面板（Mac `.app`、Windows NSIS 装上的 `deskbaton-gui.exe`）
 - `vX.Y.Z` tag 发 GitHub Release：新人用的 `.dmg` / NSIS，加上更新器用的签名包和 `latest.json`
 - 启动后后台检查一次；本机卡片可再查
 - 有新版本则提示，点按钮后下载、minisign 验签、覆盖同路径、重启
@@ -45,7 +45,7 @@
 | 平台 | 安装版 | 开发版 |
 |---|---|---|
 | macOS | 可执行文件的祖先路径带 `.app`（现有 `exe_is_bundled`） | `cargo run` 的 `target/.../deskbaton-gui` |
-| Windows | 可执行文件在 `%LOCALAPPDATA%\Programs\DeskBaton\` 下（忽略大小写，去掉 `\\?\`） | `target\...\deskbaton-gui.exe` |
+| Windows | 可执行文件在 `%LOCALAPPDATA%\DeskBaton\` 下（忽略大小写，去掉 `\\?\`） | `target\...\deskbaton-gui.exe` |
 
 开发版不检查网络、本机卡片不画「版本」行。`.pref { display: flex }` 会盖掉 HTML `hidden`，版本行必须另写 `.pref[hidden] { display: none }`，与菜单、分页相同。未判定为安装版时，检查不得宣称「已是最新版本」。启动时把安装版判定和可执行文件路径写入日志。
 
@@ -149,7 +149,7 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 
 **单测**
 
-- 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\Programs\DeskBaton\DeskBaton.exe` 为真，`target\release\deskbaton-gui.exe` 为假
+- 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\DeskBaton\deskbaton-gui.exe` 为真，`target\release\deskbaton-gui.exe` 为假
 - 开发版检查直接返回不支持，不发网络
 - 超时、连接失败映射为「无法检查更新：网络超时，请检查能否访问 GitHub」
 - `Could not fetch a valid release JSON` 映射为「检查失败，请稍后再试。」；此类失败自动再试一次

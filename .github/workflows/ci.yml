@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "agent/**"]
   pull_request:
+
+# 只合并 agent 验证分支上的运行，其余各跑各的。
+concurrency:
+  group: ${{ startsWith(github.ref, 'refs/heads/agent/') && format('ci-{0}', github.ref) || github.run_id }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

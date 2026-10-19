@@ -30,7 +30,7 @@ pub fn running_bundled() -> bool {
     current_exe().is_ok_and(|p| exe_is_bundled(&p))
 }
 
-/// 安装版：macOS 在 `.app` 内，Windows 在 `%LOCALAPPDATA%\Programs\DeskBaton\`。
+/// 安装版：macOS 在 `.app` 内，Windows 在 `%LOCALAPPDATA%\DeskBaton\`（NSIS `currentUser` 默认目录）。
 pub fn is_install_build() -> bool {
     current_exe().is_ok_and(|exe| {
         install_build_at(
@@ -47,7 +47,7 @@ pub fn install_build_at(exe: &Path, local_app_data: Option<&Path>) -> bool {
     let Some(local) = local_app_data else {
         return false;
     };
-    path_is_under(exe, &local.join("Programs").join("DeskBaton"))
+    path_is_under(exe, &local.join("DeskBaton"))
 }
 
 fn normalize_windows_path(path: &Path) -> String {
@@ -347,12 +347,12 @@ mod tests {
             "/Users/me/Code/deskbaton/target/debug/deskbaton-gui"
         )));
         assert!(!exe_is_bundled(Path::new(
-            r"C:\Users\me\AppData\Local\Programs\DeskBaton\DeskBaton.exe"
+            r"C:\Users\me\AppData\Local\DeskBaton\deskbaton-gui.exe"
         )));
     }
 
     #[test]
-    fn install_build_mac_app_and_windows_programs_dir() {
+    fn install_build_mac_app_and_windows_local_app_data_dir() {
         assert!(install_build_at(
             Path::new("/Applications/DeskBaton.app/Contents/MacOS/DeskBaton"),
             None,
@@ -363,10 +363,11 @@ mod tests {
         ));
         let local = PathBuf::from("local-app-data");
         assert!(install_build_at(
-            &local
-                .join("Programs")
-                .join("DeskBaton")
-                .join("DeskBaton.exe"),
+            &local.join("DeskBaton").join("deskbaton-gui.exe"),
+            Some(&local),
+        ));
+        assert!(!install_build_at(
+            &local.join("DeskBatonDev").join("deskbaton-gui.exe"),
             Some(&local),
         ));
         assert!(!install_build_at(
@@ -383,11 +384,11 @@ mod tests {
     fn install_build_windows_ignores_case_and_verbatim_prefix() {
         let local = Path::new(r"C:\Users\me\AppData\Local");
         assert!(install_build_at(
-            Path::new(r"c:\users\me\appdata\local\programs\deskbaton\DeskBaton.exe"),
+            Path::new(r"c:\users\me\appdata\local\deskbaton\deskbaton-gui.exe"),
             Some(local),
         ));
         assert!(install_build_at(
-            Path::new(r"\\?\C:\Users\me\AppData\Local\Programs\DeskBaton\DeskBaton.exe"),
+            Path::new(r"\\?\C:\Users\me\AppData\Local\DeskBaton\deskbaton-gui.exe"),
             Some(local),
         ));
         assert!(!install_build_at(

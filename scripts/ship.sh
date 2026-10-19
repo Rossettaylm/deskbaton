@@ -46,6 +46,15 @@ if ((dirty)); then
 	fi
 	cargo fmt --all
 	cargo clippy --workspace --all-targets -- -D warnings
+	if [[ $(uname -s) == Darwin ]]; then
+		rc=0
+		scripts/check-windows.sh || rc=$?
+		if ((rc == 3)); then
+			echo "警告：未装 Windows 交叉检查工具，跳过本地 Windows clippy，以 CI 为准。" >&2
+		elif ((rc != 0)); then
+			exit "$rc"
+		fi
+	fi
 	cargo test --workspace
 	git add -A
 	staged=$(git diff --cached --name-only)

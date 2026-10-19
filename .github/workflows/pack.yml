@@ -7,6 +7,11 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
   workflow_dispatch:
 
+# 只合并 agent 验证分支上的运行，其余各跑各的。
+concurrency:
+  group: ${{ startsWith(github.ref, 'refs/heads/agent/') && format('pack-{0}', github.ref) || github.run_id }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -122,3 +127,7 @@ jobs:
           name: DeskBaton-${{ steps.ver.outputs.version }}-${{ matrix.artifact_suffix }}
           path: dist/DeskBaton-${{ steps.ver.outputs.version }}-${{ matrix.artifact_suffix }}
           retention-days: 7
+      - name: Smoke test installer
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/heads/agent/')
+        shell: pwsh
+        run: scripts/smoke-windows.ps1 -Installer "dist/DeskBaton-${{ steps.ver.outputs.version }}-${{ matrix.artifact_suffix }}"

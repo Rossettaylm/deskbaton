@@ -390,6 +390,7 @@ wol_mac = "aa:bb:cc:dd:ee:ff"
 - **baton-net**：分帧编解码单测；`mux` 调度单测（大数据传输期间控制帧的等待不超过一个块）；两个 agent 在本机回环地址上跑通配对、心跳、交棒消息和一次剪贴板 transfer。
 - **baton-clipboard**：用假的 `ClipboardAccess` 测防回传、超限跳过、敏感内容跳过。
 - **CI**：macOS / Windows / Linux 三平台跑 `fmt`、`clippy -D warnings`、`test`（Linux 排除 `baton-gui`）。`main` 或手动触发时，Mac / Windows 再打安装包（`.dmg` / NSIS），见 `2026-10-18-installer-design.md`。不上传裸 exe。
+- **Windows 自验**（不必换机器）：Mac 上 `scripts/check-windows.sh` 用 cargo-xwin 对 `x86_64-pc-windows-msvc` 跑 clippy；`scripts/verify-ci.sh` 把工作区快照强推到 `agent/verify-<分支>` 并等 CI，`--pack` 时再打安装包，Windows runner 上由 `scripts/smoke-windows.ps1` 静默安装、检查 HKCU Run 键、启动确认安装版、静默卸载并检查清理。agent 分支的运行互相取消，`main` 不受影响。DDC、配对、剪贴板等需要显示器或对端的行为不在此覆盖。
 - **硬件验收清单**（手动）：
   1. 合盖 Mac 切到 Windows 后，5 分钟内切回，不需要开盖；
   2. 合盖 Mac 切走并睡眠超过 1 小时后，从 Windows 交棒，Mac 被唤醒并接管键鼠，不需要开盖；

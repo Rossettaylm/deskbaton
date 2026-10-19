@@ -56,7 +56,11 @@
 - [x] 离线 Windows 直接切输入源、超时不切回；Windows `stay_awake` 用 PowerRequest 拦住系统睡眠（[设计](docs/superpowers/specs/2026-10-18-offline-switch-design.md)）
   - [ ] 🔧 关机后按电源、未进桌面时从 Mac 点 Windows，立刻看到开机或登录画面
   - [ ] 🔧 人在 Mac 上超过 Windows 空闲睡眠时间，Windows 不睡，能切回去
+- [x] Windows 自验第 1 层：`scripts/check-windows.sh` 在 Mac 上用 cargo-xwin 跑 Windows 目标 clippy，`ship.sh` 在 Mac 上接入
+- [x] Windows 自验第 2 层：`scripts/verify-ci.sh [--pack]` 推工作区快照到 `agent/verify-*` 等 CI；agent 分支上 Windows 安装冒烟测试 `scripts/smoke-windows.ps1`
 - [ ] Windows 远程调试脚本：经 SSH 部署 CI 安装包（落地前仍是裸 exe）、写配置、在登录会话里启动面板 / agent、取日志
+  - [ ] 🔧 目标机先用 Mac 上的 Windows ARM 虚拟机（UTM / Parallels，开 OpenSSH）；不验 DDC，验配对、交棒消息、剪贴板、面板
+  - [ ] 运行中的 agent 提供本地控制入口（查询持棒 / 对端状态、触发交棒），供远程脚本断言
 - [x] 托盘通知、开机自启（面板「本机」卡片，见 `docs/superpowers/specs/2026-10-17-panel-settings-design.md`）
 - 安装器（[设计](docs/superpowers/specs/2026-10-18-installer-design.md)），按顺序推进：
   - [x] `tauri.conf.json` 打开 bundle：`productName` 改为 DeskBaton，`targets` 为 dmg + nsis，Windows `currentUser`
@@ -66,6 +70,7 @@
   - [x] `pack.yml` 在 main / 手动触发时打 `.dmg` 与 NSIS，上传后改名为设计第 3 节文件名；删除 `windows-build.yml`
   - [x] CI：非 macOS clippy 不再因 `SleepPrivileges` 死代码失败；`beforeBundleCommand` 按仓库根找脚本，Windows 打包装时去掉该钩子
   - [x] CI：Linux 链路测试不再抢已释放端口；Pack 在 workspace `target/` 下找安装包
+  - [x] Windows 安装目录实为 `%LOCALAPPDATA%\DeskBaton\`、主程序 `deskbaton-gui.exe`（冒烟测试实测）：Run 键与安装版判定改按实际路径，原先自启指向不存在的文件、安装版被判为非安装版而跳过更新
   - [ ] 🔧 安装器设计验收清单第 1–5 项
 - 程序内自动更新（[设计](docs/superpowers/specs/2026-10-18-in-app-update-design.md)），按顺序推进：
   - [x] 安装版判定、UpdateSlot、面板检查/升级命令

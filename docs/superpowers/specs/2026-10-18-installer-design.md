@@ -40,11 +40,11 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 | 平台 | 产物文件名 | 程序落点 | 数据目录（不改） |
 |---|---|---|---|
 | macOS | `DeskBaton-0.0.1-macos-aarch64.dmg` | `/Applications/DeskBaton.app` | `~/Library/Application Support/DeskBaton/` |
-| Windows | `DeskBaton-0.0.1-windows-x64-setup.exe` | `%LOCALAPPDATA%\Programs\DeskBaton\` | `%APPDATA%\DeskBaton\` |
+| Windows | `DeskBaton-0.0.1-windows-x64-setup.exe` | `%LOCALAPPDATA%\DeskBaton\` | `%APPDATA%\DeskBaton\` |
 
 版本号与 workspace `version` 相同，升版本时文件名跟着改（当前示例为 `0.0.1`）。tag 发 Release 时的文件名与更新通道见 `2026-10-18-in-app-update-design.md`。
 
-`tauri.conf.json`：`productName` 改为 `DeskBaton`（现在是 `DeskBaton Panel`）；`identifier` 保持 `io.github.rossettaylm.deskbaton.panel`；`bundle.active` 打开；`targets` 只有 `dmg` 和 `nsis`；`bundle.macOS.signingIdentity` 为 `-`。Windows `nsis.installMode` 为 `currentUser`。安装后 Windows 可执行文件名为 `DeskBaton.exe`（Tauri 按 `productName` 命名）。
+`tauri.conf.json`：`productName` 改为 `DeskBaton`（现在是 `DeskBaton Panel`）；`identifier` 保持 `io.github.rossettaylm.deskbaton.panel`；`bundle.active` 打开；`targets` 只有 `dmg` 和 `nsis`；`bundle.macOS.signingIdentity` 为 `-`。Windows `nsis.installMode` 为 `currentUser`。安装后 Windows 可执行文件名为 `deskbaton-gui.exe`（Tauri 按 Cargo 二进制名命名，不随 `productName`），装在 `%LOCALAPPDATA%\DeskBaton\`（Tauri NSIS `currentUser` 默认目录）；两者均经 `scripts/smoke-windows.ps1` 在 Windows runner 上实测。
 
 `.dmg` 只负责把 `.app` 放到应用程序文件夹。不另做 `.pkg`：特权助手必须从 `.app` 里登记 `SMAppService`，`.pkg` 也省不掉系统设置那一次确认。不另做 MSI：当前用户 NSIS 不需要管理员，机器级安装用不上。
 
@@ -54,7 +54,7 @@ Mac 和 Windows 用各自的安装包装上 DeskBaton。CI 构建并上传这两
 
 | 项 | Windows | macOS 安装版（从 `.app` 启动） | 开发版（`cargo run` 等裸二进制） |
 |---|---|---|---|
-| 登录自启 | NSIS `POSTINSTALL` 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 值名 `DeskBaton`，数据为 `"$INSTDIR\DeskBaton.exe"` | 首次启动 `SMAppService` 登记主程序为登录项 | 维持现有 LaunchAgent `com.deskbaton.gui` / 同一 Run 键 |
+| 登录自启 | NSIS `POSTINSTALL` 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` 值名 `DeskBaton`，数据为 `"$INSTDIR\deskbaton-gui.exe"` | 首次启动 `SMAppService` 登记主程序为登录项 | 维持现有 LaunchAgent `com.deskbaton.gui` / 同一 Run 键 |
 | 特权助手 | 无 | 首次启动 `SMAppService` 登记 LaunchDaemon，只执行现有两条完整 `pmset` 命令 | 维持 `deskbaton-cli sleep-helper` 写 sudoers |
 | `autostart_seeded` | 首次启动时若 Run 键已在则置真；否则按面板设置设计 5.4 尝试开启 | 登录项登记成功后置真 | 不变 |
 

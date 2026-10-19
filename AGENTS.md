@@ -45,6 +45,11 @@ DeskBaton（交棒）：一台显示器、多台电脑，一键把画面和键�
 
 ## 提交前
 
+改完代码先自验 Windows，红了自己修再跑，不必等用户换机器：
+
+- `scripts/check-windows.sh`：在 Mac 上对 Windows 目标跑 clippy（需 `brew install llvm`、`cargo install --locked cargo-xwin`）。
+- `scripts/verify-ci.sh`：把工作区快照推到 `agent/verify-<分支>`，等三平台 CI；涉及 Windows 运行时、安装器或打包时加 `--pack`，再等安装包构建和 Windows 安装冒烟测试（`scripts/smoke-windows.ps1`）。
+
 用户说提交时，agent 只写 Conventional Commits 信息（前缀 + 中文，如 `feat: 实现 Windows DDC 读写`），然后跑 `scripts/ship.sh`。不要自己 `git add` / `git commit` / `git push` / `gh workflow run`。
 
 ```bash
@@ -56,9 +61,10 @@ EOF
 )"
 ```
 
-脚本会：`cargo fmt --all`、`clippy -D warnings`、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `pack.yml`，确认安装包 artifact（`DeskBaton-0.0.1-macos-aarch64.dmg`、`DeskBaton-0.0.1-windows-x64-setup.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
+脚本会：`cargo fmt --all`、`clippy -D warnings`（Mac 上再跑 `check-windows.sh`，缺工具只警告）、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `pack.yml`，确认安装包 artifact（`DeskBaton-0.0.1-macos-aarch64.dmg`、`DeskBaton-0.0.1-windows-x64-setup.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
 
 ## Git
 
+- agent 只能经 `scripts/verify-ci.sh` 推送 `agent/` 前缀的验证分支；这些分支每次强推、不合入。
 - 身份只在仓库本地配置：`Rossettaylm <2441197035@qq.com>`。不修改全局 git 配置。
 - 调研结论放 `docs/research/`，设计放 `docs/superpowers/specs/`。
