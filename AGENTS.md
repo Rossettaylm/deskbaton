@@ -67,7 +67,16 @@ EOF
 )"
 ```
 
-脚本会：`cargo fmt --all`、`clippy -D warnings`（Mac 上再跑 `check-windows.sh`，缺工具只警告）、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `pack.yml`，确认安装包 artifact（`DeskBaton-0.0.1-macos-aarch64.dmg`、`DeskBaton-0.0.1-windows-x64-setup.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。
+脚本会：`cargo fmt --all`、`clippy -D warnings`（Mac 上再跑 `check-windows.sh`，缺工具只警告）、`cargo test --workspace`，暂存全部改动并提交，`git push -u origin HEAD`，触发 `pack.yml`，确认安装包 artifact（`DeskBaton-0.0.1-macos-aarch64.dmg`、`DeskBaton-0.0.1-windows-x64-setup.exe`）已排队。CI 在 macOS / Windows / Linux 上另做同样的检查。`ship.sh` 不打 tag。
+
+这次提交改了 workspace `version` 时，`ship.sh` 成功推上 `main` 之后必须再打 annotated tag 并推送，才会编 GitHub Release（安装包 + `latest.json`，供程序内更新）。只推 `main` 只有 7 天 artifact，没有 Release。tag 名是 `v` 加 workspace 版本，必须与 `Cargo.toml` 里的 `version` 一致，例如版本 `0.1.1` 则：
+
+```bash
+git tag -a v0.1.1 -m "DeskBaton v0.1.1"
+git push origin v0.1.1
+```
+
+tag 推送会再触发 `pack.yml`。版本没变的提交不打 tag。
 
 ## Git
 
