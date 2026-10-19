@@ -89,7 +89,7 @@ autostart_seeded = true         # 缺省 false
 | 开机自启 | 开关 | 反映系统登录项是否指向本程序 |
 | 通知 | 开关 | 反映 `state.toml` 的 `notify` |
 | 剪贴板 | 开关 | 反映 `state.toml` 的 `clipboard_sync`；见实时设计 |
-| 版本 | 按钮「检查更新」/「升级到 vx.y.z」 | 仅安装版；见程序内更新设计 |
+| 版本 | 按钮「检查更新」/「升级到 vx.y.z」 | 见程序内更新设计 |
 
 录制热键期间，这次按键不得触发交棒。格式与现有 `hotkey::parse` 相同，例如 `Ctrl+Alt+Space`。
 

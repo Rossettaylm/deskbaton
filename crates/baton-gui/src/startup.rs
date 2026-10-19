@@ -30,48 +30,6 @@ pub fn running_bundled() -> bool {
     current_exe().is_ok_and(|p| exe_is_bundled(&p))
 }
 
-/// 安装版：macOS 在 `.app` 内，Windows 在 `%LOCALAPPDATA%\DeskBaton\`（NSIS `currentUser` 默认目录）。
-pub fn is_install_build() -> bool {
-    current_exe().is_ok_and(|exe| {
-        install_build_at(
-            &exe,
-            std::env::var_os("LOCALAPPDATA").as_deref().map(Path::new),
-        )
-    })
-}
-
-pub fn install_build_at(exe: &Path, local_app_data: Option<&Path>) -> bool {
-    if is_mac_app_bundle(exe) {
-        return true;
-    }
-    let Some(local) = local_app_data else {
-        return false;
-    };
-    path_is_under(exe, &local.join("DeskBaton"))
-}
-
-fn normalize_windows_path(path: &Path) -> String {
-    let mut s = path.to_string_lossy().replace('/', "\\");
-    for prefix in [r"\\?\", r"\\.\", "//?/", "//./"] {
-        if s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix) {
-            s = s[prefix.len()..].to_string();
-            break;
-        }
-    }
-    while s.ends_with('\\') && s.len() > 3 {
-        s.pop();
-    }
-    s
-}
-
-fn path_is_under(path: &Path, root: &Path) -> bool {
-    let path = normalize_windows_path(path);
-    let root = normalize_windows_path(root);
-    path.len() >= root.len()
-        && path.as_bytes()[..root.len()].eq_ignore_ascii_case(root.as_bytes())
-        && (path.len() == root.len() || path.as_bytes().get(root.len()) == Some(&b'\\'))
-}
-
 pub fn is_enabled() -> Result<bool> {
     imp::is_enabled()
 }
@@ -335,8 +293,8 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::{exe_is_bundled, install_build_at};
-    use std::path::{Path, PathBuf};
+    use super::exe_is_bundled;
+    use std::path::Path;
 
     #[test]
     fn bundled_when_an_ancestor_is_app() {
@@ -349,51 +307,5 @@ mod tests {
         assert!(!exe_is_bundled(Path::new(
             r"C:\Users\me\AppData\Local\DeskBaton\deskbaton-gui.exe"
         )));
-    }
-
-    #[test]
-    fn install_build_mac_app_and_windows_local_app_data_dir() {
-        assert!(install_build_at(
-            Path::new("/Applications/DeskBaton.app/Contents/MacOS/DeskBaton"),
-            None,
-        ));
-        assert!(!install_build_at(
-            Path::new("/Users/me/Code/deskbaton/target/debug/deskbaton-gui"),
-            None,
-        ));
-        let local = PathBuf::from("local-app-data");
-        assert!(install_build_at(
-            &local.join("DeskBaton").join("deskbaton-gui.exe"),
-            Some(&local),
-        ));
-        assert!(!install_build_at(
-            &local.join("DeskBatonDev").join("deskbaton-gui.exe"),
-            Some(&local),
-        ));
-        assert!(!install_build_at(
-            &PathBuf::from("code")
-                .join("deskbaton")
-                .join("target")
-                .join("release")
-                .join("deskbaton-gui.exe"),
-            Some(&local),
-        ));
-    }
-
-    #[test]
-    fn install_build_windows_ignores_case_and_verbatim_prefix() {
-        let local = Path::new(r"C:\Users\me\AppData\Local");
-        assert!(install_build_at(
-            Path::new(r"c:\users\me\appdata\local\deskbaton\deskbaton-gui.exe"),
-            Some(local),
-        ));
-        assert!(install_build_at(
-            Path::new(r"\\?\C:\Users\me\AppData\Local\DeskBaton\deskbaton-gui.exe"),
-            Some(local),
-        ));
-        assert!(!install_build_at(
-            Path::new(r"\\?\C:\Users\me\Code\deskbaton\target\release\deskbaton-gui.exe"),
-            Some(local),
-        ));
     }
 }

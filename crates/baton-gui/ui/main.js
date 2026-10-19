@@ -87,8 +87,8 @@ const state = {
   agent: null,
   /** @type {string | null} */
   version: null,
-  /** @type {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null, checking: boolean }} */
-  update: { supported: false, kind: "idle", version: null, checking: false },
+  /** @type {{ kind: "idle" | "available" | "installing", version: string | null, checking: boolean }} */
+  update: { kind: "idle", version: null, checking: false },
   /** @type {Devices | null} */
   devices: null,
   /** @type {string | null} 读取设备失败的原因 */
@@ -274,18 +274,12 @@ function render() {
 }
 
 /**
- * @typedef {{ supported: boolean, kind: "idle" | "available" | "installing", version: string | null }} UpdateStatus
+ * @typedef {{ kind: "idle" | "available" | "installing", version: string | null }} UpdateStatus
  */
 
 function renderUpdateRow() {
-  const row = $("pref-update-row");
   const btn = /** @type {HTMLButtonElement} */ ($("pref-update"));
   const u = state.update;
-  if (!u.supported) {
-    row.hidden = true;
-    return;
-  }
-  row.hidden = false;
   btn.disabled = u.kind === "installing" || u.checking;
   btn.classList.toggle("primary", u.kind === "available" && !u.checking);
   if (u.kind === "installing") btn.textContent = "正在升级…";
@@ -297,7 +291,6 @@ function renderUpdateRow() {
 /** @param {UpdateStatus} status */
 function applyUpdateStatus(status) {
   state.update = {
-    supported: status.supported,
     kind: status.kind,
     version: status.version,
     checking: state.update.checking,
@@ -395,7 +388,7 @@ async function onUpdateClick() {
   render();
   try {
     applyUpdateStatus(/** @type {UpdateStatus} */ (await invoke("check_update")));
-    if (state.update.supported && state.update.kind === "idle") {
+    if (state.update.kind === "idle") {
       setNotice({ tone: "idle", text: "已是最新版本", keep: true }, NOTICE_TTL_MS);
     } else if (state.update.kind === "available" && state.update.version) {
       setNotice({
@@ -1466,7 +1459,6 @@ tauri.event.listen("notice", (/** @type {{ payload: string }} */ e) => {
 });
 
 tauri.event.listen("update-available", (/** @type {{ payload: string }} */ e) => {
-  state.update.supported = true;
   state.update.kind = "available";
   state.update.version = e.payload;
   render();

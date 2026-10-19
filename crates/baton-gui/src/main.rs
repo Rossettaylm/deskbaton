@@ -213,12 +213,7 @@ fn main() -> ExitCode {
                     );
                 }
             }
-            let install = startup::is_install_build();
-            match startup::current_exe() {
-                Ok(exe) => log::info!("安装版={install} 路径={}", exe.display()),
-                Err(e) => log::info!("安装版={install} 路径未知：{e}"),
-            }
-            app.manage(update::UpdateSlot::new(install));
+            app.manage(update::UpdateSlot::new());
             app.manage(AgentSlot::start(app.handle()));
             #[cfg(target_os = "macos")]
             files::register_service(app.handle());
@@ -512,11 +507,6 @@ mod tests {
         assert_eq!(
             path,
             std::path::Path::new("/tmp/DeskBaton/logs/deskbaton.log")
-        );
-        let main = include_str!("main.rs");
-        assert!(
-            main.contains("安装版={install}") && main.contains("exe.display()"),
-            "启动必须写下安装版判定和可执行文件路径"
         );
     }
 }

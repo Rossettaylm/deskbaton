@@ -22,7 +22,7 @@
 >
 > 修订（2026-10-18）：用户分发改为 Mac `.dmg` + Windows NSIS 安装器，CI `pack` 出安装包，不再分发裸 exe。安装版 Mac 特权助手改 `SMAppService`。Linux 安装器留到两者定型之后。见 `2026-10-18-installer-design.md`，冲突时以该文为准。
 >
-> 修订（2026-10-18）：安装版面板可经 GitHub Release 程序内更新。`vX.Y.Z` tag 才发 Release；检查更新的 HTTPS 不等于把交棒端口暴露到公网。见 `2026-10-18-in-app-update-design.md`，冲突时以该文为准。
+> 修订（2026-10-18）：面板可经 GitHub Release 程序内更新，不按安装路径隐藏。`vX.Y.Z` tag 才发 Release；检查更新的 HTTPS 不等于把交棒端口暴露到公网。见 `2026-10-18-in-app-update-design.md`，冲突时以该文为准。
 >
 > 修订（2026-10-18）：`peer_offline` 按字面执行——任一已配对对端在线即 `stay_awake`，自己持棒（`taken`）不释放；Mac 同时拦住显示器空闲睡眠。`kern.wakereason` 含 `wifibt` 的暗唤醒发 `Event::NetworkWake`，短时保持并 `wake_display`，等对端上线并入长时 guard。
 >

@@ -6,6 +6,8 @@
 
 修订（2026-10-18）：tag `vX.Y.Z` 发 GitHub Release 供程序内更新；`main` 推送仍只上传 7 天 artifact。安装包文件名随 workspace 版本。见 `2026-10-18-in-app-update-design.md`，冲突时以该文为准。
 
+修订（2026-10-19）：Windows 当前用户安装的实际落点是 `%LOCALAPPDATA%\DeskBaton\`。Tauri 2.12 NSIS 在 `installMode = currentUser` 时把 `$INSTDIR` 设为 `$LOCALAPPDATA\${PRODUCTNAME}`，不经过 `Programs`。安装器不改目录。程序内更新不靠这个路径决定是否可检查。
+
 用户拿到的是安装包，不是裸 `deskbaton-gui` / `.exe`。装完后面板（进程内跑 agent）落在系统常规位置，并预置登录自启；Mac 另预置特权助手。主程序仍在用户登录会话里跑，不做 Windows Service、系统级 LaunchDaemon 里的 agent、或 systemd 系统服务。
 
 ## 1. 目标

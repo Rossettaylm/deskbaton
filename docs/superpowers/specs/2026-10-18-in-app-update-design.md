@@ -10,15 +10,17 @@
 
 修订（2026-10-18）：Windows 安装版曾在本机仍是旧版本时底栏「已是最新版本」。浏览器打开同一 `latest.json` 已是新版本。插件默认带 `Accept: application/json`，部分路径会拿到另一份表示或缓存副本。检查与下载请求改为 `Accept: */*`、`Cache-Control: no-cache`，清单 URL 附加 `?t=<unix>`；日志写「本机 x.y.z / 清单 x.y.z」。旧 tag 上的 `latest.json` 与当前 latest 对齐，避免仍指向旧 tag 的缓存读到旧清单。
 
+修订（2026-10-19）：不再按安装路径区分能不能检查更新。本机卡片始终有「检查更新」，`cargo run`、默认目录、换盘安装都查。macOS 是否在 `.app` 内仍只决定登录项和睡眠助手，与更新无关。
+
 ## 1. 目标
 
-安装版面板能自己发现 GitHub 上的新版本；用户确认后下载、验签、覆盖安装并重启。日常 `main` 推送仍只打 7 天 artifact，不进更新通道。
+面板能自己发现 GitHub 上的新版本；用户确认后下载、验签、覆盖安装并重启。不按安装路径或开发版跳过。日常 `main` 推送仍只打 7 天 artifact，不进更新通道。
 
 ## 2. 范围
 
 **做**
 
-- 仅安装版面板（Mac `.app`、Windows NSIS 装上的 `deskbaton-gui.exe`）
+- 面板上的检查与升级，包括 `cargo run` 和自定义安装目录
 - `vX.Y.Z` tag 发 GitHub Release：新人用的 `.dmg` / NSIS，加上更新器用的签名包和 `latest.json`
 - 启动后后台检查一次；本机卡片可再查
 - 有新版本则提示，点按钮后下载、minisign 验签、覆盖同路径、重启
@@ -26,7 +28,8 @@
 
 **不做**
 
-- Linux、开发版 `cargo run`、无界面 `deskbaton`
+- 无界面 `deskbaton`（没有这块面板）
+- Linux 安装器（仍按安装器设计，等 Mac 与 Windows 定型）
 - 静默升级、强制升级、跨大版本迁移向导
 - Apple 公证 / Authenticode（仍按安装器设计，有证书另做）
 - 每次 `main` 推送发 Release
@@ -40,23 +43,12 @@
 
 **日志：** 面板进程把 `info` 及以上写到数据目录 `logs/deskbaton.log`（每次启动截断），同时仍打 stderr（开发时能看见）。Windows 安装版是 GUI 子系统，没有控制台，查更新问题看这份文件：`%APPDATA%\DeskBaton\logs\deskbaton.log`。Mac：`~/Library/Application Support/DeskBaton/logs/deskbaton.log`。建文件失败不挡启动。
 
-## 3. 安装版判定
-
-与安装器设计同一条线，写在 `startup.rs`，更新逻辑复用：
-
-| 平台 | 安装版 | 开发版 |
-|---|---|---|
-| macOS | 可执行文件的祖先路径带 `.app`（现有 `exe_is_bundled`） | `cargo run` 的 `target/.../deskbaton-gui` |
-| Windows | 可执行文件在 `%LOCALAPPDATA%\DeskBaton\` 下（忽略大小写，去掉 `\\?\`） | `target\...\deskbaton-gui.exe` |
-
-开发版不检查网络、本机卡片不画「版本」行。`.pref { display: flex }` 会盖掉 HTML `hidden`，版本行必须另写 `.pref[hidden] { display: none }`，与菜单、分页相同。未判定为安装版时，检查不得宣称「已是最新版本」。启动时把安装版判定和可执行文件路径写入日志。
-
-## 4. 检查与安装
+## 3. 检查与安装
 
 进程内一份 `UpdateSlot`（`Mutex`）。安装进行中不再开一轮安装。检查更新的 HTTPS 15 秒超时；超时或连不上时文案「无法检查更新：网络超时，请检查能否访问 GitHub」。拉清单得到非成功状态（插件 `Could not fetch a valid release JSON`）时自动再试一次，仍失败则底栏「检查失败，请稍后再试。」——面向用户的文案不出现清单、JSON、endpoint、英文插件错误。手动检查进行中按钮不可点。启动时的自动检查若尚未结束，手动检查仍要自己发一次请求并等待结果，不得立刻宣称已是最新。
 
 ```text
-启动（安装版）
+启动
     → 窗口起来后 spawn 检查 latest.json
         ├ 已是最新 / 网络失败 → 只记日志，槽位 kind=idle
         └ 有新版本 → 槽位 kind=available
@@ -93,7 +85,7 @@
 
 进度：`emit` `update-progress` `{ loaded, total }`。有 `total` 时底栏「正在下载更新 12 / 40 MB」；没有则保持「正在下载更新…（升级会短暂退出）」。
 
-## 5. 面板
+## 4. 面板
 
 不新开窗口、不加 tab。本机卡片在「剪贴板」下面加一行，颜色仍用 `--ink` / `--mute`，不用橙色。右侧是动作按钮 `.btn`（空闲为默认，有更新为 `primary`），与设备页「同意 / 连接」同一套；不要热键那种凹槽。
 
@@ -103,13 +95,12 @@
 | 正在检查 | 按钮不可点，文案「正在检查更新…」 |
 | 发现新版本 | 左侧「版本」，右侧按钮「升级到 vx.y.z」 |
 | 正在下载 / 安装 | 按钮不可点，文案「正在升级…」 |
-| 开发版 | 不画这一行 |
 
 底栏右侧继续显示当前版本号。升级确认就是点这个按钮，不弹系统对话框。
 
-前端继续 `invoke`，不加 npm。命令：`update_status`（只读槽位，不发网络；返回是否安装版以及 `idle` / `available` / `installing`）/ `check_update` / `install_update`。事件：`update-available`、`update-progress`。槽位不是 available 时调用 `install_update`，底栏「没有可用更新」。
+前端继续 `invoke`，不加 npm。命令：`update_status`（只读槽位，不发网络；返回 `idle` / `available` / `installing`）/ `check_update` / `install_update`。事件：`update-available`、`update-progress`。槽位不是 available 时调用 `install_update`，底栏「没有可用更新」。
 
-## 6. CI、密钥、Release
+## 5. CI、密钥、Release
 
 `pack.yml` 仍打 Mac `.dmg` + Windows NSIS：
 
@@ -133,11 +124,10 @@ macOS 更新器要 `.app.tar.gz`，不是 `.dmg`。Tauri 2 把 `app` 算更新�
 
 **发可升级版本：** 先改 workspace `version` 并提交，再打 annotated tag `vX.Y.Z` 并 `git push origin vX.Y.Z`。`scripts/ship.sh` 不自动打 tag。
 
-## 7. 代码组织
+## 6. 代码组织
 
 ```text
-crates/baton-gui/src/update.rs      安装版判定入口、检查、下载安装、重启
-crates/baton-gui/src/startup.rs     Windows 安装版路径判定
+crates/baton-gui/src/update.rs      检查、下载安装、重启
 crates/baton-gui/src/commands.rs    update_status / check_update / install_update
 crates/baton-gui/ui                 本机卡片「版本」行
 crates/baton-gui/tauri.conf.json    plugins.updater；createUpdaterArtifacts 默认 false
@@ -147,12 +137,11 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 
 不把更新做成 `baton-core` 端口。用 Rust 侧 `UpdaterExt` + `AppHandle::restart()`，不引进 `tauri-plugin-process`。错误文案中文。
 
-## 8. 测试与验收
+## 7. 测试与验收
 
 **单测**
 
-- 安装版路径：Mac `.app` 为真，`target/debug/deskbaton-gui` 为假；Windows `%LOCALAPPDATA%\DeskBaton\deskbaton-gui.exe` 为真，`target\release\deskbaton-gui.exe` 为假
-- 开发版检查直接返回不支持，不发网络
+- 检查不看可执行文件路径；空闲槽位一次检查会调用取版本的回调
 - 超时、连接失败映射为「无法检查更新：网络超时，请检查能否访问 GitHub」
 - `Could not fetch a valid release JSON` 映射为「检查失败，请稍后再试。」；此类失败自动再试一次
 - 日志路径为数据目录下 `logs/deskbaton.log`
@@ -167,14 +156,14 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 
 **手动验收**
 
-1. 低版本安装版启动后底栏提示新版本，本机卡片可升级；确认后重启，版本号变新，数据目录还在。
-2. `cargo run -p baton-gui` 没有「版本」这一行。
+1. 低版本启动后底栏提示新版本，本机卡片可升级；确认后重启，版本号变新，数据目录还在。自定义安装目录同样有「检查更新」。
+2. `cargo run -p baton-gui` 本机卡片也有「检查更新」。
 3. 已是最新时手动检查：立刻「正在检查更新…」，完成后底栏「已是最新版本」，约 3 秒后恢复默认状态行。
 4. 断网或访问不了 GitHub：自动检查无提示；手动检查最多约 15 秒后底栏报超时或失败，交棒仍可用。日志在数据目录 `logs/deskbaton.log`。
 5. 🔧 Mac：升完后若 Gatekeeper 拦截，记进验收，不在本轮做公证。
 6. 🔧 Windows：低版本安装版检查能发现 GitHub latest 上的更高版本；日志有本机与清单两个版本号。
 
-## 9. 风险
+## 8. 风险
 
 | 风险 | 应对 |
 |---|---|
@@ -185,10 +174,10 @@ Cargo.toml                          tauri-plugin-updater（MIT / Apache-2.0，�
 | 矩阵两台机器抢着写 `latest.json` | 沿用 tauri-action 合并清单 |
 | 矩阵两个 job 同时 `createRelease`，后到的收到 `already_exists` | 单独 job 先建 Release；打包 job 传 `releaseId`，`tauri-action` 在已有 `releaseId` 时不再创建 |
 
-## 10. 对既有设计的修订
+## 9. 对既有设计的修订
 
-- 安装器第 2 节「不做 GitHub Release」删除；改为 tag `vX.Y.Z` 发 Release，见本文第 6 节。`main` 推送仍只上传 7 天 artifact。
+- 安装器第 2 节「不做 GitHub Release」删除；改为 tag `vX.Y.Z` 发 Release，见本文第 5 节。`main` 推送仍只上传 7 天 artifact。
 - 安装器第 3 节文件名随 workspace 版本，不再写死 `0.0.1`。
 - 安装器第 6 节：`pack.yml` 增加 tag 触发；「不建 GitHub Release」删除。
-- 面板设置第 4 节：本机卡片加「版本」行，见本文第 5 节。
-- 主设计：安装版面板可经 GitHub Release 更新；检查更新的 HTTPS 不等于把交棒端口暴露到公网。
+- 面板设置第 4 节：本机卡片加「版本」行，见本文第 4 节。
+- 主设计：面板可经 GitHub Release 更新，不按安装路径隐藏；检查更新的 HTTPS 不等于把交棒端口暴露到公网。

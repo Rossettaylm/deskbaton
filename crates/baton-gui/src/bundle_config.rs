@@ -218,13 +218,14 @@ mod tests {
             "已是最新 / 检查失败约 3 秒后消失，不能一直占着底栏"
         );
         assert!(
-            js.contains("state.update.supported && state.update.kind === \"idle\""),
-            "未判定为安装版不得宣称已是最新"
+            js.contains("state.update.kind === \"idle\"") && !js.contains("u.supported"),
+            "检查更新不按安装版隐藏，已是最新只看槽位"
         );
-        let css = include_str!("../ui/style.css");
+        let html = include_str!("../ui/index.html");
         assert!(
-            css.contains(".pref[hidden]") && css.contains("display: none"),
-            ".pref {{ display:flex }} 会盖掉 hidden，版本行会在非安装版露出来"
+            html.contains("id=\"pref-update-row\"")
+                && !html.contains("id=\"pref-update-row\" hidden"),
+            "版本行默认就显示"
         );
     }
 

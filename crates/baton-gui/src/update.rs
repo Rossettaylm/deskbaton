@@ -1,4 +1,4 @@
-//! 安装版程序内更新：状态槽、检查与安装。
+//! 程序内更新：状态槽、检查与安装。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -26,13 +26,11 @@ pub enum UpdateKind {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct UpdateStatus {
-    pub supported: bool,
     pub kind: UpdateKind,
     pub version: Option<String>,
 }
 
 struct Inner {
-    supported: bool,
     kind: UpdateKind,
     version: Option<String>,
     announced: Option<String>,
@@ -43,10 +41,9 @@ pub struct UpdateSlot {
 }
 
 impl UpdateSlot {
-    pub fn new(supported: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             inner: Mutex::new(Inner {
-                supported,
                 kind: UpdateKind::Idle,
                 version: None,
                 announced: None,
@@ -61,7 +58,6 @@ impl UpdateSlot {
     pub fn status(&self) -> UpdateStatus {
         let inner = self.lock();
         UpdateStatus {
-            supported: inner.supported,
             kind: inner.kind,
             version: inner.version.clone(),
         }
@@ -71,7 +67,6 @@ impl UpdateSlot {
         let mut inner = self.lock();
         if inner.kind == UpdateKind::Installing {
             return UpdateStatus {
-                supported: inner.supported,
                 kind: inner.kind,
                 version: inner.version.clone(),
             };
@@ -87,7 +82,6 @@ impl UpdateSlot {
             }
         }
         UpdateStatus {
-            supported: inner.supported,
             kind: inner.kind,
             version: inner.version.clone(),
         }
@@ -136,7 +130,7 @@ fn check_with(
     fetch: impl FnOnce() -> Result<Option<String>>,
 ) -> Result<UpdateStatus> {
     let status = slot.status();
-    if !status.supported || status.kind == UpdateKind::Installing {
+    if status.kind == UpdateKind::Installing {
         return Ok(status);
     }
     let remote = fetch()?;
@@ -282,13 +276,6 @@ async fn fetch_remote(app: &AppHandle) -> Result<Option<String>> {
 async fn check_remote(app: &AppHandle) -> Result<UpdateStatus> {
     let slot = app.state::<UpdateSlot>();
     let status = slot.status();
-    if !status.supported {
-        let exe = crate::startup::current_exe()
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|e| e.to_string());
-        log::info!("非安装版，跳过检查 {exe}");
-        return Ok(status);
-    }
     if status.kind == UpdateKind::Installing {
         return Ok(status);
     }
@@ -335,7 +322,7 @@ pub fn update_status(slot: State<'_, UpdateSlot>) -> UpdateStatus {
 pub async fn check_update(app: AppHandle) -> std::result::Result<UpdateStatus, String> {
     match check_remote(&app).await {
         Ok(status) => {
-            if status.supported && status.kind == UpdateKind::Idle {
+            if status.kind == UpdateKind::Idle {
                 let _ = app.emit_to(PANEL, "notice", "已是最新版本");
             }
             announce(&app, false);
@@ -402,23 +389,22 @@ mod tests {
     use super::{UpdateKind, UpdateSlot, check_with, progress_text, updater_user_text};
 
     #[test]
-    fn unsupported_does_not_call_fetch() {
-        let slot = UpdateSlot::new(false);
+    fn idle_check_always_fetches() {
+        let slot = UpdateSlot::new();
         let mut called = false;
         let status = check_with(&slot, || {
             called = true;
             Ok(Some("0.0.2".into()))
         })
         .unwrap();
-        assert!(!called);
-        assert!(!status.supported);
-        assert_eq!(status.kind, UpdateKind::Idle);
-        assert_eq!(status.version, None);
+        assert!(called);
+        assert_eq!(status.kind, UpdateKind::Available);
+        assert_eq!(status.version.as_deref(), Some("0.0.2"));
     }
 
     #[test]
     fn found_version_announced_only_once() {
-        let slot = UpdateSlot::new(true);
+        let slot = UpdateSlot::new();
         let status = check_with(&slot, || Ok(Some("0.0.2".into()))).unwrap();
         assert_eq!(status.kind, UpdateKind::Available);
         assert_eq!(status.version.as_deref(), Some("0.0.2"));
@@ -428,7 +414,7 @@ mod tests {
 
     #[test]
     fn latest_remote_clears_available() {
-        let slot = UpdateSlot::new(true);
+        let slot = UpdateSlot::new();
         check_with(&slot, || Ok(Some("0.0.2".into()))).unwrap();
         let status = check_with(&slot, || Ok(None)).unwrap();
         assert_eq!(status.kind, UpdateKind::Idle);
@@ -437,14 +423,14 @@ mod tests {
 
     #[test]
     fn install_without_update_fails() {
-        let slot = UpdateSlot::new(true);
+        let slot = UpdateSlot::new();
         let err = slot.begin_install().unwrap_err();
         assert!(err.to_string().contains("没有可用更新"));
     }
 
     #[test]
     fn second_install_rejected() {
-        let slot = UpdateSlot::new(true);
+        let slot = UpdateSlot::new();
         check_with(&slot, || Ok(Some("0.0.2".into()))).unwrap();
         assert_eq!(slot.begin_install().unwrap(), "0.0.2");
         let err = slot.begin_install().unwrap_err();
@@ -454,7 +440,7 @@ mod tests {
 
     #[test]
     fn abort_install_returns_to_available() {
-        let slot = UpdateSlot::new(true);
+        let slot = UpdateSlot::new();
         check_with(&slot, || Ok(Some("0.0.2".into()))).unwrap();
         slot.begin_install().unwrap();
         slot.abort_install();
@@ -583,8 +569,8 @@ mod tests {
             "比较与清单 URL 必须走带日志、带时间戳的路径"
         );
         assert!(
-            prod.contains("非安装版，跳过检查"),
-            "supported=false 必须记日志，不得静默宣称已是最新"
+            !prod.contains("非安装版") && !prod.contains("supported"),
+            "检查更新不按安装路径跳过"
         );
     }
 
