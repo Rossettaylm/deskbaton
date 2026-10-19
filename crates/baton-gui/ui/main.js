@@ -29,7 +29,8 @@
  * @typedef {{ id: number, peer: string, direction: "send" | "receive",
  *             phase: "waking" | "offered" | "pending" | "transferring" | "done" | "failed" | "rejected" | "canceled",
  *             received?: number, failed?: number, reason?: string, by_peer?: boolean,
- *             summary: OfferSummary, done_bytes: number, location: string | null, seen: boolean }} FileSession
+ *             summary: OfferSummary, done_bytes: number, location: string | null, seen: boolean,
+ *             can_retry: boolean, reveal: string | null }} FileSession
  * @typedef {{ name: string, platform: Platform | null, online: boolean }} SendTarget
  * @typedef {{ count: number, names: string[], targets: SendTarget[] }} PendingSend
  */
@@ -104,6 +105,8 @@ const state = {
   seenPairing: new Set(),
   /** @type {FileSession[]} */
   files: [],
+  /** @type {{ key: string, count: number }[]} */
+  clipboardPending: [],
   /** @type {PendingSend | null} 从系统菜单发起、等用户选目标的发送 */
   pick: null,
 };
@@ -604,6 +607,7 @@ async function commitHotkey(combo) {
 async function refreshDevices() {
   try {
     state.devices = await invoke("list_devices");
+    state.clipboardPending = await invoke("clipboard_pending").catch(() => []);
     state.devicesError = null;
     for (const c of state.devices.candidates) {
       if (state.devices.sessions.some((s) => s.peer === c.name)) state.pairing.delete(c.address);
@@ -722,7 +726,8 @@ async function refreshFiles() {
   }
   for (const s of state.files) {
     const key = sessionKey(s);
-    const transient = s.direction === "send" && (s.phase === "done" || s.phase === "canceled");
+    const fullySent = s.phase === "done" && (s.failed ?? 0) === 0;
+    const transient = s.direction === "send" && (fullySent || s.phase === "canceled");
     if (transient && !dismissTimers.has(key)) {
       dismissTimers.set(
         key,
@@ -791,80 +796,129 @@ function progressBar(done, total) {
 /** @param {FileSession} s */
 function transferCard(s) {
   const send = s.direction === "send";
-  const btn = (/** @type {string} */ label, /** @type {() => void} */ onclick, primary = false) =>
+  const names = s.summary.names.join("、");
+  const summary = summaryText(s.summary);
+  const button = (/** @type {string} */ label, /** @type {() => void} */ onclick, primary = false) =>
     h("button", { class: primary ? "btn primary" : "btn", onclick }, label);
-  const close = h("button", { class: "btn ghost", title: "收起", onclick: () => dismissFile(s) }, "×");
-  const cancel = btn("取消", () => fileAction("cancel_file", s));
-  let head;
-  let sub = summaryText(s.summary);
-  /** @type {(Node | null)[]} */
-  let actions = [];
+  const cancel = button("取消", () => fileAction("cancel_file", s));
+  const reveal = (/** @type {string | null | undefined} */ path) =>
+    path ? button(REVEAL_LABEL, () => invoke("reveal_path", { path })) : null;
+  /** @type {string} */
+  let tone = "";
+  /** @type {string} */
+  let kicker = "";
+  /** @type {string} */
+  let title = "";
+  /** @type {string} */
+  let meta = summary;
+  /** @type {number | null} */
+  let pct = null;
   /** @type {HTMLElement | null} */
   let bar = null;
-  let tone = "";
+  /** @type {(Node | null)[]} */
+  let actions = [];
+  let terminal = false;
   switch (s.phase) {
     case "waking":
-      head = `正在唤醒 ${s.peer}…`;
+      tone = "wait";
+      kicker = "唤醒";
+      title = `正在唤醒 ${s.peer}`;
+      bar = h("div", { class: "bar wait" }, h("i", { "aria-hidden": "true" }));
       actions = [cancel];
       break;
     case "offered":
-      head = `等待 ${s.peer} 接收`;
-      actions = [btn("切过去", () => switchToPeer(s.peer)), cancel];
+      tone = "wait";
+      kicker = "等待";
+      title = `等 ${s.peer} 接收`;
+      bar = h("div", { class: "bar wait" }, h("i", { "aria-hidden": "true" }));
+      actions = [button("切过去", () => switchToPeer(s.peer), true), cancel];
       break;
     case "pending":
-      head = `${s.peer} 想发给你`;
-      if (s.summary.names.length > 0) sub = `${s.summary.names.join("、")} · ${sub}`;
-      actions = [btn("拒绝", () => fileAction("reject_file", s)), btn("接收", () => fileAction("accept_file", s), true)];
+      tone = "live";
+      kicker = "待确认";
+      title = `${s.peer} 发来文件`;
+      actions = [
+        button("拒绝", () => fileAction("reject_file", s)),
+        button("接收", () => fileAction("accept_file", s), true),
+      ];
       break;
     case "transferring": {
       const p = progressBar(s.done_bytes, s.summary.total_bytes);
+      tone = "live";
+      kicker = send ? "发送中" : "接收中";
+      title = send ? `正在发给 ${s.peer}` : `正在接收 ${s.peer} 的文件`;
+      meta = `${fmtBytes(s.done_bytes)} / ${fmtBytes(s.summary.total_bytes)}`;
+      pct = p.pct;
       bar = p.bar;
-      head = send ? `正在发给 ${s.peer}` : `正在接收 ${s.peer} 的文件`;
-      sub = `${p.pct}% · ${fmtBytes(s.done_bytes)} / ${fmtBytes(s.summary.total_bytes)}`;
       actions = [cancel];
       break;
     }
     case "done": {
       const received = s.received ?? 0;
       const failed = s.failed ?? 0;
-      tone = failed > 0 ? "err" : "ok";
+      const partial = failed > 0;
+      tone = partial ? "err" : "ok";
+      terminal = true;
       if (send) {
-        head = `已送达 ${s.peer}`;
-        sub = failed > 0 ? `${received} / ${received + failed} 个文件，其余失败` : `${received} 个文件`;
-        actions = [close];
+        kicker = partial ? "部分送达" : "已送达";
+        title = `已发给 ${s.peer}`;
+        meta = partial ? `${received} / ${received + failed} 个文件，其余失败` : `${received} 个文件`;
       } else {
-        head = `已收到 ${s.peer} 的 ${received} 个文件`;
-        sub = failed > 0 ? `${failed} 个未能收下` : summaryText(s.summary);
-        const location = s.location;
-        actions = [location ? btn(REVEAL_LABEL, () => invoke("reveal_path", { path: location })) : null, close];
+        kicker = partial ? "部分收到" : "已收到";
+        title = `来自 ${s.peer}`;
+        meta = partial ? `${failed} 个未能收下` : `${received} 个文件`;
+        actions = [reveal(s.location)];
       }
       break;
     }
     case "failed":
       tone = "err";
-      head = send ? `未能发给 ${s.peer}` : `未能接收 ${s.peer} 的文件`;
-      sub = s.reason ?? "";
-      actions = [close];
+      terminal = true;
+      kicker = send ? "未送达" : "未收下";
+      title = send ? `没能发给 ${s.peer}` : `没能收下 ${s.peer} 的文件`;
+      meta = s.reason ?? "";
+      actions = [reveal(s.reveal), s.can_retry ? button("重试", () => retryFile(s), true) : null];
       break;
     case "rejected":
       tone = "err";
-      head = send ? `${s.peer} 未接收` : "已拒绝";
-      sub = send ? REJECT_TEXT[s.reason ?? "error"] ?? REJECT_TEXT.error : `来自 ${s.peer}`;
-      if (!send && s.reason === "no_space") sub = "磁盘空间不足，未接收";
-      actions = [close];
+      terminal = true;
+      kicker = "已拒绝";
+      title = send ? `${s.peer} 未接收` : "未接收";
+      meta = send ? (REJECT_TEXT[s.reason ?? "error"] ?? REJECT_TEXT.error) : `来自 ${s.peer}`;
+      if (!send && s.reason === "no_space") meta = "磁盘空间不足，未接收";
       break;
     case "canceled":
-      head = s.by_peer ? (send ? `${s.peer} 取消了接收` : `${s.peer} 取消了发送`) : "已取消";
-      actions = [close];
+      tone = "wait";
+      terminal = true;
+      kicker = "已取消";
+      title = s.by_peer ? (send ? `${s.peer} 取消了接收` : `${s.peer} 取消了发送`) : "已取消";
+      meta = summary;
       break;
   }
+  const close = terminal
+    ? h("button", { class: "btn ghost xfer-close", title: "收起", onclick: () => dismissFile(s) }, "×")
+    : null;
   return h(
     "div",
-    { class: ["pair-request", "transfer", tone].filter(Boolean).join(" ") },
-    h("div", { class: "pair-head" }, h("span", {}, send ? "发送" : "接收"), h("b", {}, head)),
+    { class: ["transfer", tone].filter(Boolean).join(" ") },
+    h(
+      "div",
+      { class: "xfer-top" },
+      h("span", { class: "kicker" }, kicker),
+      h("b", { title }, title),
+      pct != null ? h("span", { class: "pct" }, `${pct}%`) : null,
+      close,
+    ),
+    names ? h("div", { class: "xfer-names", title: names }, names) : null,
     bar,
-    h("div", { class: "pair-foot" }, h("small", { title: sub }, sub), ...actions),
+    h("div", { class: "xfer-meta", title: meta }, meta),
+    actions.some(Boolean) ? h("div", { class: "xfer-actions" }, ...actions) : null,
   );
+}
+
+/** @param {FileSession} s */
+function retryFile(s) {
+  fileAction("retry_file", s);
 }
 
 function pickCard() {
@@ -962,6 +1016,26 @@ async function pickAndSend(folder) {
   scheduleFiles();
 }
 
+/** @param {{ fingerprint: string, name: string }} peer */
+function clipCount(peer) {
+  const key = peer.fingerprint || peer.name;
+  return state.clipboardPending.find((row) => row.key === key)?.count ?? 0;
+}
+
+/** @param {boolean} online @param {number} count */
+function presence(online, count) {
+  const base = online ? "在线" : "离线";
+  return count > 0 ? `${base} · ${count} 条待发出` : base;
+}
+
+/**
+ * @param {{ key: string, count: number }[]} a
+ * @param {{ key: string, count: number }[]} b
+ */
+function samePending(a, b) {
+  return a.length === b.length && a.every((row, i) => row.key === b[i].key && row.count === b[i].count);
+}
+
 function renderDevices() {
   const box = $("pairing");
   const list = $("device-list");
@@ -993,6 +1067,7 @@ function renderDevices() {
   }
   for (const { peer, online } of devices.paired) {
     const sub = [peer.last_ip, peer.wol_mac].filter(Boolean).join(" · ") || "尚未记下地址";
+    const pending = clipCount(peer);
     const removing = state.removing === peer.fingerprint;
     list.append(
       h(
@@ -1004,7 +1079,7 @@ function renderDevices() {
         },
         h("i", { class: "dot" }),
         h("div", { class: "who" }, h("b", {}, peer.name), h("small", {}, sub)),
-        h("span", { class: "state" }, online ? "在线" : "离线"),
+        h("span", { class: "state" + (pending ? " pending" : "") }, presence(online, pending)),
         h(
           "button",
           { class: "btn ghost" + (removing ? " danger" : ""), title: "取消配对", onclick: () => unpair(peer) },
@@ -1418,6 +1493,16 @@ invoke("app_version")
 
 refresh();
 refreshDevices();
+setInterval(async () => {
+  try {
+    const rows = await invoke("clipboard_pending");
+    if (samePending(state.clipboardPending, rows)) return;
+    state.clipboardPending = rows;
+    if (state.devices) renderDevices();
+  } catch {
+    /* 服务还没起来时没有发件箱 */
+  }
+}, 2000);
 refreshPrefs();
 refreshFiles();
 refreshPick();

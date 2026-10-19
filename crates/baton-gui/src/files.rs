@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use baton_agent::data_dir_of;
 use baton_core::config::default_config_path;
-use baton_core::files::{SessionId, SessionView};
+use baton_core::files::SessionId;
 use baton_core::ids::{DeviceId, Platform};
 use baton_core::state_file::LocalState;
 use baton_core::{Error, Result};
 use baton_files::FileService;
+use baton_files::SessionCard;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -220,8 +221,30 @@ fn pick(app: &AppHandle, folder: bool) -> Vec<PathBuf> {
 }
 
 #[tauri::command]
-pub fn file_sessions(slot: State<'_, AgentSlot>) -> std::result::Result<Vec<SessionView>, String> {
-    Ok(service(&slot)?.snapshot())
+pub fn file_sessions(slot: State<'_, AgentSlot>) -> std::result::Result<Vec<FileCard>, String> {
+    Ok(service(&slot)?
+        .cards()
+        .into_iter()
+        .map(FileCard::from)
+        .collect())
+}
+
+#[derive(Serialize)]
+pub struct FileCard {
+    #[serde(flatten)]
+    view: baton_core::files::SessionView,
+    can_retry: bool,
+    reveal: Option<String>,
+}
+
+impl From<SessionCard> for FileCard {
+    fn from(card: SessionCard) -> Self {
+        Self {
+            view: card.view,
+            can_retry: card.can_retry,
+            reveal: card.reveal,
+        }
+    }
 }
 
 #[tauri::command]
@@ -261,6 +284,19 @@ pub fn dismiss_file(
 ) -> std::result::Result<(), String> {
     service(&slot)?.dismiss(&DeviceId(peer), id);
     Ok(())
+}
+
+/// 失败的发送按原来的路径再发一次。
+#[tauri::command]
+pub fn retry_file(
+    slot: State<'_, AgentSlot>,
+    peer: String,
+    id: SessionId,
+) -> std::result::Result<(), String> {
+    service(&slot)?
+        .retry(&DeviceId(peer), id)
+        .map(|_| ())
+        .map_err(text)
 }
 
 /// 面板已经展示过接收结果，接棒时不再为它们弹出。

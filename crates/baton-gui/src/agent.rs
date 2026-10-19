@@ -112,6 +112,11 @@ impl AgentSlot {
         self.with_agent(|a| a.set_clipboard_sync(on));
     }
 
+    pub(crate) fn clipboard_pending(&self) -> Vec<(String, usize)> {
+        self.with_agent(Agent::clipboard_pending)
+            .unwrap_or_default()
+    }
+
     pub(crate) fn register_hotkey(&self, text: &str) -> Result<hotkey::Registration> {
         let parsed = hotkey::parse(text)?;
         let events = self

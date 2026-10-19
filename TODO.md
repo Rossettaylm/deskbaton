@@ -38,7 +38,7 @@
 
 - [x] `baton-clipboard`：`ClipboardAccess`（clipboard-rs）+ `ClipboardSync`，防回传、超限跳过、敏感标记跳过；本机开关写入 `state.toml`（[设计](docs/superpowers/specs/2026-10-17-clipboard-design.md)）
 - [ ] 🔧 剪贴板设计验收清单第 1–5 项（交棒时同步；已被实时设计取代，该项随实时验收一起勾）
-- [x] 剪贴板实时同步（[设计](docs/superpowers/specs/2026-10-18-clipboard-realtime-design.md)）：按对端发件箱、上线冲刷；面板不展示未发列表
+- [x] 剪贴板实时同步（[设计](docs/superpowers/specs/2026-10-18-clipboard-realtime-design.md)）：按对端发件箱、上线冲刷；面板只在设备行显示待发条数，不展示内容
 - [ ] 🔧 剪贴板实时设计验收清单第 1–6 项
 - 配对与设备档案（[设计](docs/superpowers/specs/2026-10-17-pairing-design.md)），按顺序推进：
   - [x] 持久化 TLS 身份、`peers.toml` 设备档案、握手 v3（承诺式配对码、信任判定、令牌自动配对），`PROTOCOL_VERSION` 升到 3
@@ -90,6 +90,7 @@
 - [ ] 🔧 合盖睡死后再从 Windows 切：`NetworkWake`（`kern.wakereason` 含 `wifibt`）已短时 `stay_awake` + `wake_display`，待实测能撑到重连并亮屏、不必开盖
 - [ ] 🔧 Wi-Fi 魔术包唤醒：睡眠超过 1 小时（验收清单第 2 项）、电池供电
 - [ ] 🔧 验收清单第 1–5 项
+- [ ] 多台显示器适配：整机交棒，本机接的所有显示器一起切给对端（2026-10-19 用户确认）。先写设计文档，定各显示器的输入源编码学习、持棒判定、部分显示器切换失败的处理和面板展示；同型号区分依赖「待定」里的 `DisplayInfo::select` 按 id / 序列号匹配
 
 ## 显示器面板（`docs/superpowers/specs/2026-10-16-display-panel-design.md`）
 
@@ -115,6 +116,7 @@
 - [x] 面板：两处右键菜单与选择框（暂停失焦收起）、发送 / 接收卡片与进度、按本机是否可见弹出、接棒时提示刚收到、设置项、多设备选择器；收完的系统通知点击后定位文件
 - [x] Windows「发送到」快捷方式（NSIS 装卸，冒烟测试检查装卸）+ `tauri-plugin-single-instance` 转发 `--send`
 - [x] macOS 服务菜单：`Info.plist` 的 `NSServices` + `baton-macos-sys/native/send_service.m` 提供者 + FFI 回调
+- [x] 传输状态：失败留到收起，原路径都在可重试；部分送达不自动收起；剪贴板待发条数写在设备行
 - [ ] 🔧 文件快传设计验收清单第 1–6 项
 
 ## P3 · M3 扩展（另立设计文档）
