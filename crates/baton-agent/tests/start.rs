@@ -27,6 +27,7 @@ fn options(dir: &std::path::Path, stopped: &Arc<AtomicBool>) -> Options {
         data_dir: dir.to_owned(),
         notifier: Box::new(Quiet),
         observer: None,
+        file_observer: None,
         on_stopped: Box::new(move || stopped.store(true, Ordering::SeqCst)),
     }
 }

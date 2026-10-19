@@ -16,6 +16,7 @@ baton-agent.workspace = true
 baton-core.workspace = true
 baton-display.workspace = true
 baton-net.workspace = true
+baton-files.workspace = true
 ctrlc.workspace = true
 serde.workspace = true
 log.workspace = true
@@ -23,6 +24,8 @@ env_logger.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 tauri-plugin-updater.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-single-instance.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baton-macos-sys.workspace = true

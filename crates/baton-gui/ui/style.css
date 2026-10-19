@@ -483,6 +483,45 @@ button { font: inherit; color: inherit; }
 .pair-foot { display: flex; align-items: center; gap: 6px; margin-top: 8px; }
 .pair-foot small { flex: 1; min-width: 0; font-size: 10.5px; color: var(--mute); }
 
+/* ---------- 文件快传 ---------- */
+
+.transfers { display: flex; flex-direction: column; margin-bottom: 4px; }
+.transfers[hidden] { display: none; }
+
+.transfer .pair-head { gap: 10px; }
+.transfer .pair-head span { flex: none; }
+.transfer .pair-head b { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transfer .pair-foot small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transfer.ok .pair-head b { color: var(--ok); }
+.transfer.err .pair-head b { color: var(--err); }
+.transfer .pair-foot.targets { flex-wrap: wrap; }
+
+.transfer .bar {
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: var(--line);
+  overflow: hidden;
+}
+.transfer .bar i {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+  transition: width 0.25s;
+}
+
+.menu.ctx { top: 0; right: auto; min-width: 160px; z-index: 10; }
+
+.pref-actions { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 62%; }
+.pref .btn.path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
 .device-list { display: flex; flex-direction: column; gap: 2px; }
 .device-list .empty { padding: 8px 0; font-size: 11px; color: var(--mute); text-align: center; }
 

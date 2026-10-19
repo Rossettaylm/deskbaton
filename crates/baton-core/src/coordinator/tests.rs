@@ -317,6 +317,12 @@ fn kinds(messages: &[Message]) -> Vec<&'static str> {
             Message::Ready { .. } => "ready",
             Message::Taken { .. } => "taken",
             Message::Abort { .. } => "abort",
+            Message::FileOffer { .. }
+            | Message::FileAccept { .. }
+            | Message::FileReject { .. }
+            | Message::FileCancel { .. }
+            | Message::FileResult { .. }
+            | Message::FileHello { .. } => "file",
         })
         .collect()
 }
@@ -752,6 +758,32 @@ fn needs_user_wake_only_notifies() {
     assert!(a.probe.notes().contains("请开盖"));
     assert_eq!(a.c.next_deadline(), None);
     assert_eq!(a.c.state(), AgentState::Holding);
+}
+
+#[test]
+fn wake_for_file_only_wakes_without_handoff() {
+    let monitor = Monitor::new(MAC, false);
+    let mut a = machine(
+        "mac",
+        MAC,
+        &monitor,
+        Setup {
+            wake: Some(WakeOutcome::NeedsUser("请开盖".into())),
+            ..Setup::default()
+        },
+    );
+    let now = Instant::now();
+    a.c.handle(Event::WakeFor(DeviceId("win".into())), now);
+    assert!(a.probe.notes().contains("请开盖"));
+    assert_eq!(a.c.next_deadline(), None, "不进入交棒等待");
+    assert_eq!(a.c.state(), AgentState::Holding);
+    assert!(a.probe.take_sent().is_empty());
+
+    let b = machine("win", WIN, &monitor, Setup::default());
+    online(&mut a, &b, now);
+    let notes = a.probe.notes();
+    a.c.handle(Event::WakeFor(b.id.clone()), now);
+    assert_eq!(a.probe.notes(), notes, "在线时不唤醒");
 }
 
 #[test]

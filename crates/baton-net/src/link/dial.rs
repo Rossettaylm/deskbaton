@@ -217,6 +217,7 @@ pub(super) async fn dial_once(shared: &Arc<Shared>, address: &str, intent: Inten
     serve(
         Arc::clone(shared),
         tls,
+        Vec::new(),
         Role::Client,
         peer_fp,
         addrs,

@@ -2,6 +2,7 @@
 
 pub mod auth;
 pub mod discovery;
+pub mod file;
 pub mod frame;
 pub mod identity;
 pub mod iface;

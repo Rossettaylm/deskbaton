@@ -25,6 +25,8 @@
 > 修订（2026-10-18）：安装版面板可经 GitHub Release 程序内更新。`vX.Y.Z` tag 才发 Release；检查更新的 HTTPS 不等于把交棒端口暴露到公网。见 `2026-10-18-in-app-update-design.md`，冲突时以该文为准。
 >
 > 修订（2026-10-18）：`peer_offline` 按字面执行——任一已配对对端在线即 `stay_awake`，自己持棒（`taken`）不释放；Mac 同时拦住显示器空闲睡眠。`kern.wakereason` 含 `wifibt` 的暗唤醒发 `Event::NetworkWake`，短时保持并 `wake_display`，等对端上线并入长时 guard。
+>
+> 修订（2026-10-19）：文件快传从 M3 提前，见 `2026-10-19-file-transfer-design.md`。控制消息走长连接，数据另开一条复用 47800 端口的 TLS 文件连接（通道 `2`），不登记为对端连接；协议升到 v6。默认自动接收，传输期间两端保持唤醒。冲突时以该文为准。
 
 ## 1. 目标
 
@@ -119,6 +121,7 @@ crates/
   baton-net/        identity（持久化 TLS 身份）、pairing（配对码与信任判定）、store（设备档案 peers.toml）、
                     discovery（mDNS）、iface（网卡 MAC）、frame（带通道号的分帧）、mux（控制优先的发送调度）、TcpPeerLink
   baton-clipboard/  ClipboardAccess（基于 clipboard-rs）+ ClipboardSync 参与者
+  baton-files/      文件快传运行时：收发线程、.part 落盘、接收位置与剩余空间、传输期 AwakeGuard
   baton-macos-sys/  ObjC 胶水（native/*.m）+ FFI 声明，只在 macOS 编译
   baton-agent/      库 `Agent::start`：恢复睡眠设置、加载身份与档案、启动链路，协调器跑在独立线程。
                     无界面程序 deskbaton：主线程运行系统事件循环（macOS 为 native 中的 NSApplication，
@@ -246,7 +249,7 @@ pub trait InputRouter: Send + Sync {
 | `taken { handoff_id }` | 接棒方 → 持棒方 | 已确认成为活跃输入 |
 | `abort { handoff_id, reason }` | 双向 | 放弃本次交棒 |
 
-以上消息都走控制通道。
+以上消息都走控制通道。文件快传的 `file_offer` / `file_accept` / `file_reject` / `file_cancel` / `file_result` 也走控制通道，但由文件会话处理、不进协调器；`file_hello` 只作文件连接的首帧。见 `2026-10-19-file-transfer-design.md` 第 5 节。
 
 ### 5.7 多通道传输
 
@@ -261,13 +264,14 @@ pub trait InputRouter: Send + Sync {
 |---|---|---|
 | `0` control | 交棒、心跳、状态 | `0` = JSON `Message` |
 | `1` clipboard | 剪贴板随身数据 | `0` Begin（JSON 元数据）/ `1` Chunk（原始字节）/ `2` End / `3` Cancel |
-| `2`–`255` | 预留（文件快传、远程状态等） | 由各通道自行定义 |
+| `2` file | 文件快传，只在文件连接上出现（见 `2026-10-19-file-transfer-design.md`） | `0` Manifest / `1` FileBegin / `2` Chunk / `3` FileEnd / `4` Done |
+| `3`–`255` | 预留（远程状态等） | 由各通道自行定义 |
 
 **数据通道的传输单元**是一次 transfer：Begin 帧携带 `{ transfer_id, handoff_id, format, total_len, sha256 }`，之后是若干 Chunk 帧（每块 64 KiB），最后是 End 帧。接收方校验长度和哈希后才交付。任一方可以发 Cancel 中止。
 
 - Chunk / End / Cancel 的负载以 8 字节大端 `transfer_id` 开头（Chunk 后接原始字节），同一通道上交替发送的多个 transfer 据此区分。
 - 单次 transfer 上限 256 MiB（`MAX_TRANSFER_LEN`），超过时发送方拒绝、接收方丢弃；参与者自己的上限（如 `clipboard.max_bytes`）更小。
-- 线上格式版本 `PROTOCOL_VERSION = 4`（v1 为不带通道号的 `len | JSON`；v2 为令牌认证、无配对握手；v3 的 `hello` 没有 `platform`）。
+- 线上格式版本 `PROTOCOL_VERSION = 6`（v1 为不带通道号的 `len | JSON`；v2 为令牌认证、无配对握手；v3 的 `hello` 没有 `platform`；v4 没有 `input_code` 消息；v5 没有文件快传）。
 
 **发送调度**（`mux`）：每条连接一个写任务，维护两个队列。
 - 控制队列永远优先发送；

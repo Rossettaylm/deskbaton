@@ -9,6 +9,7 @@ pub mod config;
 pub mod coordinator;
 pub mod error;
 pub mod event;
+pub mod files;
 pub mod ids;
 pub mod learn;
 pub mod outbox;

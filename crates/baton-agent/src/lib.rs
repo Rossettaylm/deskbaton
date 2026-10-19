@@ -22,6 +22,7 @@ use baton_core::ports::{ClipboardAccess, DisplayInfo, Notifier, PeerLink};
 use baton_core::state_file::{LocalState, clamp_outbox_limit};
 use baton_core::wake::WakeChain;
 use baton_core::{Error, Result};
+use baton_files::{FileObserver, FileService, FileSettings};
 use baton_net::{
     LinkConfig, LinkObserver, PairedPeer, PeerAddr, PeerStore, TcpPeerLink, TlsIdentity,
 };
@@ -33,12 +34,15 @@ pub struct Options {
     pub notifier: Box<dyn Notifier>,
     /// 配对界面；为 `None` 时未配对的设备一律拒绝。
     pub observer: Option<Arc<dyn LinkObserver>>,
+    /// 文件快传界面；为 `None` 时「需要确认」的请求一律拒绝。
+    pub file_observer: Option<Arc<dyn FileObserver>>,
     /// 协调器线程结束后（收到 [`Event::Shutdown`]）在该线程上调用。
     pub on_stopped: Box<dyn FnOnce() + Send>,
 }
 
 pub struct Agent {
     me: DeviceId,
+    display_mode: DisplayMode,
     hotkey: String,
     events: Sender<Event>,
     link: Arc<TcpPeerLink>,
@@ -52,6 +56,7 @@ pub struct Agent {
     /// 丢弃即通知剪贴板线程退出。
     stop_clipboard: Option<Sender<()>>,
     clipboard_thread: Option<JoinHandle<()>>,
+    files: Arc<FileService>,
 }
 
 impl Agent {
@@ -63,6 +68,7 @@ impl Agent {
             data_dir,
             notifier,
             observer,
+            file_observer,
             on_stopped,
         } = options;
         let power = baton_power::platform_power();
@@ -141,6 +147,17 @@ impl Agent {
             .name("clipboard".into())
             .spawn(move || clipboard_loop.run(&clipboard_stopped))
             .map_err(|e| Error::Config(format!("无法启动剪贴板线程：{e}")))?;
+        let files = FileService::start(
+            Arc::clone(&link),
+            baton_power::platform_power(),
+            events.clone(),
+            Arc::clone(&notifier),
+            file_observer,
+            FileSettings {
+                auto_accept: local.file_auto_accept,
+                receive_dir: local.file_receive_dir.as_ref().map(PathBuf::from),
+            },
+        );
         let ports = Ports {
             display: baton_display::platform_display(),
             power,
@@ -150,6 +167,7 @@ impl Agent {
             participants: vec![clipboard],
             notifier: Box::new(SharedNotifier(notifier)),
         };
+        let display_mode = config.display.mode;
         let coordinator = Coordinator::new(me.clone(), config, ports)
             .with_known_peers(known)
             .with_input_code(my_code);
@@ -163,6 +181,7 @@ impl Agent {
             .map_err(|e| Error::Config(format!("无法启动协调器线程：{e}")))?;
         Ok(Self {
             me,
+            display_mode,
             hotkey,
             events,
             link,
@@ -174,7 +193,16 @@ impl Agent {
             clipboard_sync,
             stop_clipboard: Some(stop_clipboard),
             clipboard_thread: Some(clipboard_thread),
+            files,
         })
+    }
+
+    pub fn files(&self) -> &Arc<FileService> {
+        &self.files
+    }
+
+    pub fn display_mode(&self) -> DisplayMode {
+        self.display_mode
     }
 
     /// 本机输入源编码：配置值，或自动学到的值。
@@ -240,6 +268,7 @@ impl Agent {
 
     /// 通知协调器退出并等它结束，保证 `AwakeGuard` 已释放。可重复调用。
     pub fn shutdown(&mut self) {
+        self.files.shutdown();
         self.stop_learning = None;
         self.stop_clipboard = None;
         if let Some(learning) = self.learning.take()

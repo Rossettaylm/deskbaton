@@ -657,3 +657,123 @@ fn paired_devices_connect_via_mdns_address() {
     }
     panic!("10 秒内没有经 mDNS 地址连上");
 }
+
+/// 记下文件会话收到的一切。
+#[derive(Default)]
+struct FileProbe {
+    messages: Mutex<Vec<(DeviceId, Message)>>,
+    incoming: Mutex<Vec<(DeviceId, SessionId, String, crate::file::FileDownload)>>,
+    offline: Mutex<Vec<DeviceId>>,
+}
+
+impl FileHandler for FileProbe {
+    fn message(&self, from: &DeviceId, message: Message) {
+        lock(&self.messages).push((from.clone(), message));
+    }
+    fn incoming(
+        &self,
+        from: DeviceId,
+        session_id: SessionId,
+        token: String,
+        download: crate::file::FileDownload,
+    ) {
+        lock(&self.incoming).push((from, session_id, token, download));
+    }
+    fn peer_offline(&self, peer: &DeviceId) {
+        lock(&self.offline).push(peer.clone());
+    }
+}
+
+#[test]
+fn file_messages_and_connection_reach_the_file_handler() {
+    use crate::file::FileFrame;
+    use baton_core::files::{Entry, EntryKind, OfferSummary};
+
+    let (mac_dev, win_dev) = (Device::new("mac"), Device::new("win"));
+    let (b, b_rx) = start(with_token(win_dev.config(local(), &[]), "token"));
+    let files = Arc::new(FileProbe::default());
+    b.set_file_handler(Arc::clone(&files) as Arc<dyn FileHandler>);
+    let (a, a_rx) = start(with_token(
+        mac_dev.config(local(), &[("win", b.local_addr())]),
+        "token",
+    ));
+    expect(&a_rx, "win 上线", is_online("win"));
+    expect(&b_rx, "mac 上线", is_online("mac"));
+    assert!(a.is_online(&DeviceId("win".into())));
+
+    let win = DeviceId("win".into());
+    let offer = Message::FileOffer {
+        session_id: 5,
+        summary: OfferSummary::default(),
+    };
+    a.send(&win, &offer).unwrap();
+    wait_for("file_offer", WAIT, || !lock(&files.messages).is_empty());
+    assert_eq!(lock(&files.messages)[0], (DeviceId("mac".into()), offer));
+
+    let entry = Entry {
+        path: vec!["a.txt".into()],
+        kind: EntryKind::File,
+        size: 3,
+    };
+    let upload = a.open_upload(&win, 5, "tok").unwrap();
+    for frame in [
+        FileFrame::Manifest(vec![entry.clone()]),
+        FileFrame::Begin(0),
+        FileFrame::Chunk(b"abc".to_vec()),
+        FileFrame::End {
+            sha256: Some("x".into()),
+        },
+        FileFrame::Done,
+    ] {
+        upload.send(frame).unwrap();
+    }
+    upload.finish().unwrap();
+    wait_for("文件连接", WAIT, || !lock(&files.incoming).is_empty());
+    let (from, id, token, mut download) = lock(&files.incoming).pop().unwrap();
+    assert_eq!((from.0.as_str(), id, token.as_str()), ("mac", 5, "tok"));
+    let mut got = Vec::new();
+    while let Some(frame) = download.recv() {
+        got.push(frame.unwrap());
+    }
+    assert_eq!(got[0], FileFrame::Manifest(vec![entry]));
+    assert_eq!(got.last(), Some(&FileFrame::Done));
+    assert_eq!(got.len(), 5);
+    none_within(&b_rx, Duration::from_millis(300), |e| {
+        matches!(
+            e,
+            Event::PeerOnline(_) | Event::PeerOffline(_) | Event::Message { .. }
+        )
+    });
+
+    drop(a);
+    wait_for("离线通知", WAIT, || !lock(&files.offline).is_empty());
+    assert_eq!(lock(&files.offline)[0].0, "mac");
+}
+
+#[test]
+fn unpaired_device_cannot_open_a_file_connection() {
+    let win_dev = Device::new("win");
+    let (b, _b_rx) = start(win_dev.config(local(), &[]));
+    let files = Arc::new(FileProbe::default());
+    b.set_file_handler(Arc::clone(&files) as Arc<dyn FileHandler>);
+    let (c, _c_rx) = start(Device::new("stranger").config(local(), &[]));
+    let upload = c.handle.block_on(file_conn::dial(
+        Arc::clone(&c.shared),
+        b.local_addr(),
+        win_dev.identity.fingerprint,
+        1,
+        "tok",
+    ));
+    if let Ok(upload) = upload {
+        let _ = upload.send(crate::file::FileFrame::Done);
+        let _ = upload.finish();
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(lock(&files.incoming).is_empty());
+}
+
+#[test]
+fn file_upload_to_offline_peer_fails() {
+    let (a, _rx) = start(Device::new("mac").config(local(), &[]));
+    assert!(a.open_upload(&DeviceId("win".into()), 1, "t").is_err());
+}

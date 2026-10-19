@@ -36,6 +36,8 @@ pub enum Event {
     PeerRemoved(DeviceId),
     /// 本机因网络原因从睡眠醒来（如 Wi-Fi 魔术包）。平台已过滤 `rtc` 等定时暗唤醒。
     NetworkWake,
+    /// 要给离线的对端发文件：只跑唤醒链，不进入交棒。
+    WakeFor(DeviceId),
     Message {
         from: DeviceId,
         message: Message,

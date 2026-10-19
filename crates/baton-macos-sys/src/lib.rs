@@ -40,6 +40,9 @@ pub struct RawScreenMode {
     pub refresh_hz: f64,
 }
 
+/// 对应 `deskbaton_send_cb`：`paths` 指向 `count` 个 UTF-8 路径，只在回调期间有效。
+pub type SendCallback = unsafe extern "C" fn(paths: *const *const c_char, count: u32);
+
 unsafe extern "C" {
     pub fn deskbaton_ddc_list(out: *mut RawDisplayInfo, capacity: u32) -> i32;
     pub fn deskbaton_ddc_write(
@@ -66,6 +69,8 @@ unsafe extern "C" {
 
     pub fn deskbaton_run_app_loop();
     pub fn deskbaton_notify(message: *const c_char) -> i32;
+    pub fn deskbaton_notify_reveal(message: *const c_char, path: *const c_char) -> i32;
+    pub fn deskbaton_register_send_service(cb: Option<SendCallback>) -> i32;
 
     pub fn deskbaton_login_item_status() -> i32;
     pub fn deskbaton_login_item_set(enabled: i32) -> i32;

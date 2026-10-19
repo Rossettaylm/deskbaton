@@ -38,7 +38,7 @@ struct PeerHello {
     token_ok: bool,
 }
 
-/// 完成握手并返回对端信息；双方都发出并收到 `pair_accept` 才返回 `Ok`。
+/// 完成握手并返回对端信息与它的监听端口；双方都发出并收到 `pair_accept` 才返回 `Ok`。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run<R, W>(
     shared: &Arc<Shared>,
@@ -49,7 +49,7 @@ pub(super) async fn run<R, W>(
     peer_fp: Fingerprint,
     addrs: (SocketAddr, SocketAddr),
     intent: Intent,
-) -> Result<PeerInfo>
+) -> Result<(PeerInfo, u16)>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -277,7 +277,7 @@ where
     if let Err(e) = shared.store.refresh(&peer_fp, &info, Some(listen_port)) {
         log::warn!("更新设备档案失败：{e}");
     }
-    Ok(info)
+    Ok((info, listen_port))
 }
 
 /// 面向用户的失败原因，去掉错误类别前缀。

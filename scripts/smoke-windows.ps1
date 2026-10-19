@@ -1,4 +1,4 @@
-# 安装包冒烟测试：静默安装 → 检查 Run 键 → 启动并确认是安装版 → 静默卸载 → 检查清理。
+# 安装包冒烟测试：静默安装 → 检查 Run 键与「发送到」快捷方式 → 启动并确认是安装版 → 静默卸载 → 检查清理。
 # 只在当前用户的桌面会话里有效；SSH 会话里托盘和 webview 起不来。
 param(
     [Parameter(Mandatory)][string]$Installer,
@@ -7,6 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\DeskBaton.lnk'
 $logPath = Join-Path $env:APPDATA 'DeskBaton\logs\deskbaton.log'
 
 function Fail([string]$msg) {
@@ -58,6 +59,11 @@ if (-not (WaitUntil { Test-Path $exe } 30)) {
 }
 $installDir = Split-Path $exe -Parent
 Write-Host "已安装：$exe"
+if (-not (Test-Path $sendTo)) { Fail "安装后缺少「发送到」快捷方式：$sendTo" }
+$lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($sendTo)
+if ($lnk.TargetPath -ne $exe -or $lnk.Arguments -ne '--send') {
+    Fail "「发送到」快捷方式不对：$($lnk.TargetPath) $($lnk.Arguments)"
+}
 
 if (Test-Path $logPath) { Remove-Item $logPath -Force }
 $proc = Start-Process -FilePath $exe -PassThru
@@ -78,5 +84,6 @@ if (-not (Test-Path $uninstaller)) { Fail "找不到卸载程序：$uninstaller"
 Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait | Out-Null
 if (-not (WaitUntil { -not (RunValue) } 30)) { Fail '卸载后 HKCU Run 键仍有 DeskBaton' }
 if (-not (WaitUntil { -not (Test-Path $exe) } 30)) { Fail "卸载后程序仍在：$exe" }
+if (Test-Path $sendTo) { Fail "卸载后「发送到」快捷方式仍在：$sendTo" }
 
 Write-Host '冒烟测试通过'

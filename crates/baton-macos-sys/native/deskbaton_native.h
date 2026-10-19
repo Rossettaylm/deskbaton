@@ -54,6 +54,13 @@ void deskbaton_run_app_loop(void);
 
 /* 弹出系统通知；message 为 UTF-8。 */
 int32_t deskbaton_notify(const char *message);
+/* 同上；用户点击通知时在访达中选中 path（UTF-8 文件路径）。 */
+int32_t deskbaton_notify_reveal(const char *message, const char *path);
+
+/* 服务菜单「用 DeskBaton 发送」：paths 为 count 个 UTF-8 文件路径，只在回调期间有效。 */
+typedef void (*deskbaton_send_cb)(const char *const *paths, uint32_t count);
+/* 在主线程登记服务提供者，对应 Info.plist 中 NSServices 的 NSMessage = sendFiles。 */
+int32_t deskbaton_register_send_service(deskbaton_send_cb cb);
 
 /* 安装版登录项与特权助手（SMAppService）。status：0 未登记，1 已启用，2 待用户允许。 */
 int32_t deskbaton_login_item_status(void);

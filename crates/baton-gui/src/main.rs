@@ -6,6 +6,7 @@ mod agent;
 mod bundle_config;
 mod commands;
 mod devices;
+mod files;
 mod notify;
 mod placement;
 mod prefs;
@@ -143,8 +144,16 @@ fn init_logger() {
 fn main() -> ExitCode {
     init_logger();
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            match files::send_args(&argv) {
+                Some(paths) => files::request_send(app, paths),
+                None => show_panel(app),
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .manage(commands::Panel::load())
+        .manage(files::FilesUi::default())
         .manage(LastHidden::default())
         .manage(PendingOpen::default())
         .manage(TrayRect::default())
@@ -173,6 +182,19 @@ fn main() -> ExitCode {
             update::update_status,
             update::check_update,
             update::install_update,
+            files::file_sessions,
+            files::pick_and_send,
+            files::accept_file,
+            files::reject_file,
+            files::cancel_file,
+            files::dismiss_file,
+            files::mark_files_seen,
+            files::reveal_path,
+            files::pending_send,
+            files::send_pending,
+            files::discard_pending,
+            files::set_file_auto_accept,
+            files::set_receive_dir,
         ])
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -196,6 +218,12 @@ fn main() -> ExitCode {
             }
             app.manage(update::UpdateSlot::new(install));
             app.manage(AgentSlot::start(app.handle()));
+            #[cfg(target_os = "macos")]
+            files::register_service(app.handle());
+            let argv: Vec<String> = std::env::args().collect();
+            if let Some(paths) = files::send_args(&argv) {
+                files::request_send(app.handle(), paths);
+            }
             let updater = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 crate::update::auto_check(updater).await;
@@ -207,7 +235,13 @@ fn main() -> ExitCode {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if window.label() == PANEL && matches!(event, WindowEvent::Focused(false)) {
+            if window.label() == PANEL
+                && matches!(event, WindowEvent::Focused(false))
+                && !window
+                    .state::<files::FilesUi>()
+                    .picking
+                    .load(std::sync::atomic::Ordering::SeqCst)
+            {
                 hide_panel(window.app_handle());
             }
         })

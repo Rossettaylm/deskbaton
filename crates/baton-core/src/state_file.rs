@@ -36,6 +36,12 @@ pub struct LocalState {
     /// 面板已经成功种过一次登录项；之后不再擅自打开开机自启。
     #[serde(default)]
     pub autostart_seeded: bool,
+    /// 来自已配对设备的文件直接接收；关闭时请求挂起，等用户处理。
+    #[serde(default = "default_file_auto_accept")]
+    pub file_auto_accept: bool,
+    /// 接收位置；空表示系统「下载」文件夹。
+    #[serde(default)]
+    pub file_receive_dir: Option<String>,
 }
 
 impl Default for LocalState {
@@ -49,11 +55,17 @@ impl Default for LocalState {
             clipboard_tab: default_clipboard_tab(),
             clipboard_outbox_limit: default_clipboard_outbox_limit(),
             autostart_seeded: false,
+            file_auto_accept: default_file_auto_accept(),
+            file_receive_dir: None,
         }
     }
 }
 
 fn default_notify() -> bool {
+    true
+}
+
+fn default_file_auto_accept() -> bool {
     true
 }
 
@@ -172,6 +184,8 @@ mod tests {
         assert!(state.clipboard_tab);
         assert_eq!(state.clipboard_outbox_limit, 10);
         assert!(!state.autostart_seeded);
+        assert!(state.file_auto_accept);
+        assert_eq!(state.file_receive_dir, None);
     }
 
     #[test]
@@ -237,6 +251,8 @@ mod tests {
             clipboard_tab: false,
             clipboard_outbox_limit: 3,
             autostart_seeded: true,
+            file_auto_accept: false,
+            file_receive_dir: Some("/tmp/inbox".into()),
         }
         .save(&path)
         .unwrap();
@@ -252,5 +268,7 @@ mod tests {
         assert!(!loaded.clipboard_tab);
         assert_eq!(loaded.clipboard_outbox_limit, 3);
         assert!(loaded.autostart_seeded);
+        assert!(!loaded.file_auto_accept);
+        assert_eq!(loaded.file_receive_dir.as_deref(), Some("/tmp/inbox"));
     }
 }

@@ -10,4 +10,6 @@ impl ChannelId {
     pub const CONTROL: Self = Self(0);
     /// 剪贴板随身数据。
     pub const CLIPBOARD: Self = Self(1);
+    /// 文件快传，只出现在文件连接上。
+    pub const FILE: Self = Self(2);
 }

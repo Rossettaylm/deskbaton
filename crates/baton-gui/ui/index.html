@@ -19,12 +19,15 @@
       <button class="more" id="more" aria-label="更多" aria-haspopup="menu">⋯</button>
       <div class="menu" id="menu" role="menu" hidden></div>
     </header>
+    <div class="menu ctx" id="ctx-menu" role="menu" hidden></div>
 
     <nav class="tabs" id="tabs" role="tablist" aria-label="面板分页">
       <button type="button" role="tab" id="tab-handoff" aria-controls="pane-handoff" aria-selected="true" data-tab="handoff">显示器</button>
       <button type="button" role="tab" id="tab-devices" aria-controls="pane-devices" aria-selected="false" data-tab="devices">设备</button>
       <button type="button" role="tab" id="tab-local" aria-controls="pane-local" aria-selected="false" data-tab="local">设置</button>
     </nav>
+
+    <section class="transfers" id="transfers" aria-live="polite" hidden></section>
 
     <div class="panes">
       <div class="pane" id="pane-handoff" role="tabpanel" aria-labelledby="tab-handoff" data-pane="handoff">
@@ -75,6 +78,17 @@
             <span>剪贴板</span>
             <input id="pref-clipboard" type="checkbox">
           </label>
+          <label class="pref">
+            <span>自动接收文件</span>
+            <input id="pref-auto-accept" type="checkbox">
+          </label>
+          <div class="pref">
+            <span>接收位置</span>
+            <span class="pref-actions">
+              <button type="button" class="btn ghost" id="pref-receive-reset" hidden>默认</button>
+              <button type="button" class="btn path" id="pref-receive-dir">下载</button>
+            </span>
+          </div>
           <div class="pref" id="pref-update-row" hidden>
             <span>版本</span>
             <button type="button" class="btn" id="pref-update">检查更新</button>

@@ -1,16 +1,19 @@
 //! 面板进程内的 agent：热键、长连接与配对都在这里启动，退出时等协调器结束再退出进程。
 
 use std::cell::RefCell;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use baton_agent::{Agent, Options, data_dir_of, hotkey, load_config};
-use baton_core::config::default_config_path;
+use baton_core::config::{DisplayMode, default_config_path};
 use baton_core::event::Event;
 use baton_core::ids::{DeviceId, InputCode};
 use baton_core::ports::Notifier;
+use baton_core::state::AgentState;
 use baton_core::state_file::LocalState;
 use baton_core::{Error, Result};
+use baton_files::{FileObserver, FileService};
 use baton_net::{LinkObserver, TcpPeerLink};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -26,6 +29,10 @@ pub struct AgentSlot {
     agent: Mutex<Option<Agent>>,
     /// 与 `agent` 分开持有：链路回调观察者时不能再去拿 `agent` 的锁。
     pub link: Option<Arc<TcpPeerLink>>,
+    /// 同上，文件会话的回调也不能拿 `agent` 的锁。
+    pub files: Option<Arc<FileService>>,
+    /// `display.mode = "none"`：本机有自己的显示器，始终可见。
+    own_display: bool,
     pub name: Option<String>,
     pub hotkey: Option<String>,
     /// agent 启动失败的原因；面板照常可用。
@@ -42,6 +49,8 @@ impl AgentSlot {
         match try_start(app, &exiting, Arc::clone(&notify)) {
             Ok(agent) => Self {
                 link: Some(Arc::clone(agent.link())),
+                files: Some(Arc::clone(agent.files())),
+                own_display: agent.display_mode() == DisplayMode::None,
                 name: Some(agent.me().0.clone()),
                 hotkey: Some(agent.hotkey().to_owned()),
                 agent: Mutex::new(Some(agent)),
@@ -54,6 +63,8 @@ impl AgentSlot {
                 Self {
                     agent: Mutex::new(None),
                     link: None,
+                    files: None,
+                    own_display: false,
                     name: None,
                     hotkey: None,
                     error: Some(format!("未能启动：{e}")),
@@ -82,6 +93,15 @@ impl AgentSlot {
 
     pub(crate) fn notify(&self) -> bool {
         self.notify.load(Ordering::SeqCst)
+    }
+
+    /// 本机此刻在显示：持棒，或有自己的显示器。不拿 `agent` 的锁。
+    pub(crate) fn visible(&self) -> bool {
+        self.own_display
+            || self
+                .link
+                .as_ref()
+                .is_some_and(|l| l.local_state() == AgentState::Holding)
     }
 
     pub(crate) fn set_notify(&self, on: bool) {
@@ -177,11 +197,16 @@ fn try_start(app: &AppHandle, exiting: &Arc<AtomicBool>, notify: Arc<AtomicBool>
         data_dir: data_dir_of(&path),
         notifier: Box::new(PanelNotifier {
             app: app.clone(),
-            os: notify,
+            os: Arc::clone(&notify),
         }),
         observer: Some(Arc::new(PanelObserver {
             app: app.clone(),
             shown_session: AtomicU64::new(0),
+            was_visible: AtomicBool::new(false),
+        })),
+        file_observer: Some(Arc::new(PanelFiles {
+            app: app.clone(),
+            os: notify,
         })),
         on_stopped,
     })?;
@@ -218,6 +243,8 @@ struct PanelObserver {
     app: AppHandle,
     /// 已为之弹出过面板的最新配对会话；会话编号递增。
     shown_session: AtomicU64,
+    /// 上次通知时本机是否可见，用来认出「刚接棒」。
+    was_visible: AtomicBool,
 }
 
 impl LinkObserver for PanelObserver {
@@ -226,6 +253,11 @@ impl LinkObserver for PanelObserver {
         let Some(slot) = self.app.try_state::<AgentSlot>() else {
             return;
         };
+        let visible = slot.visible();
+        let was_visible = self.was_visible.swap(visible, Ordering::SeqCst);
+        if visible && !was_visible && slot.files.as_ref().is_some_and(|f| f.needs_attention()) {
+            focus_files(&self.app);
+        }
         let newest = slot.link.as_ref().and_then(|link| {
             link.snapshot()
                 .sessions
@@ -244,5 +276,52 @@ impl LinkObserver for PanelObserver {
 
     fn notice(&self, message: &str) {
         notice(&self.app, message);
+    }
+}
+
+/// 弹出面板并定位到文件卡片。
+pub(crate) fn focus_files(app: &AppHandle) {
+    let _ = app.emit_to(PANEL, "files-focus", ());
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || show_panel(&handle));
+}
+
+struct PanelFiles {
+    app: AppHandle,
+    os: Arc<AtomicBool>,
+}
+
+impl PanelFiles {
+    fn visible(&self) -> bool {
+        self.app
+            .try_state::<AgentSlot>()
+            .is_some_and(|slot| slot.visible())
+    }
+}
+
+impl FileObserver for PanelFiles {
+    fn changed(&self) {
+        let _ = self.app.emit_to(PANEL, "files-changed", ());
+    }
+
+    /// 本机可见时立刻弹出；不可见时只通知，等接棒再弹。
+    fn offered(&self, from: &DeviceId) {
+        if self.visible() {
+            focus_files(&self.app);
+        } else if self.os.load(Ordering::SeqCst) {
+            notify::show(&format!("{} 想发给你一些文件，切过去后处理", from.0));
+        }
+    }
+
+    fn received(&self, from: &DeviceId, files: u32, location: Option<&Path>) {
+        let message = format!("已收到来自 {} 的 {files} 个文件", from.0);
+        log::info!("{message}");
+        if self.os.load(Ordering::SeqCst) {
+            match location {
+                Some(path) => notify::show_reveal(&message, path),
+                None => notify::show(&message),
+            }
+        }
+        let _ = self.app.emit_to(PANEL, "files-changed", ());
     }
 }

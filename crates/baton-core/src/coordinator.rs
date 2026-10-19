@@ -213,6 +213,7 @@ impl Coordinator {
                 self.known.remove(&peer);
             }
             Event::NetworkWake => self.on_network_wake(),
+            Event::WakeFor(target) => self.on_wake_for(&target),
             Event::Message { from, message } => self.on_message(from, message, now),
             Event::Data {
                 from,
@@ -471,7 +472,25 @@ impl Coordinator {
             | Message::PairPending
             | Message::PairAccept
             | Message::Heartbeat { .. }
-            | Message::InputCode { .. } => {}
+            | Message::InputCode { .. }
+            | Message::FileOffer { .. }
+            | Message::FileAccept { .. }
+            | Message::FileReject { .. }
+            | Message::FileCancel { .. }
+            | Message::FileResult { .. }
+            | Message::FileHello { .. } => {}
+        }
+    }
+
+    /// 文件快传要发给离线的对端：只发唤醒信号，等它上线由文件会话负责。
+    fn on_wake_for(&mut self, target: &DeviceId) {
+        if self.online.contains(target) {
+            return;
+        }
+        match self.wake_peer(target) {
+            Ok(WakeOutcome::Sent) => log::info!("已为发送文件唤醒 {}", target.0),
+            Ok(WakeOutcome::NeedsUser(message)) => self.notify(&message),
+            Err(e) => self.notify(&format!("{} 不在线，且无法唤醒：{e}", target.0)),
         }
     }
 

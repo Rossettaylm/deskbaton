@@ -1,0 +1,28 @@
+[package]
+name = "baton-files"
+description = "DeskBaton 文件快传：收发线程、磁盘读写、接收位置与剩余空间"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+baton-core.workspace = true
+baton-net.workspace = true
+log.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+dirs.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_Storage_FileSystem"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

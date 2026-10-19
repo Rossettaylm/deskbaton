@@ -62,6 +62,32 @@ mod tests {
     }
 
     #[test]
+    fn nsis_hooks_add_and_remove_send_to_shortcut() {
+        let hooks = include_str!("../windows/hooks.nsh");
+        let lnk = "$APPDATA\\Microsoft\\Windows\\SendTo\\DeskBaton.lnk";
+        let (install, uninstall) = hooks.split_once("NSIS_HOOK_PREUNINSTALL").unwrap();
+        assert!(install.contains(&format!("CreateShortCut \"{lnk}\"")));
+        assert!(
+            install.contains(&format!("\"{}\"", crate::files::SEND_FLAG)),
+            "「发送到」把选中的路径追加在 --send 之后"
+        );
+        assert!(uninstall.contains(&format!("Delete \"{lnk}\"")));
+    }
+
+    #[test]
+    fn macos_info_plist_declares_send_service() {
+        let plist = include_str!("../Info.plist");
+        assert!(plist.contains("<key>NSServices</key>"));
+        assert!(
+            plist.contains("<string>sendFiles</string>"),
+            "NSMessage 须与 send_service.m 的选择器 sendFiles:userData:error: 一致"
+        );
+        assert!(plist.contains("public.item"));
+        let native = include_str!("../../baton-macos-sys/native/send_service.m");
+        assert!(native.contains("- (void)sendFiles:(NSPasteboard *)pboard"));
+    }
+
+    #[test]
     fn pack_workflow_builds_named_installers() {
         let yml = include_str!("../../../.github/workflows/pack.yml");
         assert!(yml.contains("workflow_dispatch"));
@@ -207,5 +233,7 @@ mod tests {
         assert_eq!(pref_container_tag(html, "pref-autostart"), "label");
         assert_eq!(pref_container_tag(html, "pref-notify"), "label");
         assert_eq!(pref_container_tag(html, "pref-clipboard"), "label");
+        assert_eq!(pref_container_tag(html, "pref-auto-accept"), "label");
+        assert_eq!(pref_container_tag(html, "pref-receive-dir"), "div");
     }
 }

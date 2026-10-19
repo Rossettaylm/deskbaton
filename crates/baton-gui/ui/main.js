@@ -25,6 +25,13 @@
  * @typedef {{ name: string, fingerprint: string | null, address: string }} Candidate
  * @typedef {{ me: string, fingerprint: string, paired: { peer: PairedPeer, online: boolean, holding: boolean }[],
  *             sessions: PairingSession[], candidates: Candidate[] }} Devices
+ * @typedef {{ files: number, dirs: number, total_bytes: number, names: string[] }} OfferSummary
+ * @typedef {{ id: number, peer: string, direction: "send" | "receive",
+ *             phase: "waking" | "offered" | "pending" | "transferring" | "done" | "failed" | "rejected" | "canceled",
+ *             received?: number, failed?: number, reason?: string, by_peer?: boolean,
+ *             summary: OfferSummary, done_bytes: number, location: string | null, seen: boolean }} FileSession
+ * @typedef {{ name: string, platform: Platform | null, online: boolean }} SendTarget
+ * @typedef {{ count: number, names: string[], targets: SendTarget[] }} PendingSend
  */
 
 const tauri = /** @type {any} */ (window).__TAURI__;
@@ -95,6 +102,10 @@ const state = {
   tab: "handoff",
   /** @type {Set<number>} 已经提示过的配对请求，避免用户切回交棒后又被拽走 */
   seenPairing: new Set(),
+  /** @type {FileSession[]} */
+  files: [],
+  /** @type {PendingSend | null} 从系统菜单发起、等用户选目标的发送 */
+  pick: null,
 };
 
 /** @param {string} id */
@@ -242,7 +253,7 @@ function applyTab() {
     tab.tabIndex = selected ? 0 : -1;
     $(`pane-${id}`).hidden = !selected;
   }
-  $("tab-devices").classList.toggle("mark", awaitingPair());
+  $("tab-devices").classList.toggle("mark", awaitingPair() || awaitingFile());
 }
 
 function render() {
@@ -251,6 +262,7 @@ function render() {
   renderHead(d);
   renderScreen(d);
   renderPorts(d);
+  renderTransfers();
   renderDevices();
   renderFoot(d);
   renderMenu();
@@ -399,7 +411,7 @@ async function onUpdateClick() {
 
 /**
  * @typedef {{ name: string, hostname: string, hotkey: string, notify: boolean, clipboard_sync: boolean,
- *             autostart: boolean }} PrefsView
+ *             autostart: boolean, files: { auto_accept: boolean, dir: string, custom: boolean } }} PrefsView
  */
 
 let recordingHotkey = false;
@@ -425,6 +437,8 @@ async function refreshPrefs() {
     autostart.checked = prefs.autostart;
     notify.checked = prefs.notify;
     clipboard.checked = prefs.clipboard_sync;
+    /** @type {HTMLInputElement} */ ($("pref-auto-accept")).checked = prefs.files.auto_accept;
+    showReceiveDir(prefs.files.dir, prefs.files.custom);
   } catch (e) {
     state.notice = { tone: "err", text: String(e) };
     render();
@@ -462,6 +476,37 @@ async function saveClipboard() {
     state.notice = { tone: "err", text: String(e) };
     render();
     refreshPrefs();
+  }
+}
+
+/** @param {string} dir @param {boolean} custom */
+function showReceiveDir(dir, custom) {
+  const btn = $("pref-receive-dir");
+  btn.textContent = dir ? dir.split(/[\\/]/).filter(Boolean).pop() ?? dir : "下载";
+  btn.title = dir;
+  $("pref-receive-reset").hidden = !custom;
+}
+
+async function saveAutoAccept() {
+  const on = /** @type {HTMLInputElement} */ ($("pref-auto-accept")).checked;
+  try {
+    await invoke("set_file_auto_accept", { on });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+    refreshPrefs();
+  }
+}
+
+/** @param {boolean} reset */
+async function changeReceiveDir(reset) {
+  try {
+    /** @type {string | null} */
+    const dir = await invoke("set_receive_dir", { reset });
+    if (dir != null) showReceiveDir(dir, !reset);
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
   }
 }
 
@@ -627,6 +672,298 @@ async function unpair(peer) {
   scheduleDevices();
 }
 
+/* ---------- 文件快传 ---------- */
+
+/** 发送方的结果卡片停留多久后自动收起。 */
+const SEND_RESULT_TTL_MS = 5000;
+const REVEAL_LABEL = navigator.userAgent.includes("Windows") ? "在资源管理器中显示" : "在访达中显示";
+
+function awaitingFile() {
+  return state.files.some((s) => s.direction === "receive" && s.phase === "pending");
+}
+
+/** @param {number} n */
+function fmtBytes(n) {
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let v = n;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${i === 0 ? v : v.toFixed(v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+/** @param {OfferSummary} s */
+function summaryText(s) {
+  const parts = [`${s.files} 个文件`];
+  if (s.dirs > 0) parts.push(`${s.dirs} 个文件夹`);
+  parts.push(fmtBytes(s.total_bytes));
+  return parts.join(" · ");
+}
+
+/** @type {Record<string, string>} */
+const REJECT_TEXT = {
+  declined: "对方拒绝了接收",
+  no_space: "对方磁盘空间不足",
+  unavailable: "对方没有打开面板，无法确认接收",
+  error: "对方无法接收",
+};
+
+/** @type {Map<string, number>} */
+const dismissTimers = new Map();
+
+/** @param {FileSession} s */
+const sessionKey = (s) => `${s.peer}/${s.id}`;
+
+async function refreshFiles() {
+  try {
+    state.files = await invoke("file_sessions");
+  } catch {
+    state.files = [];
+  }
+  for (const s of state.files) {
+    const key = sessionKey(s);
+    const transient = s.direction === "send" && (s.phase === "done" || s.phase === "canceled");
+    if (transient && !dismissTimers.has(key)) {
+      dismissTimers.set(
+        key,
+        setTimeout(() => {
+          dismissTimers.delete(key);
+          dismissFile(s);
+        }, SEND_RESULT_TTL_MS),
+      );
+    }
+  }
+  render();
+  if (document.hasFocus()) markFilesSeen();
+}
+
+let filesTimer = 0;
+function scheduleFiles() {
+  clearTimeout(filesTimer);
+  filesTimer = setTimeout(refreshFiles, 60);
+}
+
+function markFilesSeen() {
+  const unseen = state.files.some((s) => s.direction === "receive" && s.phase === "done" && !s.seen);
+  if (unseen) invoke("mark_files_seen").catch(() => {});
+}
+
+async function refreshPick() {
+  try {
+    state.pick = await invoke("pending_send");
+  } catch {
+    state.pick = null;
+  }
+  render();
+}
+
+/** @param {string} cmd @param {FileSession} s */
+async function fileAction(cmd, s) {
+  try {
+    await invoke(cmd, { peer: s.peer, id: s.id });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+  }
+  scheduleFiles();
+}
+
+/** @param {FileSession} s */
+const dismissFile = (s) => fileAction("dismiss_file", s);
+
+/** @param {string} peer */
+async function switchToPeer(peer) {
+  try {
+    await invoke("handoff_to", { peer });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+}
+
+/** @param {number} done @param {number} total */
+function progressBar(done, total) {
+  const pct = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 100;
+  const bar = h("div", { class: "bar" }, h("i", {}));
+  /** @type {HTMLElement} */ (bar.firstChild).style.width = `${pct}%`;
+  return { bar, pct };
+}
+
+/** @param {FileSession} s */
+function transferCard(s) {
+  const send = s.direction === "send";
+  const btn = (/** @type {string} */ label, /** @type {() => void} */ onclick, primary = false) =>
+    h("button", { class: primary ? "btn primary" : "btn", onclick }, label);
+  const close = h("button", { class: "btn ghost", title: "收起", onclick: () => dismissFile(s) }, "×");
+  const cancel = btn("取消", () => fileAction("cancel_file", s));
+  let head;
+  let sub = summaryText(s.summary);
+  /** @type {(Node | null)[]} */
+  let actions = [];
+  /** @type {HTMLElement | null} */
+  let bar = null;
+  let tone = "";
+  switch (s.phase) {
+    case "waking":
+      head = `正在唤醒 ${s.peer}…`;
+      actions = [cancel];
+      break;
+    case "offered":
+      head = `等待 ${s.peer} 接收`;
+      actions = [btn("切过去", () => switchToPeer(s.peer)), cancel];
+      break;
+    case "pending":
+      head = `${s.peer} 想发给你`;
+      if (s.summary.names.length > 0) sub = `${s.summary.names.join("、")} · ${sub}`;
+      actions = [btn("拒绝", () => fileAction("reject_file", s)), btn("接收", () => fileAction("accept_file", s), true)];
+      break;
+    case "transferring": {
+      const p = progressBar(s.done_bytes, s.summary.total_bytes);
+      bar = p.bar;
+      head = send ? `正在发给 ${s.peer}` : `正在接收 ${s.peer} 的文件`;
+      sub = `${p.pct}% · ${fmtBytes(s.done_bytes)} / ${fmtBytes(s.summary.total_bytes)}`;
+      actions = [cancel];
+      break;
+    }
+    case "done": {
+      const received = s.received ?? 0;
+      const failed = s.failed ?? 0;
+      tone = failed > 0 ? "err" : "ok";
+      if (send) {
+        head = `已送达 ${s.peer}`;
+        sub = failed > 0 ? `${received} / ${received + failed} 个文件，其余失败` : `${received} 个文件`;
+        actions = [close];
+      } else {
+        head = `已收到 ${s.peer} 的 ${received} 个文件`;
+        sub = failed > 0 ? `${failed} 个未能收下` : summaryText(s.summary);
+        const location = s.location;
+        actions = [location ? btn(REVEAL_LABEL, () => invoke("reveal_path", { path: location })) : null, close];
+      }
+      break;
+    }
+    case "failed":
+      tone = "err";
+      head = send ? `未能发给 ${s.peer}` : `未能接收 ${s.peer} 的文件`;
+      sub = s.reason ?? "";
+      actions = [close];
+      break;
+    case "rejected":
+      tone = "err";
+      head = send ? `${s.peer} 未接收` : "已拒绝";
+      sub = send ? REJECT_TEXT[s.reason ?? "error"] ?? REJECT_TEXT.error : `来自 ${s.peer}`;
+      if (!send && s.reason === "no_space") sub = "磁盘空间不足，未接收";
+      actions = [close];
+      break;
+    case "canceled":
+      head = s.by_peer ? (send ? `${s.peer} 取消了接收` : `${s.peer} 取消了发送`) : "已取消";
+      actions = [close];
+      break;
+  }
+  return h(
+    "div",
+    { class: ["pair-request", "transfer", tone].filter(Boolean).join(" ") },
+    h("div", { class: "pair-head" }, h("span", {}, send ? "发送" : "接收"), h("b", {}, head)),
+    bar,
+    h("div", { class: "pair-foot" }, h("small", { title: sub }, sub), ...actions),
+  );
+}
+
+function pickCard() {
+  const pick = state.pick;
+  if (!pick) return null;
+  const names = pick.names.join("、") + (pick.count > pick.names.length ? ` 等 ${pick.count} 项` : "");
+  const targets = pick.targets.map((t, i) =>
+    h(
+      "button",
+      {
+        class: i === 0 ? "btn primary" : "btn",
+        title: t.online ? "在线" : "离线，将先唤醒",
+        onclick: async () => {
+          state.pick = null;
+          render();
+          await invoke("send_pending", { peer: t.name }).catch((e) => {
+            state.notice = { tone: "err", text: String(e) };
+          });
+          scheduleFiles();
+        },
+      },
+      t.name,
+    ),
+  );
+  return h(
+    "div",
+    { class: "pair-request transfer" },
+    h("div", { class: "pair-head" }, h("span", {}, "发送到"), h("b", {}, names)),
+    h(
+      "div",
+      { class: "pair-foot targets" },
+      ...targets,
+      h(
+        "button",
+        {
+          class: "btn ghost",
+          onclick: () => {
+            state.pick = null;
+            invoke("discard_pending").catch(() => {});
+            render();
+          },
+        },
+        "取消",
+      ),
+    ),
+  );
+}
+
+function renderTransfers() {
+  const box = $("transfers");
+  const cards = [pickCard(), ...state.files.map(transferCard)].filter(Boolean);
+  box.replaceChildren(.../** @type {Node[]} */ (cards));
+  box.hidden = cards.length === 0;
+}
+
+/** @type {string | null} 右键菜单对应的设备 */
+let ctxPeer = null;
+
+/** @param {MouseEvent} e @param {string} peer */
+function openSendMenu(e, peer) {
+  e.preventDefault();
+  e.stopPropagation();
+  closeMenu();
+  ctxPeer = peer;
+  const menu = $("ctx-menu");
+  menu.replaceChildren(
+    h("div", { class: "menu-label" }, `发送到 ${peer}`),
+    h("button", { role: "menuitem", onclick: () => pickAndSend(false) }, h("span", { class: "check" }), "发送文件…"),
+    h("button", { role: "menuitem", onclick: () => pickAndSend(true) }, h("span", { class: "check" }), "发送文件夹…"),
+  );
+  menu.hidden = false;
+  const panel = $("panel").getBoundingClientRect();
+  const rect = menu.getBoundingClientRect();
+  const x = Math.min(e.clientX - panel.left, panel.width - rect.width - 8);
+  const y = Math.min(e.clientY - panel.top, panel.height - rect.height - 8);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+}
+
+function closeSendMenu() {
+  $("ctx-menu").hidden = true;
+}
+
+/** @param {boolean} folder */
+async function pickAndSend(folder) {
+  closeSendMenu();
+  const peer = ctxPeer;
+  if (!peer) return;
+  try {
+    await invoke("pick_and_send", { peer, folder });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    render();
+  }
+  scheduleFiles();
+}
+
 function renderDevices() {
   const box = $("pairing");
   const list = $("device-list");
@@ -662,7 +999,11 @@ function renderDevices() {
     list.append(
       h(
         "div",
-        { class: "device" + (online ? " online" : "") },
+        {
+          class: "device" + (online ? " online" : ""),
+          title: "右键发送文件",
+          oncontextmenu: (/** @type {MouseEvent} */ e) => openSendMenu(e, peer.name),
+        },
         h("i", { class: "dot" }),
         h("div", { class: "who" }, h("b", {}, peer.name), h("small", {}, sub)),
         h("span", { class: "state" }, online ? "在线" : "离线"),
@@ -799,8 +1140,9 @@ function renderComputers(box, computers) {
       {
         class: ["port", "computer", c.active ? "on" : "", pending ? "pending" : ""].join(" "),
         disabled: state.handingTo != null,
-        title: [c.name, platform, c.port ?? "接口未识别"].filter(Boolean).join(" · "),
+        title: [c.name, platform, c.port ?? "接口未识别", c.local ? null : "右键发送文件"].filter(Boolean).join(" · "),
         onclick: () => handOffTo(c),
+        oncontextmenu: (/** @type {MouseEvent} */ e) => (c.local ? e.preventDefault() : openSendMenu(e, c.name)),
       },
       h("i", { class: "led" }),
     );
@@ -952,7 +1294,10 @@ $("more").addEventListener("click", (e) => {
 
 document.addEventListener("click", (e) => {
   if (!$("menu").hidden && !$("menu").contains(/** @type {Node} */ (e.target))) closeMenu();
+  if (!$("ctx-menu").hidden && !$("ctx-menu").contains(/** @type {Node} */ (e.target))) closeSendMenu();
 });
+
+document.addEventListener("contextmenu", closeSendMenu);
 
 document.addEventListener("keydown", (e) => {
   if (recordingHotkey) {
@@ -968,6 +1313,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     closeMenu();
+    closeSendMenu();
   }
 });
 
@@ -982,28 +1328,48 @@ $("pref-hotkey").addEventListener("click", startHotkeyRecord);
 $("pref-notify").addEventListener("change", saveNotify);
 $("pref-clipboard").addEventListener("change", saveClipboard);
 $("pref-autostart").addEventListener("change", saveAutostart);
+$("pref-auto-accept").addEventListener("change", saveAutoAccept);
+$("pref-receive-dir").addEventListener("click", () => changeReceiveDir(false));
+$("pref-receive-reset").addEventListener("click", () => changeReceiveDir(true));
 $("pref-update").addEventListener("click", onUpdateClick);
 window.addEventListener("blur", () => {
   if (recordingHotkey) cancelHotkeyRecord();
+  closeSendMenu();
 });
+window.addEventListener("focus", markFilesSeen);
 
 tauri.event.listen("panel-will-show", () => {
   closeMenu();
+  closeSendMenu();
   requestFit();
   if (state.pending == null) refresh();
   refreshDevices();
   refreshPrefs();
+  refreshFiles();
+  refreshPick();
 });
 
 tauri.event.listen("panel-shown", () => {
   closeMenu();
+  closeSendMenu();
   reveal();
   if (!document.documentElement.classList.contains("platform-windows")) {
     if (state.pending == null) refresh();
     refreshDevices();
     refreshPrefs();
+    refreshFiles();
+    refreshPick();
   }
 });
+
+tauri.event.listen("files-changed", scheduleFiles);
+
+tauri.event.listen("files-focus", () => {
+  refreshFiles();
+  refreshPick();
+});
+
+tauri.event.listen("send-pick", refreshPick);
 
 let displaysTimer = 0;
 // 合并短时间内的多次变化，少读 DDC；正在读取或切换时顺延，不丢掉这次变化。
@@ -1056,4 +1422,6 @@ invoke("app_version")
 refresh();
 refreshDevices();
 refreshPrefs();
+refreshFiles();
+refreshPick();
 refreshUpdate().then(() => render());

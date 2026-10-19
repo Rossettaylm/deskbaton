@@ -1,4 +1,4 @@
-//! 面板「设置」：名称、热键、开机自启、通知、剪贴板。只写 `state.toml`。
+//! 面板「设置」：名称、热键、开机自启、通知、剪贴板、文件接收。只写 `state.toml`。
 
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -23,6 +23,7 @@ pub struct PrefsView {
     pub notify: bool,
     pub clipboard_sync: bool,
     pub autostart: bool,
+    pub files: crate::files::ReceivePrefs,
 }
 
 fn state_path() -> Result<PathBuf> {
@@ -85,6 +86,7 @@ fn read_prefs(slot: &AgentSlot) -> Result<PrefsView> {
             .with_agent(Agent::clipboard_sync)
             .unwrap_or(local.clipboard_sync),
         autostart: startup::is_enabled().unwrap_or(false),
+        files: crate::files::receive_prefs(slot),
     })
 }
 

@@ -105,10 +105,20 @@
   - [ ] 🔧 Windows：面板对准托盘图标、任务栏上方，打开无 480 高闪帧
   - [ ] 🔧 切分页高度不变，内容超出则滚动
 
+## 文件快传（[设计](docs/superpowers/specs/2026-10-19-file-transfer-design.md)），按顺序推进
+
+- [x] 设计文档与 LocalSend 协议调研（[记录](docs/research/2026-10-19-localsend-protocol.md)）
+- [x] 核心：`files` 会话状态机、请求摘要、路径清洗（全角替换、保留名、结尾空格和点）、顶层同名改名、空间判定；`file_*` 消息、协议 v6；`Event::WakeFor`；`state.toml` 的 `file_auto_accept` / `file_receive_dir`
+- [x] 链路：文件连接（`file_hello`、一次性令牌、已配对校验、不登记为对端连接）、通道 2 帧、流式收发与逐文件 SHA-256；`file_*` 消息分流到文件会话
+- [x] `baton-files` + agent 组装：`.part` 与改名、系统「下载」文件夹、剩余空间、传输期 `AwakeGuard`、离线先唤醒等 30 秒、长连接断开即结束；回环测试
+- [x] 面板：两处右键菜单与选择框（暂停失焦收起）、发送 / 接收卡片与进度、按本机是否可见弹出、接棒时提示刚收到、设置项、多设备选择器；收完的系统通知点击后定位文件
+- [x] Windows「发送到」快捷方式（NSIS 装卸，冒烟测试检查装卸）+ `tauri-plugin-single-instance` 转发 `--send`
+- [x] macOS 服务菜单：`Info.plist` 的 `NSServices` + `baton-macos-sys/native/send_service.m` 提供者 + FFI 回调
+- [ ] 🔧 文件快传设计验收清单第 1–6 项
+
 ## P3 · M3 扩展（另立设计文档）
 
 - [ ] HID 唤醒配件（Wi-Fi 魔术包不可用时的备选）
-- [ ] 文件快传
 - [ ] 软件键鼠模式、不切屏模式、多机器、Linux
 
 ## 待定

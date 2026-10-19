@@ -60,6 +60,7 @@ fn run(args: Args) -> Result<()> {
         data_dir: data_dir_of(&path),
         notifier: Box::new(ConsoleNotifier),
         observer: None,
+        file_observer: None,
         on_stopped: Box::new(|| std::process::exit(0)),
     })?;
 

@@ -16,6 +16,8 @@ pub enum Error {
     Config(String),
     #[error("剪贴板失败：{0}")]
     Clipboard(String),
+    #[error("文件传输失败：{0}")]
+    File(String),
     #[error("切换超时")]
     Timeout,
 }

@@ -10,6 +10,7 @@ fn main() {
         .file("native/screen.m")
         .file("native/notify.m")
         .file("native/service.m")
+        .file("native/send_service.m")
         .flag("-fobjc-arc")
         .flag("-Wno-deprecated-declarations")
         .compile("deskbaton_native");

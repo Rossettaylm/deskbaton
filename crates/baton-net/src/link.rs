@@ -1,16 +1,18 @@
 //! TCP + TLS 链路：每对 agent 一条连接，控制帧优先；握手、配对、心跳与离线判定都在这里维护。
 
 mod dial;
+mod file_conn;
 mod handshake;
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc};
 use std::time::Duration;
 
 use baton_core::channel::ChannelId;
 use baton_core::event::{Event, PeerInfo};
+use baton_core::files::SessionId;
 use baton_core::ids::{DeviceId, HandoffId, InputCode, Platform};
 use baton_core::participant::Payload;
 use baton_core::ports::PeerLink;
@@ -28,6 +30,7 @@ use tokio_rustls::TlsAcceptor;
 
 use crate::auth::{self, Fingerprint, Role};
 use crate::discovery::{Discovered, Discovery};
+use crate::file::{FileHandler, FileUpload};
 use crate::frame::{self, Frame};
 use crate::identity::TlsIdentity;
 use crate::mux::SendQueue;
@@ -201,6 +204,7 @@ impl TcpPeerLink {
             rejected: Mutex::new(HashSet::new()),
             auto_paused: Mutex::new(HashSet::new()),
             dialing: Mutex::new(HashSet::new()),
+            files: OnceLock::new(),
             next_generation: AtomicU64::new(0),
             next_transfer: AtomicU64::new(0),
             next_session: AtomicU64::new(1),
@@ -320,6 +324,42 @@ impl TcpPeerLink {
         self.shared.changed();
     }
 
+    /// 文件会话；只能设置一次，之前收到的 `file_*` 消息和文件连接一律丢弃。
+    pub fn set_file_handler(&self, handler: Arc<dyn FileHandler>) {
+        if self.shared.files.set(handler).is_err() {
+            log::warn!("文件会话已设置过");
+        }
+    }
+
+    pub fn is_online(&self, peer: &DeviceId) -> bool {
+        self.shared.is_connected(peer)
+    }
+
+    /// 本机最近一次报告的交棒状态。
+    pub fn local_state(&self) -> AgentState {
+        *lock(&self.shared.state)
+    }
+
+    /// 向在线的 `to` 另拨一条文件连接。会阻塞，不能在异步运行时内调用。
+    pub fn open_upload(
+        &self,
+        to: &DeviceId,
+        session_id: SessionId,
+        token: &str,
+    ) -> Result<FileUpload> {
+        let (addr, fingerprint) = lock(&self.shared.conns)
+            .get(to)
+            .map(|c| (c.file_addr, c.fingerprint))
+            .ok_or_else(|| Error::Net(format!("{} 不在线", to.0)))?;
+        self.handle.block_on(file_conn::dial(
+            Arc::clone(&self.shared),
+            addr,
+            fingerprint,
+            session_id,
+            token,
+        ))
+    }
+
     /// 取消配对：删除档案、断开连接，之后它再连进来也不弹配对请求（本次运行内）。
     pub fn unpair(&self, fingerprint: &Fingerprint) -> Result<()> {
         let removed = self.shared.store.remove(fingerprint)?;
@@ -418,6 +458,7 @@ struct Shared {
     auto_paused: Mutex<HashSet<Fingerprint>>,
     /// 正在拨号（含已经连上、连接仍在进行）的对端。
     dialing: Mutex<HashSet<DeviceId>>,
+    files: OnceLock<Arc<dyn FileHandler>>,
     next_generation: AtomicU64,
     next_transfer: AtomicU64,
     next_session: AtomicU64,
@@ -430,6 +471,8 @@ struct Conn {
     outbox: Arc<Outbox>,
     /// 对端最近一次心跳里的状态。
     state: AgentState,
+    /// 文件连接拨往的地址：本连接的对端 IP + 它声明的监听端口。
+    file_addr: SocketAddr,
 }
 
 /// 进行中的配对会话。`decide` 被丢弃（会话被移除）时等待方视为取消。
@@ -459,6 +502,7 @@ impl Shared {
         dialer: DeviceId,
         fingerprint: Fingerprint,
         outbox: Arc<Outbox>,
+        file_addr: SocketAddr,
     ) -> Option<u64> {
         let mut conns = lock(&self.conns);
         let preferred = self.preferred_dialer(peer);
@@ -477,6 +521,7 @@ impl Shared {
                 fingerprint,
                 outbox,
                 state: AgentState::Idle,
+                file_addr,
             },
         );
         Some(generation)
@@ -613,14 +658,25 @@ async fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
             let _ = tcp.set_nodelay(true);
             let result = async {
                 let local = tcp.local_addr().map_err(io)?;
-                let tls = timeout(HANDSHAKE_TIMEOUT, acceptor.accept(tcp))
+                let mut tls = timeout(HANDSHAKE_TIMEOUT, acceptor.accept(tcp))
                     .await
                     .map_err(|_| Error::Net("TLS 握手超时".into()))?
                     .map_err(io)?;
                 let peer_fp = peer_fingerprint(tls.get_ref().1.peer_certificates())?;
+                let mut buf = Vec::new();
+                let first = timeout(HANDSHAKE_TIMEOUT, peek_frame(&mut tls, &mut buf))
+                    .await
+                    .map_err(|_| Error::Net("握手超时".into()))??;
+                if let Ok(hello @ Message::FileHello { .. }) = first.to_message() {
+                    if let Some((_, used)) = frame::decode(&buf)? {
+                        buf.drain(..used);
+                    }
+                    return file_conn::serve_incoming(shared, tls, buf, peer_fp, hello).await;
+                }
                 serve(
                     shared,
                     tls,
+                    buf,
                     Role::Server,
                     peer_fp,
                     (local, addr),
@@ -637,9 +693,12 @@ async fn accept_loop(shared: Arc<Shared>, listener: TcpListener) {
 }
 
 /// 握手、登记，然后收发直到连接结束。握手失败返回错误；连接建立后的断开返回 `Ok`。
+/// `buf` 为已经读进来、尚未解析的字节。
+#[allow(clippy::too_many_arguments)]
 async fn serve<S>(
     shared: Arc<Shared>,
     stream: S,
+    mut buf: Vec<u8>,
     role: Role,
     peer_fp: Fingerprint,
     addrs: (SocketAddr, SocketAddr),
@@ -649,8 +708,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut buf = Vec::new();
-    let peer = handshake::run(
+    let (peer, listen_port) = handshake::run(
         &shared,
         &mut reader,
         &mut writer,
@@ -667,8 +725,14 @@ where
         Role::Server => peer.device_id.clone(),
     };
     let outbox = Arc::new(Outbox::new());
-    let Some(generation) = shared.register(&peer.device_id, dialer, peer_fp, Arc::clone(&outbox))
-    else {
+    let file_addr = SocketAddr::new(addrs.1.ip(), listen_port);
+    let Some(generation) = shared.register(
+        &peer.device_id,
+        dialer,
+        peer_fp,
+        Arc::clone(&outbox),
+        file_addr,
+    ) else {
         return Ok(());
     };
     let peer_id = peer.device_id.clone();
@@ -684,10 +748,25 @@ where
     let _ = writer_task.await;
     if shared.unregister(&peer_id, generation) {
         log::info!("与 {} 的连接断开", peer_id.0);
+        if let Some(files) = shared.files.get() {
+            files.peer_offline(&peer_id);
+        }
         shared.emit(Event::PeerOffline(peer_id));
         shared.changed();
     }
     Ok(())
+}
+
+/// 读到第一帧，但留在 `buf` 里不消耗。
+async fn peek_frame<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut Vec<u8>) -> Result<Frame> {
+    loop {
+        if let Some((frame, _)) = frame::decode(buf)? {
+            return Ok(frame);
+        }
+        if reader.read_buf(buf).await.map_err(io)? == 0 {
+            return Err(Error::Net("连接已关闭".into()));
+        }
+    }
 }
 
 async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut Vec<u8>) -> Result<Frame> {
@@ -747,6 +826,10 @@ fn dispatch(shared: &Shared, reassembler: &mut Reassembler, peer: &DeviceId, fra
                 | Message::PairAccept,
             ) => {}
             Ok(Message::InputCode { input_code }) => peer_input_code(shared, peer, input_code),
+            Ok(message) if message.is_file() => match shared.files.get() {
+                Some(files) => files.message(peer, message),
+                None => log::debug!("{} 发来文件消息，本机未启用文件快传", peer.0),
+            },
             Ok(message) => shared.emit(Event::Message {
                 from: peer.clone(),
                 message,

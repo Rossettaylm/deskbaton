@@ -1,7 +1,16 @@
 //! 系统通知。失败只记日志，不打断交棒。
 
+use std::path::Path;
+
 pub fn show(message: &str) {
-    if let Err(e) = imp::show(message) {
+    if let Err(e) = imp::show(message, None) {
+        log::info!("系统通知不可用：{e}");
+    }
+}
+
+/// 点击通知时在访达 / 资源管理器中选中 `path`。
+pub fn show_reveal(message: &str, path: &Path) {
+    if let Err(e) = imp::show(message, Some(path)) {
         log::info!("系统通知不可用：{e}");
     }
 }
@@ -9,14 +18,23 @@ pub fn show(message: &str) {
 #[cfg(target_os = "macos")]
 mod imp {
     use std::ffi::CString;
+    use std::path::Path;
 
     use baton_core::{Error, Result};
-    use baton_macos_sys::{self as sys, deskbaton_notify};
+    use baton_macos_sys::{self as sys, deskbaton_notify, deskbaton_notify_reveal};
 
-    pub fn show(message: &str) -> Result<()> {
-        let cstr = CString::new(message).map_err(|_| Error::Config("通知文案含有空字节".into()))?;
-        // SAFETY: `cstr` 在调用期间保持有效，原生侧只读取。
-        let rc = unsafe { deskbaton_notify(cstr.as_ptr()) };
+    pub fn show(message: &str, reveal: Option<&Path>) -> Result<()> {
+        let nul = |_| Error::Config("通知文案含有空字节".into());
+        let cstr = CString::new(message).map_err(nul)?;
+        let rc = match reveal {
+            Some(path) => {
+                let path = CString::new(path.to_string_lossy().into_owned()).map_err(nul)?;
+                // SAFETY: 两个 C 字符串在调用期间保持有效，原生侧只读取。
+                unsafe { deskbaton_notify_reveal(cstr.as_ptr(), path.as_ptr()) }
+            }
+            // SAFETY: `cstr` 在调用期间保持有效，原生侧只读取。
+            None => unsafe { deskbaton_notify(cstr.as_ptr()) },
+        };
         if rc == sys::OK {
             Ok(())
         } else {
@@ -27,7 +45,8 @@ mod imp {
 
 #[cfg(target_os = "windows")]
 mod imp {
-    use std::sync::OnceLock;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock, PoisonError};
 
     use baton_core::{Error, Result};
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -42,10 +61,15 @@ mod imp {
     use windows::core::w;
 
     const CALLBACK: u32 = WM_USER + 1;
+    /// `NIN_BALLOONUSERCLICK`：用户点了气泡通知。
+    const BALLOON_CLICK: u32 = WM_USER + 5;
 
     static WINDOW: OnceLock<isize> = OnceLock::new();
+    /// 最近一条通知要定位的文件；点击时打开资源管理器选中它。
+    static REVEAL: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-    pub fn show(message: &str) -> Result<()> {
+    pub fn show(message: &str, reveal: Option<&Path>) -> Result<()> {
+        *REVEAL.lock().unwrap_or_else(PoisonError::into_inner) = reveal.map(Path::to_path_buf);
         let raw = *WINDOW.get_or_init(message_window);
         if raw == 0 {
             return Err(Error::Config("无法创建通知窗口".into()));
@@ -116,15 +140,23 @@ mod imp {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        if msg == CALLBACK && (lparam.0 as u32 & 0xFFFF) == BALLOON_CLICK {
+            let path = REVEAL.lock().unwrap_or_else(PoisonError::into_inner).take();
+            if let Some(path) = path {
+                crate::files::reveal(&path);
+            }
+        }
         unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
     }
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod imp {
+    use std::path::Path;
+
     use baton_core::{Error, Result};
 
-    pub fn show(_: &str) -> Result<()> {
+    pub fn show(_: &str, _: Option<&Path>) -> Result<()> {
         Err(Error::Unsupported("系统通知"))
     }
 }
