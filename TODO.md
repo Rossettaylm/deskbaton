@@ -104,6 +104,12 @@
 - [ ] 🔧 P275MV + 本机配置（USB-C `0x0F`）下面板显示「USB-C · 本机」；与 Windows 配对后，其输入口标出设备名和 Windows
 - [x] 设备上线、下线或档案变化时刷新输入源按钮上的设备（随零配置「电脑」卡片一起完成：`devices-changed` 后合并刷新）
 - [ ] 读取 capabilities 字符串自动识别输入口
+- 亮度与声音（[设计](docs/superpowers/specs/2026-10-27-display-levels-design.md)，[调研](docs/research/2026-10-27-brightness-volume-landscape.md)），按顺序推进：
+  - [x] `baton-display`：通用 Get / Set VCP 与「不支持」判定；`levels.rs` 路径选择、换算、假后端单测
+  - [x] 软件调光：macOS `native/gamma.m`、Windows `SetDeviceGammaRamp`；`state.toml` 的 `dimmed_displays`，退出与启动时复原
+  - [x] Windows 端点音量：`display.audio_device` 配置、按名称匹配端点、`IAudioEndpointVolume`
+  - [x] 面板：`read_levels` / `set_level` 与写入合并；「显示器」分页「亮度与声音」卡片
+  - [ ] 🔧 设计验收清单第 1–6 项
 - [x] Windows 任务栏浮层 + 共享主题 token（[设计](docs/superpowers/specs/2026-10-18-panel-platform-chrome-design.md)）
   - [ ] 🔧 Windows：面板对准托盘图标、任务栏上方，打开无 480 高闪帧
   - [ ] 🔧 切分页高度不变，内容超出则滚动
@@ -119,6 +125,7 @@
 - [x] macOS 服务菜单：`Info.plist` 的 `NSServices` + `baton-macos-sys/native/send_service.m` 提供者 + FFI 回调
 - [x] 传输状态：失败留到收起，原路径都在可重试；部分送达不自动收起；剪贴板待发条数写在设备行
 - [ ] 🔧 文件快传设计验收清单第 1–6 项
+- [ ] 回环测试 `sends_a_folder_and_files_with_rename_on_conflict` 在 Linux CI 上偶发失败：接收端读到 `Connection reset by peer`，结果成了 `Canceled { by_peer: true }` 而不是 `Done`；查发送端收尾时是否在对端读完前就关了连接
 
 ## P3 · M3 扩展（另立设计文档）
 

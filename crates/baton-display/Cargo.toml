@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 baton-core.workspace = true
+log.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 baton-macos-sys.workspace = true
@@ -16,10 +17,18 @@ baton-macos-sys.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Devices_Display",
+    "Win32_Devices_FunctionDiscovery",
     "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
     "Win32_System_Registry",
+    "Win32_System_Variant",
     "Win32_UI",
+    "Win32_UI_ColorSystem",
     "Win32_UI_HiDpi",
+    "Win32_UI_Shell_PropertiesSystem",
 ] }
 
 [lints]

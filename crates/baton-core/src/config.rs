@@ -107,6 +107,9 @@ pub struct DisplayConfig {
     /// 显示器面板上的输入源按钮。编码因显示器而异，默认值只是 MCCS 常见值。
     #[serde(default = "default_display_inputs")]
     pub inputs: Vec<InputPreset>,
+    /// Windows 上 DDC 调不了音量时，按这个子串找显示器的音频输出设备；不写时用 EDID 型号。
+    #[serde(default)]
+    pub audio_device: Option<String>,
 }
 
 impl Default for DisplayConfig {
@@ -116,6 +119,7 @@ impl Default for DisplayConfig {
             matcher: default_display_match(),
             input_code: None,
             inputs: default_display_inputs(),
+            audio_device: None,
         }
     }
 }
@@ -333,6 +337,15 @@ mod tests {
             .collect();
         assert_eq!(labels, ["DP", "HDMI1", "HDMI2", "USB-C"]);
         assert_eq!(cfg.display.inputs[3].code, InputCode(0x1B));
+    }
+
+    #[test]
+    fn display_audio_device_defaults_to_none_and_can_be_set() {
+        let cfg = Config::from_toml_str("[display]\ninput_code = 0x1B").unwrap();
+        assert_eq!(cfg.display.audio_device, None);
+        let cfg = Config::from_toml_str("[display]\naudio_device = \"HP D27k\"").unwrap();
+        assert_eq!(cfg.display.audio_device.as_deref(), Some("HP D27k"));
+        assert!(Config::from_toml_str("[display]\naudio = \"HP\"").is_err());
     }
 
     #[test]

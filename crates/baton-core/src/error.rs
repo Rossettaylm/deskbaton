@@ -4,6 +4,8 @@ pub enum Error {
     Unsupported(&'static str),
     #[error("DDC 通信失败：{0}")]
     Ddc(String),
+    #[error("显示器调节失败：{0}")]
+    Levels(String),
     #[error("电源控制失败：{0}")]
     Power(String),
     #[error("唤醒失败：{0}")]

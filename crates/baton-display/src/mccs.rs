@@ -4,7 +4,8 @@
 
 use baton_core::{Error, Result};
 
-pub const VCP_INPUT_SOURCE: u8 = 0x60;
+use crate::vcp::VcpValue;
+
 pub const VCP_REPLY_LEN: usize = 11;
 
 const DISPLAY_ADDRESS: u8 = 0x6E;
@@ -18,7 +19,9 @@ const NULL_MESSAGE: u8 = 0xBE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VcpReply {
-    Ready(u16),
+    Ready(VcpValue),
+    /// 回包结果码非 0：显示器不支持这个 VCP。
+    Unsupported,
     NotReady,
 }
 
@@ -40,11 +43,14 @@ pub fn classify_vcp_reply(vcp: u8, reply: &[u8; VCP_REPLY_LEN]) -> Result<VcpRep
     if is_null_message(reply) {
         return Ok(VcpReply::NotReady);
     }
-    Ok(VcpReply::Ready(parse_vcp_reply(vcp, reply)?))
+    Ok(match parse_vcp_reply(vcp, reply)? {
+        Some(value) => VcpReply::Ready(value),
+        None => VcpReply::Unsupported,
+    })
 }
 
-/// 解析 Get VCP Feature 回包：`6E 88 02 结果 VCP 类型 最大值(2) 当前值(2) 校验和`，返回当前值。
-pub fn parse_vcp_reply(vcp: u8, reply: &[u8; VCP_REPLY_LEN]) -> Result<u16> {
+/// 解析 Get VCP Feature 回包：`6E 88 02 结果 VCP 类型 最大值(2) 当前值(2) 校验和`。结果码非 0 时为 `None`。
+fn parse_vcp_reply(vcp: u8, reply: &[u8; VCP_REPLY_LEN]) -> Result<Option<VcpValue>> {
     let bad = |what: &str| {
         Err(Error::Ddc(format!(
             "VCP 0x{vcp:02X} 回包{what}：{reply:02X?}"
@@ -60,9 +66,12 @@ pub fn parse_vcp_reply(vcp: u8, reply: &[u8; VCP_REPLY_LEN]) -> Result<u16> {
         return bad("的 VCP 编码不匹配");
     }
     if reply[3] != 0 {
-        return Err(Error::Ddc(format!("显示器不支持 VCP 0x{vcp:02X}")));
+        return Ok(None);
     }
-    Ok(u16::from_be_bytes([reply[8], reply[9]]))
+    Ok(Some(VcpValue {
+        current: u16::from_be_bytes([reply[8], reply[9]]),
+        max: u16::from_be_bytes([reply[6], reply[7]]),
+    }))
 }
 
 fn with_checksum<const N: usize>(mut packet: [u8; N]) -> [u8; N] {
@@ -77,6 +86,7 @@ fn xor(seed: u8, bytes: &[u8]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vcp::{BRIGHTNESS, INPUT_SOURCE};
 
     fn reply(current: u16) -> [u8; VCP_REPLY_LEN] {
         let [high, low] = current.to_be_bytes();
@@ -87,44 +97,54 @@ mod tests {
 
     #[test]
     fn requests_match_known_bytes() {
-        assert_eq!(get_vcp_request(VCP_INPUT_SOURCE), [0x82, 0x01, 0x60, 0xDC]);
+        assert_eq!(get_vcp_request(INPUT_SOURCE), [0x82, 0x01, 0x60, 0xDC]);
         assert_eq!(
-            set_vcp_request(VCP_INPUT_SOURCE, 0x0F),
+            set_vcp_request(INPUT_SOURCE, 0x0F),
             [0x84, 0x03, 0x60, 0x00, 0x0F, 0xD7]
         );
     }
 
     #[test]
-    fn parses_current_value() {
+    fn parses_current_and_max() {
         assert_eq!(
-            parse_vcp_reply(VCP_INPUT_SOURCE, &reply(0x0F)).unwrap(),
-            0x0F
+            parse_vcp_reply(INPUT_SOURCE, &reply(0x0F)).unwrap(),
+            Some(VcpValue {
+                current: 0x0F,
+                max: 0x1B
+            })
         );
     }
 
     #[test]
     fn rejects_empty_or_null_reply() {
         let empty = [0u8; VCP_REPLY_LEN];
-        assert!(parse_vcp_reply(VCP_INPUT_SOURCE, &empty).is_err());
+        assert!(parse_vcp_reply(INPUT_SOURCE, &empty).is_err());
         let mut null = [0u8; VCP_REPLY_LEN];
         null[..3].copy_from_slice(&[0x6E, 0x80, 0xBE]);
-        assert!(parse_vcp_reply(VCP_INPUT_SOURCE, &null).is_err());
+        assert!(parse_vcp_reply(INPUT_SOURCE, &null).is_err());
     }
 
     #[test]
     fn rejects_bad_checksum() {
         let mut r = reply(0x0F);
         r[10] ^= 0xFF;
-        assert!(parse_vcp_reply(VCP_INPUT_SOURCE, &r).is_err());
+        assert!(parse_vcp_reply(INPUT_SOURCE, &r).is_err());
     }
 
     #[test]
-    fn rejects_other_vcp_or_unsupported() {
-        assert!(parse_vcp_reply(0x10, &reply(0x0F)).is_err());
+    fn rejects_other_vcp() {
+        assert!(parse_vcp_reply(BRIGHTNESS, &reply(0x0F)).is_err());
+    }
+
+    #[test]
+    fn classifies_nonzero_result_code_as_unsupported() {
         let mut r = reply(0x0F);
         r[3] = 0x01;
         r[10] = xor(0x50, &r[..10]);
-        assert!(parse_vcp_reply(VCP_INPUT_SOURCE, &r).is_err());
+        assert_eq!(
+            classify_vcp_reply(INPUT_SOURCE, &r).unwrap(),
+            VcpReply::Unsupported
+        );
     }
 
     #[test]
@@ -133,7 +153,7 @@ mod tests {
             0x6E, 0x80, 0xBE, 0x0D, 0xD1, 0x08, 0x06, 0xB2, 0x67, 0xBE, 0xA2,
         ];
         assert_eq!(
-            classify_vcp_reply(VCP_INPUT_SOURCE, &p275mv_null).unwrap(),
+            classify_vcp_reply(INPUT_SOURCE, &p275mv_null).unwrap(),
             VcpReply::NotReady
         );
     }
@@ -141,8 +161,11 @@ mod tests {
     #[test]
     fn classifies_valid_reply_as_ready() {
         assert_eq!(
-            classify_vcp_reply(VCP_INPUT_SOURCE, &reply(0x0F)).unwrap(),
-            VcpReply::Ready(0x0F)
+            classify_vcp_reply(INPUT_SOURCE, &reply(0x0F)).unwrap(),
+            VcpReply::Ready(VcpValue {
+                current: 0x0F,
+                max: 0x1B
+            })
         );
     }
 
@@ -151,6 +174,6 @@ mod tests {
         let garbage = [
             0xA8, 0xFC, 0x9B, 0x0D, 0xD1, 0x08, 0x06, 0xB2, 0x67, 0xBE, 0xA2,
         ];
-        assert!(classify_vcp_reply(VCP_INPUT_SOURCE, &garbage).is_err());
+        assert!(classify_vcp_reply(INPUT_SOURCE, &garbage).is_err());
     }
 }

@@ -18,7 +18,7 @@ use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tauri::image::Image;
@@ -160,6 +160,8 @@ fn main() -> ExitCode {
         .invoke_handler(tauri::generate_handler![
             commands::list_displays,
             commands::switch_input,
+            commands::read_levels,
+            commands::set_level,
             commands::fit_panel,
             commands::host_platform,
             commands::quit,
@@ -246,10 +248,13 @@ fn main() -> ExitCode {
     match app {
         Ok(app) => {
             app.run(|app, event| {
-                if let RunEvent::Exit = event
-                    && let Some(slot) = app.try_state::<AgentSlot>()
-                {
-                    slot.shutdown();
+                if let RunEvent::Exit = event {
+                    if let Some(panel) = app.try_state::<Arc<commands::Panel>>() {
+                        panel.restore_levels();
+                    }
+                    if let Some(slot) = app.try_state::<AgentSlot>() {
+                        slot.shutdown();
+                    }
                 }
             });
             ExitCode::SUCCESS

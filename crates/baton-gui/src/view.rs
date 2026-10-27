@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use baton_core::config::InputPreset;
 use baton_core::ids::{InputCode, Platform};
 use baton_core::ports::DisplayInfo;
-use baton_display::ScreenMode;
+use baton_display::{LevelsView, ScreenMode, Slider, Source};
 use serde::Serialize;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -305,6 +305,37 @@ fn screen_view(mode: ScreenMode) -> ScreenView {
         refresh_hz: mode.refresh_hz.map(|hz| hz.round() as u32),
         hidpi: mode.is_hidpi(),
         scale_percent: mode.scale_percent,
+    }
+}
+
+/// 「亮度与声音」卡片；`None` 的项由前端显示为不支持或隐藏。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LevelsCard {
+    pub brightness: Option<SliderView>,
+    pub volume: Option<SliderView>,
+    pub muted: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SliderView {
+    pub percent: u8,
+    /// 行尾的来源标注。
+    pub source: &'static str,
+}
+
+pub fn levels_card(view: LevelsView) -> LevelsCard {
+    let slider = |s: Slider| SliderView {
+        percent: s.percent,
+        source: match s.source {
+            Source::Ddc => "DDC",
+            Source::Gamma => "软件调光",
+            Source::System => "系统音量",
+        },
+    };
+    LevelsCard {
+        brightness: view.brightness.map(slider),
+        volume: view.volume.map(slider),
+        muted: view.muted,
     }
 }
 
@@ -661,5 +692,39 @@ mod tests {
         };
         cached_mode(&mut cache, "A", Some(first));
         assert_eq!(cached_mode(&mut cache, "A", Some(next)), Some(next));
+    }
+
+    #[test]
+    fn levels_card_labels_sources() {
+        let card = levels_card(LevelsView {
+            brightness: Some(Slider {
+                percent: 40,
+                source: Source::Gamma,
+            }),
+            volume: Some(Slider {
+                percent: 30,
+                source: Source::System,
+            }),
+            muted: Some(true),
+        });
+        assert_eq!(
+            card.brightness,
+            Some(SliderView {
+                percent: 40,
+                source: "软件调光"
+            })
+        );
+        assert_eq!(card.volume.map(|v| v.source), Some("系统音量"));
+        assert_eq!(card.muted, Some(true));
+        let ddc = levels_card(LevelsView {
+            brightness: Some(Slider {
+                percent: 62,
+                source: Source::Ddc,
+            }),
+            ..LevelsView::default()
+        });
+        assert_eq!(ddc.brightness.map(|b| b.source), Some("DDC"));
+        assert_eq!(ddc.volume, None);
+        assert_eq!(ddc.muted, None);
     }
 }

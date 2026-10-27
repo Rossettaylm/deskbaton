@@ -6,6 +6,7 @@ fn main() {
     cc::Build::new()
         .file("native/app.m")
         .file("native/ddc.m")
+        .file("native/gamma.m")
         .file("native/power.m")
         .file("native/screen.m")
         .file("native/notify.m")
