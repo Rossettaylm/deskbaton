@@ -1,6 +1,8 @@
 //! 面板开机自启：macOS LaunchAgent，Windows 当前用户 Run 键。
 
-use std::path::{Path, PathBuf};
+#[cfg(any(target_os = "macos", test))]
+use std::path::Path;
+use std::path::PathBuf;
 
 use baton_core::{Error, Result};
 
@@ -18,6 +20,7 @@ pub fn exe_is_bundled(exe: &Path) -> bool {
     is_mac_app_bundle(exe)
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn is_mac_app_bundle(exe: &Path) -> bool {
     exe.ancestors().any(|p| {
         p.extension()

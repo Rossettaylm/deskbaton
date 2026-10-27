@@ -8,13 +8,14 @@ use std::time::Duration;
 use baton_core::config::{Config, DisplayConfig, default_config_path};
 use baton_core::ids::{DisplayId, InputCode};
 use baton_core::ports::{DisplayControl, DisplayInfo};
+use baton_core::state_file::LocalState;
 use baton_core::{Error, Result};
-use baton_display::ScreenMode;
-use serde::Serialize;
+use baton_display::{Control, Levels, ScreenMode};
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State};
 
 use crate::agent::AgentSlot;
-use crate::view::{self, DisplayView, Machines, PeerMachine};
+use crate::view::{self, DisplayView, LevelsCard, Machines, PeerMachine};
 use crate::{PANEL, PANEL_WIDTH, PendingOpen, place_panel};
 
 /// 接棒后 CoreGraphics 往往晚于 IOKit，过一会儿再读一次屏幕模式。
@@ -23,6 +24,10 @@ const SCREEN_RETRY_AFTER: Duration = Duration::from_millis(800);
 pub struct Panel {
     /// 同一时间只允许一个 I2C 事务。
     ddc: Mutex<Box<dyn DisplayControl>>,
+    /// 总在 `ddc` 之后加锁。
+    levels: Mutex<Levels>,
+    /// 拖动滑条时排队的最新值；拿到 `ddc` 锁后才取出，被后来的值覆盖的不再下发。
+    pending: Mutex<HashMap<(String, LevelControl), u8>>,
     display: DisplayConfig,
     config_error: Option<String>,
     screens: Mutex<HashMap<String, ScreenMode>>,
@@ -38,8 +43,11 @@ impl Panel {
                 (DisplayConfig::default(), Some(e.to_string()))
             }
         };
+        restore_leftover_dimming();
         Arc::new(Self {
             ddc: Mutex::new(baton_display::platform_display()),
+            levels: Mutex::new(Levels::new(display.audio_device.clone())),
+            pending: Mutex::new(HashMap::new()),
             display,
             config_error,
             screens: Mutex::new(HashMap::new()),
@@ -101,6 +109,93 @@ impl Panel {
             },
         })
     }
+
+    fn read_levels(&self, id: &str, fresh: bool) -> Result<LevelsCard> {
+        let ddc = self.ddc.lock().unwrap_or_else(PoisonError::into_inner);
+        let info = find_display(&**ddc, id)?;
+        let mut levels = self.levels.lock().unwrap_or_else(PoisonError::into_inner);
+        if fresh {
+            levels.forget();
+        }
+        tracking_dimmed(&mut levels, |l| l.read(&info)).map(view::levels_card)
+    }
+
+    /// 返回 `false`：排队期间被更新的值覆盖，这次没有下发。
+    fn set_level(&self, id: String, control: LevelControl, value: u8) -> Result<bool> {
+        let key = (id, control);
+        self.pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(key.clone(), value);
+        let ddc = self.ddc.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(value) = self
+            .pending
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&key)
+        else {
+            return Ok(false);
+        };
+        let info = find_display(&**ddc, &key.0)?;
+        let mut levels = self.levels.lock().unwrap_or_else(PoisonError::into_inner);
+        tracking_dimmed(&mut levels, |l| l.set(&info, control.into(), value))?;
+        Ok(true)
+    }
+
+    /// 面板退出时复原本进程的软件调光。
+    pub fn restore_levels(&self) {
+        let mut levels = self.levels.lock().unwrap_or_else(PoisonError::into_inner);
+        if levels.dimmed().is_empty() {
+            return;
+        }
+        levels.restore_all();
+        save_dimmed(&[]);
+    }
+}
+
+fn find_display(ddc: &dyn DisplayControl, id: &str) -> Result<DisplayInfo> {
+    ddc.list()?
+        .into_iter()
+        .find(|d| d.id.0 == id)
+        .ok_or_else(|| Error::Levels("找不到这台显示器，可能已断开".into()))
+}
+
+/// 调暗的显示器有变化时写进 `state.toml`，异常退出后下次启动据此复原。
+fn tracking_dimmed<T>(levels: &mut Levels, op: impl FnOnce(&mut Levels) -> Result<T>) -> Result<T> {
+    let before = levels.dimmed();
+    let result = op(levels);
+    let after = levels.dimmed();
+    if after != before {
+        save_dimmed(&after);
+    }
+    result
+}
+
+fn save_dimmed(ids: &[DisplayId]) {
+    let ids: Vec<String> = ids.iter().map(|d| d.0.clone()).collect();
+    let result = crate::prefs::state_path()
+        .and_then(|path| LocalState::update(&path, |s| s.dimmed_displays = ids));
+    if let Err(e) = result {
+        log::warn!("未能记下软件调光状态：{e}");
+    }
+}
+
+/// 上次异常退出时没复原的软件调光。
+fn restore_leftover_dimming() {
+    let leftover = match crate::prefs::state_path().and_then(|path| LocalState::take_dimmed(&path))
+    {
+        Ok(ids) => ids,
+        Err(e) => {
+            log::warn!("读不到软件调光状态：{e}");
+            return;
+        }
+    };
+    if leftover.is_empty() {
+        return;
+    }
+    let ids: Vec<DisplayId> = leftover.into_iter().map(DisplayId).collect();
+    baton_display::restore_dimmed(&ids);
+    log::info!("已复原上次退出时留下的软件调光");
 }
 
 /// 文件不存在时用默认配置；存在但解析失败时报错，由调用方退回默认配置。
@@ -122,6 +217,24 @@ fn load_display_config() -> Result<DisplayConfig> {
 pub struct Snapshot {
     displays: Vec<DisplayView>,
     config_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LevelControl {
+    Brightness,
+    Volume,
+    Mute,
+}
+
+impl From<LevelControl> for Control {
+    fn from(control: LevelControl) -> Self {
+        match control {
+            LevelControl::Brightness => Control::Brightness,
+            LevelControl::Volume => Control::Volume,
+            LevelControl::Mute => Control::Mute,
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -205,6 +318,29 @@ pub async fn switch_input(
 ) -> std::result::Result<SwitchOutcome, String> {
     let panel = Arc::clone(&panel);
     blocking(move || panel.switch(&DisplayId(id), InputCode(code))).await
+}
+
+/// `fresh`：先丢掉路径判定，重新探测（「⋯ → 刷新」）。
+#[tauri::command]
+pub async fn read_levels(
+    panel: State<'_, Arc<Panel>>,
+    id: String,
+    fresh: bool,
+) -> std::result::Result<LevelsCard, String> {
+    let panel = Arc::clone(&panel);
+    blocking(move || panel.read_levels(&id, fresh)).await
+}
+
+/// 亮度、音量为 0–100，静音为 0 / 1。返回这次是否真的下发。
+#[tauri::command]
+pub async fn set_level(
+    panel: State<'_, Arc<Panel>>,
+    id: String,
+    control: LevelControl,
+    value: u8,
+) -> std::result::Result<bool, String> {
+    let panel = Arc::clone(&panel);
+    blocking(move || panel.set_level(id, control, value)).await
 }
 
 /// 前端渲染完成后按内容高度调整窗口，并重新贴到托盘图标旁。

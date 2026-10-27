@@ -31,6 +31,9 @@
  *             received?: number, failed?: number, reason?: string, by_peer?: boolean,
  *             summary: OfferSummary, done_bytes: number, location: string | null, seen: boolean,
  *             can_retry: boolean, reveal: string | null }} FileSession
+ * @typedef {{ percent: number, source: string }} SliderView
+ * @typedef {{ brightness: SliderView | null, volume: SliderView | null, muted: boolean | null }} LevelsCard
+ * @typedef {"brightness" | "volume"} SliderControl
  * @typedef {{ name: string, platform: Platform | null, online: boolean }} SendTarget
  * @typedef {{ count: number, names: string[], targets: SendTarget[] }} PendingSend
  */
@@ -41,6 +44,7 @@ const invoke = tauri.core.invoke;
 
 const SELECTED_KEY = "deskbaton.display";
 const NOTICE_TTL_MS = 3000;
+const LEVEL_SEND_MS = 100;
 
 /** @typedef {"handoff" | "devices" | "local"} TabId */
 
@@ -109,6 +113,17 @@ const state = {
   clipboardPending: [],
   /** @type {PendingSend | null} 从系统菜单发起、等用户选目标的发送 */
   pick: null,
+  levels: {
+    /** @type {string | null} `card` 对应的显示器 */
+    id: null,
+    /** @type {LevelsCard | null} 最近一次读到或写成功的值 */
+    card: null,
+    /** @type {string | null} 读取失败的原因 */
+    error: null,
+    /** @type {SliderControl | null} 拖动中不重建滑条，也不用读到的值覆盖 */
+    dragging: null,
+    seq: 0,
+  },
 };
 
 /** @param {string} id */
@@ -146,7 +161,8 @@ function remoteHolder(d) {
   return d.computers?.find((c) => c.active && !c.local) ?? null;
 }
 
-async function refresh() {
+/** @param {boolean} [fresh] 重新判定亮度、音量走哪条路径 */
+async function refresh(fresh = false) {
   state.loading = true;
   render();
   try {
@@ -167,6 +183,48 @@ async function refresh() {
   } finally {
     state.loading = false;
     render();
+  }
+  loadLevels(fresh);
+}
+
+/** @param {boolean} [fresh] */
+async function loadLevels(fresh = false) {
+  const lv = state.levels;
+  const d = selected();
+  if (lv.dragging) return;
+  if (lv.id !== (d?.id ?? null)) {
+    lv.id = d?.id ?? null;
+    lv.card = null;
+    lv.error = null;
+  }
+  const seq = ++lv.seq;
+  if (!d || d.current_input == null) return;
+  try {
+    /** @type {LevelsCard} */
+    const card = await invoke("read_levels", { id: d.id, fresh });
+    if (seq !== lv.seq || lv.dragging) return;
+    lv.card = card;
+    lv.error = null;
+  } catch (e) {
+    if (seq !== lv.seq) return;
+    lv.card = null;
+    lv.error = String(e);
+  }
+  render();
+}
+
+/**
+ * @param {string} id
+ * @param {SliderControl | "mute"} control
+ * @param {number} value
+ * @returns {Promise<boolean>} 是否真的写到了显示器；被后来的值覆盖时为 false
+ */
+async function setLevel(id, control, value) {
+  try {
+    return await invoke("set_level", { id, control, value });
+  } catch (e) {
+    state.notice = { tone: "err", text: String(e) };
+    throw e;
   }
 }
 
@@ -265,6 +323,7 @@ function render() {
   renderHead(d);
   renderScreen(d);
   renderPorts(d);
+  renderLevels(d);
   renderTransfers();
   renderDevices();
   renderFoot(d);
@@ -1195,6 +1254,111 @@ function renderPorts(d) {
   }
 }
 
+/** @param {DisplayView | null} d */
+function renderLevels(d) {
+  const card = $("levels");
+  card.hidden = !d;
+  const lv = state.levels;
+  if (!d || lv.dragging) return;
+  const away = d.current_input == null;
+  card.classList.toggle("off", away);
+  const rows = $("level-rows");
+  const ready = lv.id === d.id ? lv.card : null;
+  if (away) {
+    rows.replaceChildren(h("div", { class: "empty" }, "画面不在本机，无法调节"));
+  } else if (lv.id === d.id && lv.error) {
+    rows.replaceChildren(h("div", { class: "empty err" }, lv.error));
+  } else if (!ready) {
+    rows.replaceChildren(h("div", { class: "empty" }, "正在读取…"));
+  } else {
+    rows.replaceChildren(
+      levelRow(d.id, ready, "brightness", "亮度", "这台显示器不支持调亮度"),
+      levelRow(d.id, ready, "volume", "音量", "这台显示器不支持调音量"),
+    );
+  }
+}
+
+/**
+ * @param {string} id
+ * @param {LevelsCard} card
+ * @param {SliderControl} control
+ * @param {string} label
+ * @param {string} unsupported
+ */
+function levelRow(id, card, control, label, unsupported) {
+  const slider = card[control];
+  const mute = control === "volume" && card.muted != null ? muteButton(id, card) : null;
+  if (!slider) {
+    return h("div", { class: "level" }, h("span", { class: "name" }, label), h("span", { class: "none" }, unsupported), mute);
+  }
+  const value = h("span", { class: "value" }, String(slider.percent));
+  const input = /** @type {HTMLInputElement} */ (
+    h("input", { type: "range", min: 0, max: 100, step: 1, value: slider.percent, "aria-label": label })
+  );
+  const paint = () => {
+    input.style.setProperty("--fill", `${input.value}%`);
+    value.textContent = input.value;
+  };
+  paint();
+  let sentAt = 0;
+  let timer = 0;
+  const send = () => {
+    clearTimeout(timer);
+    timer = 0;
+    sentAt = Date.now();
+    const percent = Number(input.value);
+    setLevel(id, control, percent)
+      .then((applied) => {
+        if (applied && state.levels.card === card) slider.percent = percent;
+      })
+      .catch(() => {
+        if (!state.levels.dragging) render();
+      });
+  };
+  input.addEventListener("input", () => {
+    state.levels.dragging = control;
+    paint();
+    const wait = LEVEL_SEND_MS - (Date.now() - sentAt);
+    if (wait <= 0) send();
+    else if (!timer) timer = setTimeout(send, wait);
+  });
+  input.addEventListener("change", () => {
+    state.levels.dragging = null;
+    send();
+  });
+  return h(
+    "div",
+    { class: "level" },
+    h("span", { class: "name" }, label),
+    input,
+    value,
+    h("span", { class: "src" }, slider.source),
+    mute,
+  );
+}
+
+/** @param {string} id @param {LevelsCard} card */
+function muteButton(id, card) {
+  const muted = !!card.muted;
+  return h(
+    "button",
+    {
+      type: "button",
+      class: muted ? "btn mute" : "btn ghost mute",
+      "aria-pressed": String(muted),
+      onclick: async () => {
+        try {
+          if (await setLevel(id, "mute", muted ? 0 : 1)) card.muted = !muted;
+        } catch {
+          /* 原因已写进状态行 */
+        }
+        render();
+      },
+    },
+    "静音",
+  );
+}
+
 /** @param {HTMLElement} box @param {ComputerView[]} computers */
 function renderComputers(box, computers) {
   for (const c of computers) {
@@ -1272,6 +1436,7 @@ function renderMenu() {
               state.notice = null;
               closeMenu();
               render();
+              loadLevels();
             },
           },
           h("span", { class: "check" }, d.id === state.selectedId ? "●" : ""),
@@ -1288,7 +1453,7 @@ function renderMenu() {
     );
   }
   items.push(
-    h("button", { role: "menuitem", onclick: () => (closeMenu(), refresh()) }, h("span", { class: "check" }), "刷新"),
+    h("button", { role: "menuitem", onclick: () => (closeMenu(), refresh(true)) }, h("span", { class: "check" }), "刷新"),
     h("button", { role: "menuitem", onclick: () => invoke("quit") }, h("span", { class: "check" }), "退出"),
   );
   menu.replaceChildren(...items);

@@ -40,6 +40,15 @@ typedef struct {
 /* display_index 同 deskbaton_ddc_list；显示器不在 CoreGraphics 的在线列表中时返回 NOT_FOUND。 */
 int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out);
 
+/* 软件调光。gamma 表三个通道等长，取值 0–1；display_index 同 deskbaton_ddc_list。
+ * get 最多写入 capacity 项，返回实际项数。 */
+int32_t deskbaton_gamma_get(uint32_t display_index, float *red, float *green, float *blue,
+                            uint32_t capacity);
+int32_t deskbaton_gamma_set(uint32_t display_index, const float *red, const float *green,
+                            const float *blue, uint32_t count);
+/* 把所有显示器的 gamma 恢复为用户 ColorSync 描述文件中的值。 */
+void deskbaton_gamma_restore_all(void);
+
 /* 电源：begin 持有防空闲睡眠与防显示器睡眠断言，end 释放；两者都可重复调用。合盖睡眠由 Rust 侧经 pmset 控制。 */
 int32_t deskbaton_stay_awake_begin(void);
 int32_t deskbaton_stay_awake_end(void);

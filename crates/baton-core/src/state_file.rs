@@ -42,6 +42,9 @@ pub struct LocalState {
     /// 接收位置；空表示系统「下载」文件夹。
     #[serde(default)]
     pub file_receive_dir: Option<String>,
+    /// 正被面板软件调暗的显示器；异常退出后下次启动据此复原。
+    #[serde(default)]
+    pub dimmed_displays: Vec<String>,
 }
 
 impl Default for LocalState {
@@ -57,6 +60,7 @@ impl Default for LocalState {
             autostart_seeded: false,
             file_auto_accept: default_file_auto_accept(),
             file_receive_dir: None,
+            dimmed_displays: Vec::new(),
         }
     }
 }
@@ -107,6 +111,16 @@ impl LocalState {
         f(&mut state);
         state.save(path)?;
         Ok(state)
+    }
+
+    /// 取出并清空上次留下的软件调光记录；没有记录时不写文件。
+    pub fn take_dimmed(path: &Path) -> Result<Vec<String>> {
+        if Self::load(path)?.dimmed_displays.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut taken = Vec::new();
+        Self::update(path, |s| taken = std::mem::take(&mut s.dimmed_displays))?;
+        Ok(taken)
     }
 
     /// 文件不存在时为空状态。
@@ -186,6 +200,32 @@ mod tests {
         assert!(!state.autostart_seeded);
         assert!(state.file_auto_accept);
         assert_eq!(state.file_receive_dir, None);
+        assert!(state.dimmed_displays.is_empty());
+    }
+
+    #[test]
+    fn dimmed_displays_roundtrip() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.toml");
+        LocalState::update(&path, |s| {
+            s.dimmed_displays = vec!["A".into(), "B#2".into()]
+        })
+        .unwrap();
+        assert_eq!(
+            LocalState::load(&path).unwrap().dimmed_displays,
+            ["A", "B#2"]
+        );
+        assert_eq!(LocalState::take_dimmed(&path).unwrap(), ["A", "B#2"]);
+        assert!(LocalState::load(&path).unwrap().dimmed_displays.is_empty());
+        assert!(LocalState::take_dimmed(&path).unwrap().is_empty());
+    }
+
+    #[test]
+    fn take_dimmed_without_record_leaves_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.toml");
+        assert!(LocalState::take_dimmed(&path).unwrap().is_empty());
+        assert!(!path.exists());
     }
 
     #[test]
@@ -253,6 +293,7 @@ mod tests {
             autostart_seeded: true,
             file_auto_accept: false,
             file_receive_dir: Some("/tmp/inbox".into()),
+            dimmed_displays: vec!["A".into()],
         }
         .save(&path)
         .unwrap();
@@ -270,5 +311,6 @@ mod tests {
         assert!(loaded.autostart_seeded);
         assert!(!loaded.file_auto_accept);
         assert_eq!(loaded.file_receive_dir.as_deref(), Some("/tmp/inbox"));
+        assert_eq!(loaded.dimmed_displays, ["A"]);
     }
 }

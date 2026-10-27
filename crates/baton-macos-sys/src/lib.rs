@@ -61,6 +61,21 @@ unsafe extern "C" {
         out_len: u32,
     ) -> i32;
     pub fn deskbaton_screen_mode(display_index: u32, out: *mut RawScreenMode) -> i32;
+    pub fn deskbaton_gamma_get(
+        display_index: u32,
+        red: *mut f32,
+        green: *mut f32,
+        blue: *mut f32,
+        capacity: u32,
+    ) -> i32;
+    pub fn deskbaton_gamma_set(
+        display_index: u32,
+        red: *const f32,
+        green: *const f32,
+        blue: *const f32,
+        count: u32,
+    ) -> i32;
+    pub fn deskbaton_gamma_restore_all();
 
     pub fn deskbaton_stay_awake_begin() -> i32;
     pub fn deskbaton_stay_awake_end() -> i32;

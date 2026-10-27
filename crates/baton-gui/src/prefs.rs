@@ -26,7 +26,7 @@ pub struct PrefsView {
     pub files: crate::files::ReceivePrefs,
 }
 
-fn state_path() -> Result<PathBuf> {
+pub(crate) fn state_path() -> Result<PathBuf> {
     Ok(data_dir_of(&default_config_path()?).join("state.toml"))
 }
 

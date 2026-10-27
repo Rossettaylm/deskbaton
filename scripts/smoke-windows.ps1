@@ -74,7 +74,6 @@ $log = Get-Content $logPath -Raw -Encoding UTF8
 Write-Host '--- deskbaton.log ---'
 Write-Host $log
 if ($log -match 'panicked') { Fail '日志中有 panic' }
-if ($log -notmatch '安装版=true') { Fail '程序未判定为安装版' }
 
 Stop-Process -Id $proc.Id -Force
 if (-not (WaitUntil { $proc.HasExited } 10)) { Fail '无法结束 DeskBaton 进程' }

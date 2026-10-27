@@ -390,6 +390,7 @@ version = "0.1.1"
 dependencies = [
  "baton-core",
  "baton-macos-sys",
+ "log",
  "windows 0.62.2",
 ]
 

@@ -26,7 +26,7 @@ static BOOL same_key(edid_key a, edid_key b) {
 
 /* CoreGraphics 与 framebuffer 没有共同 ID，只能按 EDID 的厂商号、产品号、序列号配对；
  * 三者都相同的显示器按出现顺序一一对应。 */
-int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out) {
+int32_t deskbaton_cg_display(uint32_t display_index, CGDirectDisplayID *out) {
     @autoreleasepool {
         __block edid_key target = {0};
         __block uint32_t rank = 0;
@@ -75,18 +75,28 @@ int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info
                 rank--;
                 continue;
             }
-            CGDisplayModeRef mode = CGDisplayCopyDisplayMode(id);
-            if (mode == NULL) {
-                return DESKBATON_ERR_NOT_FOUND;
-            }
-            out->width = (uint32_t)CGDisplayModeGetWidth(mode);
-            out->height = (uint32_t)CGDisplayModeGetHeight(mode);
-            out->pixel_width = (uint32_t)CGDisplayModeGetPixelWidth(mode);
-            out->pixel_height = (uint32_t)CGDisplayModeGetPixelHeight(mode);
-            out->refresh_hz = CGDisplayModeGetRefreshRate(mode);
-            CGDisplayModeRelease(mode);
+            *out = id;
             return DESKBATON_OK;
         }
         return DESKBATON_ERR_NOT_FOUND;
     }
+}
+
+int32_t deskbaton_screen_mode(uint32_t display_index, deskbaton_screen_mode_info *out) {
+    CGDirectDisplayID id;
+    int32_t rc = deskbaton_cg_display(display_index, &id);
+    if (rc != DESKBATON_OK) {
+        return rc;
+    }
+    CGDisplayModeRef mode = CGDisplayCopyDisplayMode(id);
+    if (mode == NULL) {
+        return DESKBATON_ERR_NOT_FOUND;
+    }
+    out->width = (uint32_t)CGDisplayModeGetWidth(mode);
+    out->height = (uint32_t)CGDisplayModeGetHeight(mode);
+    out->pixel_width = (uint32_t)CGDisplayModeGetPixelWidth(mode);
+    out->pixel_height = (uint32_t)CGDisplayModeGetPixelHeight(mode);
+    out->refresh_hz = CGDisplayModeGetRefreshRate(mode);
+    CGDisplayModeRelease(mode);
+    return DESKBATON_OK;
 }

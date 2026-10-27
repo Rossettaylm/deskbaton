@@ -11,6 +11,10 @@ hotkey = "Ctrl+Alt+Space"
 # 可选：本机在显示器上对应的输入源编码。不写时，本机有键鼠操作时自动识别并记在 state.toml。
 # input_code = 0x1B
 
+# 可选：Windows 上显示器不支持 DDC 调音量时，面板改调系统里名称包含这个子串的音频输出设备。
+# 不写时用显示器型号匹配；匹配不到或不唯一时显示「不支持调音量」。
+# audio_device = "HP D27k"
+
 # 显示器面板（deskbaton-gui）上的输入源按钮，不写时默认 DP 0x0F / HDMI1 0x11 / HDMI2 0x12 / USB-C 0x1B。
 # 编码因显示器而异，例如泰坦军团 P275MV 把 USB-C 报成 0x0F，要写成：
 # [[display.inputs]]
